@@ -75,3 +75,14 @@ test("production inspection rejects unstamped PWA workers", async () => {
     token: "test",
   }), /not stamped/);
 });
+
+test("production inspection requires HTTP 200 for every verified static and PWA resource", async () => {
+  const responses = productionResponses();
+  responses.set("/icon-192.png", new Response(null, { status: 204 }));
+  await assert.rejects(() => inspectProduction({
+    baseUrl: OFFICIAL_SITE,
+    expectedCommit,
+    fetchImpl: fetchFrom(responses),
+    token: "test",
+  }), /icon-192\.png returned HTTP 204; expected 200/);
+});

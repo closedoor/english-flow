@@ -24,7 +24,7 @@ async function fetchOk(fetchImpl, url, token) {
     headers: { "cache-control": "no-cache" },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`${new URL(url).pathname} returned HTTP ${response.status}`);
+  if (response.status !== 200) throw new Error(`${new URL(url).pathname} returned HTTP ${response.status}; expected 200`);
   return response;
 }
 
