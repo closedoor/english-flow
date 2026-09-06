@@ -1,0 +1,74 @@
+name: Verify Render deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/discover-render-url.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Verify the live English Flow site
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          url="https://english-flow-mwnn.onrender.com"
+          echo "VERIFYING_URL=$url"
+
+          verified=0
+          for attempt in $(seq 1 40); do
+            echo "Attempt ${attempt}/40"
+            rm -f headers.txt body.html manifest.json data.json
+
+            code="$(curl --connect-timeout 15 --max-time 60 -sS -L \
+              -D headers.txt -o body.html -w '%{http_code}' "$url/" || true)"
+            echo "HTTP_CODE=$code"
+
+            if [[ "$code" == "200" ]] && grep -qi '<title>词流英语</title>' body.html; then
+              manifest_code="$(curl --connect-timeout 15 --max-time 60 -sS -L \
+                -o manifest.json -w '%{http_code}' "$url/manifest.webmanifest" || true)"
+              data_code="$(curl --connect-timeout 15 --max-time 60 -sS -L \
+                -o data.json -w '%{http_code}' "$url/data/tatoeba-sentences-meta.json" || true)"
+
+              echo "MANIFEST_HTTP_CODE=$manifest_code"
+              echo "DATA_HTTP_CODE=$data_code"
+
+              if [[ "$manifest_code" == "200" && "$data_code" == "200" ]]; then
+                python3 - <<'PY'
+          import json
+          import pathlib
+          import re
+
+          html = pathlib.Path('body.html').read_text('utf-8', errors='ignore')
+          manifest = json.loads(pathlib.Path('manifest.json').read_text('utf-8'))
+          data = json.loads(pathlib.Path('data.json').read_text('utf-8'))
+          title = re.search(r'<title[^>]*>(.*?)</title>', html, re.I | re.S)
+          print(f"PAGE_TITLE={title.group(1).strip() if title else '(missing)'}")
+          print(f"MANIFEST_NAME={manifest.get('name')}")
+          print(f"DATA_TOTAL={data.get('total')}")
+          print(f"VERIFIED_RENDER_URL=https://english-flow-mwnn.onrender.com")
+          PY
+                verified=1
+                break
+              fi
+            fi
+
+            sleep 15
+          done
+
+          if [[ "$verified" -ne 1 ]]; then
+            echo "The Render URL did not return the expected English Flow site in time."
+            echo "--- Last headers ---"
+            cat headers.txt 2>/dev/null || true
+            echo "--- Last body preview ---"
+            head -c 1000 body.html 2>/dev/null || true
+            exit 1
+          fi
