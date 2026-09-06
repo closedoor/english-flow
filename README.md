@@ -2,6 +2,10 @@
 
 一个面向日常练习的英语学习网站，包含 NGSL 高频词、3,000 组长短句、核心句型和分级阅读。
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fclosedoor%2Fenglish-flow)
+
+点击上方按钮，登录 Render 后检查将创建的 `english-flow` Static Site，并批准部署。仓库根目录的 `render.yaml` 已包含分支、构建命令、发布目录、Node 版本、自动部署和缓存响应头配置。
+
 - 单词听读、记忆与难词复习。
 - 句子与句型练习、阅读理解和错题回顾。
 - 学习进度在当前浏览器保存，支持导出备份和恢复。
@@ -28,4 +32,4 @@ npm run lint
 
 ## 数据与备份
 
-学习进度保存在当前浏览器，不会上传到 GitHub 或服务器。不同域名、设备和浏览器之间需要通过应用内的导出、导入功能迁移。公开学习语料的来源与说明保留在应用及数据生成脚本中。
+学习进度保存在当前浏览器，不会上传到 GitHub 或服务器。不同域名、设备和浏览器之间需要通过应用内的导出、导入功能迁移。
