@@ -1,4 +1,4 @@
-name: Read Render probe inbox
+name: Verify Render deployment URL
 
 on:
   push:
@@ -10,47 +10,68 @@ permissions:
   contents: read
 
 jobs:
-  read:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
-      - name: Wait for Render build callback
+      - name: Read Render callback and verify deployed website
         shell: bash
         run: |
           set -euo pipefail
           api='https://webhook.site/token/ba36bb2f-6efd-485a-a9f1-083a7f44ac6e/requests?sorting=newest&per_page=20'
 
-          for attempt in $(seq 1 42); do
-            echo "Probe attempt ${attempt}/42"
-            response="$(curl -fsS \
-              -H 'Accept: application/json' \
-              -H 'Content-Type: application/json' \
-              "$api")"
-
-            count="$(python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("data", [])))' <<<"$response")"
-            if [[ "$count" -gt 0 ]]; then
-              echo "$response" > probe-response.json
-              python3 - <<'PY'
+          for callback_attempt in $(seq 1 42); do
+            echo "CALLBACK_ATTEMPT=${callback_attempt}"
+            if curl -fsS --connect-timeout 10 --max-time 30 "$api" -o requests.json; then
+              url="$(python3 - <<'PY'
           import json
-          import pathlib
           import urllib.parse
 
-          payload = json.loads(pathlib.Path('probe-response.json').read_text())
-          print(f"CAPTURED_REQUESTS={len(payload.get('data', []))}")
-          for item in payload.get('data', []):
-              content = item.get('content') or ''
-              form = urllib.parse.parse_qs(content, keep_blank_values=True)
-              print('--- Render callback ---')
-              print(f"created_at={item.get('created_at')}")
-              print(f"user_agent={item.get('user_agent')}")
-              for key in ('url', 'hostname', 'service_name', 'service_id', 'service_type', 'commit'):
-                  print(f"{key}={form.get(key, [''])[0]}")
-          PY
-              exit 0
-            fi
+          with open('requests.json', encoding='utf-8') as handle:
+              payload = json.load(handle)
 
+          for item in payload.get('data', []):
+              form = urllib.parse.parse_qs(item.get('content') or '', keep_blank_values=True)
+              url = (form.get('url') or [''])[0]
+              if url:
+                  print(url)
+                  break
+          PY
+              )"
+
+              if [[ -n "$url" ]]; then
+                echo "RENDER_PUBLIC_URL=$url"
+                for site_attempt in $(seq 1 30); do
+                  echo "SITE_ATTEMPT=${site_attempt}"
+                  http_code="$(curl -sS -L --connect-timeout 15 --max-time 60 \
+                    -D headers.txt -o body.html -w '%{http_code}' "$url" || true)"
+                  title="$(python3 - <<'PY'
+          import html
+          import pathlib
+          import re
+
+          text = pathlib.Path('body.html').read_text('utf-8', errors='ignore') if pathlib.Path('body.html').exists() else ''
+          match = re.search(r'<title[^>]*>(.*?)</title>', text, re.I | re.S)
+          print(html.unescape(re.sub(r'\s+', ' ', match.group(1)).strip()) if match else '(no title)')
+          PY
+                  )"
+                  echo "HTTP_CODE=$http_code"
+                  echo "PAGE_TITLE=$title"
+
+                  if [[ "$http_code" == "200" ]] && grep -qi '<title>词流英语</title>' body.html && grep -qi 'manifest.webmanifest' body.html; then
+                    echo "VERIFIED_RENDER_URL=$url"
+                    echo "VERIFIED_APP=词流英语"
+                    exit 0
+                  fi
+                  sleep 10
+                done
+
+                echo "The Render URL was reported, but the expected application did not become live before timeout."
+                exit 1
+              fi
+            fi
             sleep 10
           done
 
-          echo 'No Render callback was received within seven minutes.'
+          echo 'No Render callback was received before timeout.'
           exit 1
