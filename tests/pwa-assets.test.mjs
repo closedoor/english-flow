@@ -1,0 +1,114 @@
+import assert from "node:assert/strict";
+import { readFile, stat } from "node:fs/promises";
+import test from "node:test";
+
+test("manifest is installable on a phone", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../public/manifest.webmanifest", import.meta.url), "utf8"));
+  assert.equal(manifest.id, "/");
+  assert.equal(manifest.start_url, "/");
+  assert.equal(manifest.scope, "/");
+  assert.equal(manifest.lang, "zh-CN");
+  assert.equal(manifest.display, "standalone");
+  assert.ok(manifest.icons.some((icon) => icon.sizes === "192x192"));
+  assert.ok(manifest.icons.some((icon) => icon.sizes === "512x512"));
+  assert.ok((await stat(new URL("../public/favicon.ico", import.meta.url))).size > 0);
+});
+
+test("service worker has an offline shell and update lifecycle", async () => {
+  const worker = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
+  assert.match(worker, /wordflow-ngsl-/);
+  assert.match(worker, /v33/);
+  assert.match(worker, /CORE_SHELL/);
+  assert.match(worker, /favicon\.ico/);
+  assert.doesNotMatch(worker, /OPTIONAL_CONTENT/);
+  assert.doesNotMatch(worker, /Promise\.allSettled/);
+  assert.match(worker, /OPTIONAL_CACHE_TIMEOUT/);
+  assert.match(worker, /NAVIGATION_TIMEOUT/);
+  assert.match(worker, /NAVIGATION_TIMEOUT = 3000/);
+  assert.match(worker, /AbortController/);
+  assert.match(worker, /key\.startsWith\(CACHE_PREFIX\)/);
+  assert.match(worker, /promoteStagedShell/);
+  assert.match(worker, /event\.waitUntil\(\(async \(\) => \{[\s\S]*self\.clients\.claim\(\)/);
+  assert.doesNotMatch(worker, /self\.skipWaiting\(/);
+  assert.match(worker, /clients\.claim/);
+  assert.match(worker, /safeCacheMatch\("\/"\)/);
+  assert.match(worker, /installCompleteShell/);
+  assert.match(worker, /html\.matchAll/);
+  assert.match(worker, /discoveredAssets/);
+  assert.match(worker, /cacheCompleteBuildGraph\(cache, \[\.\.\.CORE_SHELL\.filter/);
+  assert.match(worker, /referencedBuildAssets/);
+  assert.match(worker, /MAX_SHELL_ASSETS/);
+  assert.match(worker, /if \(response\.ok\) return response/);
+  assert.match(worker, /\|\| response/);
+  assert.match(worker, /CACHE_URLS/);
+  assert.doesNotMatch(worker, /CONTENT_CACHE_PREFIX/);
+  assert.doesNotMatch(worker, /contentRevision/);
+  assert.match(worker, /cacheCompleteBuildGraph\(cache, urls, true\)/);
+  assert.match(worker, /responseMatchesRequest/);
+  assert.match(worker, /await caches\.delete\(STAGING_CACHE\)/);
+  assert.match(worker, /fetchWithTimeout\(event\.request, NAVIGATION_TIMEOUT\)/);
+  assert.match(worker, /fetchAndCache\(event\.request, OPTIONAL_CACHE_TIMEOUT\)/);
+  assert.match(worker, /name\.endsWith\("-staging"\)/);
+  assert.match(worker, /\.slice\(0, MAX_SHELL_ASSETS\)/);
+  assert.match(worker, /url\.pathname\.startsWith\("\/data\/"\)/);
+  assert.match(worker, /fetchWithTimeout\(event\.request, OPTIONAL_CACHE_TIMEOUT\)/);
+  assert.match(worker, /!parsed\.pathname\.startsWith\("\/data\/"\)/);
+});
+
+test("iPhone users can zoom while text inputs avoid forced focus zoom", async () => {
+  const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.doesNotMatch(layout, /maximumScale/);
+  assert.match(styles, /\.library-search input\{[^}]*font-size:16px/);
+});
+
+test("large NGSL data is split from the initial page module", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const data = await readFile(new URL("../app/data.ts", import.meta.url), "utf8");
+  const wordData = await readFile(new URL("../app/word-data.ts", import.meta.url), "utf8");
+  const contentLoader = await readFile(new URL("../app/content-loader.ts", import.meta.url), "utf8");
+  assert.match(page, /import\("\.\/word-data"\)/);
+  assert.doesNotMatch(page, /import \{[^\n]*\} from "\.\/word-data"/);
+  assert.doesNotMatch(data, /from "\.\/ngsl-data"/);
+  assert.doesNotMatch(wordData, /from "\.\/ngsl-data"/);
+  assert.match(wordData, /fetchJsonWithRecovery\(`\/data\/ngsl-words-\$\{pack\}\.json\?rev=\$\{CONTENT_REVISION\}`, validate\)/);
+  assert.match(wordData, /wordPackMemoryCache/);
+  assert.match(wordData, /wordPackPromiseCache/);
+  assert.match(wordData, /onProgress\?\./);
+  assert.match(contentLoader, /CONTENT_REVISION = "v20"/);
+  assert.match(contentLoader, /CONTENT_CACHE_NAME = `english-flow-content-\$\{CONTENT_REVISION\}`/);
+  assert.match(contentLoader, /legacyCachedJson/);
+  assert.match(contentLoader, /url\.replace\(\/\[\?#\]\.\*\$\/, ""\)/);
+  assert.match(contentLoader, /RETRY_DELAYS = \[0, 500, 1_500\]/);
+  assert.match(contentLoader, /new AbortController\(\)/);
+  assert.match(contentLoader, /navigator\.onLine === false/);
+  assert.match(contentLoader, /caches\.open\(CONTENT_CACHE_NAME\)/);
+  assert.match(contentLoader, /cache\.match\(url\)/);
+  assert.match(contentLoader, /cache\.put\(url, response\)/);
+  assert.match(contentLoader, /await rememberResponse\(url, cacheCopy\)/);
+  assert.match(contentLoader, /caches\.keys\(\)/);
+  assert.match(contentLoader, /\?rev=\$\{revision\}/);
+  assert.match(page, /performance\.getEntriesByType\("resource"\)/);
+  assert.doesNotMatch(page, /contentRevision: CONTENT_REVISION/);
+  assert.match(page, /new Set\(\[\.\.\.documentUrls, \.\.\.resourceUrls\]\)/);
+  assert.match(page, /addEventListener\("controllerchange", cacheLoadedPageAssets\)/);
+  assert.match(page, /serviceWorker\.register\("\/sw\.js"\)\.then\(cacheLoadedPageAssets\)/);
+  assert.match(page, /useEffect\(\(\) => \{[\s\S]*?serviceWorker\.register\("\/sw\.js"\)[\s\S]*?\}, \[\]\);/);
+  assert.match(page, /核心词库暂时没有加载成功/);
+  assert.match(page, /核心词库已加载 \$\{wordDataLoadedPacks\}\/3/);
+  assert.match(page, /import\("\.\/sentence-data"\)/);
+  assert.doesNotMatch(page, /import \{[^\n]*\} from "\.\/sentence-data"/);
+  assert.match(page, /addEventListener\("online", handleOnline\)/);
+  assert.match(page, /联网后会自动继续载入/);
+});
+
+test("graded readings load only when the reading module is opened", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const data = await readFile(new URL("../app/data.ts", import.meta.url), "utf8");
+  const readings = await readFile(new URL("../app/reading-data.ts", import.meta.url), "utf8");
+  assert.match(page, /import\("\.\/reading-data"\)/);
+  assert.doesNotMatch(page, /import \{[^\n]*readings[^\n]*\} from/);
+  assert.doesNotMatch(data, /export const readings/);
+  assert.match(readings, /export const readings/);
+  assert.match(page, /阅读内容暂时没有加载成功/);
+});
