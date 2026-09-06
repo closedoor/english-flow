@@ -16,7 +16,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -35,3 +35,12 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Verify Render production deployment
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          PRODUCTION_URL: https://english-flow-mwnn.onrender.com/
+          EXPECTED_COMMIT: ${{ github.sha }}
+          PRODUCTION_VERIFY_ATTEMPTS: 45
+          PRODUCTION_VERIFY_DELAY_MS: 10000
+        run: npm run verify:production

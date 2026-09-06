@@ -13,6 +13,9 @@ services:
       - path: /sw.js
         name: Cache-Control
         value: no-cache, max-age=0, must-revalidate
+      - path: /build-info.json
+        name: Cache-Control
+        value: no-cache, max-age=0, must-revalidate
       - path: /
         name: Cache-Control
         value: no-cache, max-age=0, must-revalidate

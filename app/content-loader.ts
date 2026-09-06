@@ -1,6 +1,8 @@
-export const CONTENT_REVISION = "v20";
+const buildEnvironment = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+const configuredRevision = buildEnvironment?.VITE_ENGLISH_FLOW_CONTENT_REVISION?.trim();
+export const CONTENT_REVISION = configuredRevision && /^[a-z0-9-]+$/i.test(configuredRevision) ? configuredRevision : "local";
 const CONTENT_CACHE_PREFIX = "english-flow-content-";
-const CONTENT_CACHE_NAME = `english-flow-content-${CONTENT_REVISION}`;
+const CONTENT_CACHE_NAME = `${CONTENT_CACHE_PREFIX}${CONTENT_REVISION}`;
 const DEFAULT_TIMEOUT = 8_000;
 const RETRY_DELAYS = [0, 500, 1_500] as const;
 const OFFLINE_CACHE_ERROR_EVENT = "english-flow-offline-cache-error";
@@ -15,6 +17,10 @@ async function parseValidatedJson<T>(response: Response, validate: JsonValidator
   const value: unknown = await response.json();
   if (!validate(value)) throw new Error("Downloaded learning content is invalid");
   return value;
+}
+
+function cacheRevision(cacheName: string) {
+  return cacheName.startsWith(CONTENT_CACHE_PREFIX) ? cacheName.slice(CONTENT_CACHE_PREFIX.length) : "";
 }
 
 async function currentCachedJson<T>(url: string, validate: JsonValidator<T>) {
@@ -40,11 +46,13 @@ async function legacyCachedJson<T>(url: string, validate: JsonValidator<T>) {
   const unversionedUrl = url.replace(/[?#].*$/, "");
   try {
     const cacheNames = typeof caches.keys === "function" ? await caches.keys() : [];
+    // CacheStorage.keys() is creation ordered. Checking it in reverse keeps the
+    // newest usable pack first even now that revisions are content hashes.
     const olderContentCaches = cacheNames
       .filter((name) => name.startsWith(CONTENT_CACHE_PREFIX) && name !== CONTENT_CACHE_NAME)
-      .sort((left, right) => Number(right.match(/v(\d+)$/)?.[1] ?? -1) - Number(left.match(/v(\d+)$/)?.[1] ?? -1));
+      .reverse();
     for (const cacheName of olderContentCaches) {
-      const revision = cacheName.match(/(v\d+)$/)?.[1];
+      const revision = cacheRevision(cacheName);
       const cache = await caches.open(cacheName);
       for (const candidate of new Set([revision ? `${unversionedUrl}?rev=${revision}` : "", unversionedUrl])) {
         if (!candidate) continue;
@@ -71,27 +79,32 @@ async function removeLegacyCopies(url: string) {
   const unversionedUrl = url.replace(/[?#].*$/, "");
   const cacheNames = await caches.keys();
   await Promise.all(cacheNames.filter((name) => name.startsWith(CONTENT_CACHE_PREFIX) && name !== CONTENT_CACHE_NAME).map(async (cacheName) => {
-    const revision = cacheName.match(/(v\d+)$/)?.[1];
+    const revision = cacheRevision(cacheName);
     const cache = await caches.open(cacheName);
     await Promise.all([...new Set([revision ? `${unversionedUrl}?rev=${revision}` : "", unversionedUrl])]
       .map((candidate) => candidate ? cache.delete(candidate).catch(() => false) : Promise.resolve(false)));
+    if (typeof cache.keys === "function" && !(await cache.keys()).length) await caches.delete(cacheName).catch(() => false);
   }));
 }
 
 async function rememberResponse(url: string, response: Response) {
   if (typeof caches === "undefined") {
     window.dispatchEvent?.(new Event(OFFLINE_CACHE_ERROR_EVENT));
-    return;
+    return false;
   }
   try {
     const cache = await caches.open(CONTENT_CACHE_NAME);
     await cache.put(url, response);
-    await removeLegacyCopies(url);
   } catch {
-    // Network content remains usable for this visit, but the UI should not
-    // promise that an offline copy was saved when Cache Storage failed.
+    // Network content remains usable for this visit, but it was not saved for
+    // offline use. This is the only failure that should show the warning.
     window.dispatchEvent?.(new Event(OFFLINE_CACHE_ERROR_EVENT));
+    return false;
   }
+  // Removing older duplicates is only storage housekeeping. A cleanup failure
+  // must not claim that the newly written offline copy was lost.
+  await removeLegacyCopies(url).catch(() => undefined);
+  return true;
 }
 
 export async function fetchJsonWithRecovery<T>(url: string, validate: JsonValidator<T>) {

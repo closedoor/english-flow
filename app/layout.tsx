@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
+const OFFICIAL_SITE = "https://english-flow-mwnn.onrender.com";
+
 export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.ENGLISH_FLOW_RENDER_EXPORT === "1" && process.env.RENDER_EXTERNAL_URL
       ? process.env.RENDER_EXTERNAL_URL
-      : "https://english-flow.iscream95.chatgpt.site",
+      : OFFICIAL_SITE,
   ),
   title: "词流英语",
   description: "用 NGSL 高频词、3,000 组日常长短句、核心句型替换和分级阅读，练习听懂、记住并主动说出英语。",

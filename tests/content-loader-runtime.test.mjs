@@ -7,13 +7,16 @@ const loaderSource = await readFile(new URL("../app/content-loader.ts", import.m
 const loaderJavaScript = ts.transpileModule(loaderSource, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { fetchJsonWithRecovery } = await import(`data:text/javascript;base64,${Buffer.from(loaderJavaScript).toString("base64")}`);
+const { CONTENT_REVISION, fetchJsonWithRecovery } = await import(`data:text/javascript;base64,${Buffer.from(loaderJavaScript).toString("base64")}`);
+const CURRENT_CACHE = `english-flow-content-${CONTENT_REVISION}`;
+const currentUrl = (pathname) => `${pathname}?rev=${CONTENT_REVISION}`;
 
 class MemoryCache {
   constructor() { this.values = new Map(); }
   async match(url) { return this.values.get(String(url))?.clone(); }
   async put(url, response) { this.values.set(String(url), response.clone()); }
   async delete(url) { return this.values.delete(String(url)); }
+  async keys() { return [...this.values.keys()].map((url) => new Request(new URL(url, "https://example.test"))); }
 }
 
 function cacheStorage() {
@@ -39,11 +42,13 @@ function cacheStorage() {
 async function withBrowserGlobals({ online, caches, fetch }, run) {
   const names = ["window", "navigator", "caches", "fetch"];
   const previous = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
-  Object.defineProperty(globalThis, "window", { configurable: true, value: { setTimeout, clearTimeout } });
+  const browserWindow = new EventTarget();
+  Object.assign(browserWindow, { setTimeout, clearTimeout });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: browserWindow });
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: online } });
   Object.defineProperty(globalThis, "caches", { configurable: true, value: caches });
   Object.defineProperty(globalThis, "fetch", { configurable: true, value: fetch });
-  try { return await run(); } finally {
+  try { return await run(browserWindow); } finally {
     for (const [name, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);
       else delete globalThis[name];
@@ -55,7 +60,7 @@ const validArray = (value) => Array.isArray(value) && value.every((item) => Numb
 
 test("a valid current content-cache hit avoids the network", { concurrency: false }, async () => {
   const caches = cacheStorage();
-  const cache = await caches.open("english-flow-content-v20");
+  const cache = await caches.open(CURRENT_CACHE);
   await cache.put("/data/test.json", new Response("[1,2,3]", { headers: { "content-type": "application/json" } }));
   let fetches = 0;
   const value = await withBrowserGlobals({ online: true, caches, fetch: async () => { fetches += 1; throw new Error("unexpected network"); } },
@@ -66,14 +71,15 @@ test("a valid current content-cache hit avoids the network", { concurrency: fals
 
 test("a corrupt current cache uses an older unversioned cache only while offline", { concurrency: false }, async () => {
   const caches = cacheStorage();
-  const current = await caches.open("english-flow-content-v20");
+  const current = await caches.open(CURRENT_CACHE);
   const legacy = await caches.open("wordflow-ngsl-v17");
-  await current.put("/data/test.json?rev=v20", new Response("{broken"));
+  const url = currentUrl("/data/test.json");
+  await current.put(url, new Response("{broken"));
   await legacy.put("/data/test.json", new Response("[7,8]"));
   const value = await withBrowserGlobals({ online: false, caches, fetch: async () => { throw new Error("offline"); } },
-    () => fetchJsonWithRecovery("/data/test.json?rev=v20", validArray));
+    () => fetchJsonWithRecovery(url, validArray));
   assert.deepEqual(value, [7, 8]);
-  assert.equal(await current.match("/data/test.json?rev=v20"), undefined);
+  assert.equal(await current.match(url), undefined);
 });
 
 test("an offline upgrade can read the versioned key left by the v19 content cache", { concurrency: false }, async () => {
@@ -86,10 +92,24 @@ test("an offline upgrade can read the versioned key left by the v19 content cach
     online: false,
     caches,
     fetch: async () => { fetches += 1; throw new Error("offline"); },
-  }, () => fetchJsonWithRecovery("/data/test.json?rev=v20", validArray));
+  }, () => fetchJsonWithRecovery(currentUrl("/data/test.json"), validArray));
 
   assert.deepEqual(value, [19, 20]);
   assert.equal(fetches, 0);
+});
+
+test("an offline upgrade can read an older content-fingerprint cache", { concurrency: false }, async () => {
+  const caches = cacheStorage();
+  const previous = await caches.open("english-flow-content-data-11111111111111111111");
+  await previous.put("/data/test.json?rev=data-11111111111111111111", new Response("[21,22]"));
+
+  const value = await withBrowserGlobals({
+    online: false,
+    caches,
+    fetch: async () => { throw new Error("offline"); },
+  }, () => fetchJsonWithRecovery(currentUrl("/data/test.json"), validArray));
+
+  assert.deepEqual(value, [21, 22]);
 });
 
 test("an online upgrade replaces older content instead of pinning the stale cache", { concurrency: false }, async () => {
@@ -97,16 +117,15 @@ test("an online upgrade replaces older content instead of pinning the stale cach
   const legacy = await caches.open("english-flow-content-v1");
   await legacy.put("/data/test.json", new Response("[1,2]"));
   let fetches = 0;
+  const url = currentUrl("/data/test.json");
   const value = await withBrowserGlobals({ online: true, caches, fetch: async () => {
     fetches += 1;
     return new Response("[3,4]", { status: 200, headers: { "content-type": "application/json" } });
-  } }, async () => {
-    return fetchJsonWithRecovery("/data/test.json?rev=v20", validArray);
-  });
+  } }, async () => fetchJsonWithRecovery(url, validArray));
   assert.deepEqual(value, [3, 4]);
   assert.equal(fetches, 1);
-  const current = await caches.open("english-flow-content-v20");
-  assert.deepEqual(await (await current.match("/data/test.json?rev=v20")).json(), [3, 4]);
+  const current = await caches.open(CURRENT_CACHE);
+  assert.deepEqual(await (await current.match(url)).json(), [3, 4]);
 });
 
 test("committing one upgraded pack removes only that pack from older content caches", { concurrency: false }, async () => {
@@ -119,12 +138,39 @@ test("committing one upgraded pack removes only that pack from older content cac
     online: true,
     caches,
     fetch: async () => new Response("[3,4]", { status: 200, headers: { "content-type": "application/json" } }),
-  }, () => fetchJsonWithRecovery("/data/test.json?rev=v20", validArray));
+  }, () => fetchJsonWithRecovery(currentUrl("/data/test.json"), validArray));
 
   assert.deepEqual(value, [3, 4]);
   assert.equal(await previous.match("/data/test.json?rev=v19"), undefined);
   assert.deepEqual(await (await previous.match("/data/other.json?rev=v19")).json(), [7, 8]);
   assert.ok(caches.stores.has("english-flow-content-v19"));
+});
+
+test("successful caching does not show a false offline warning when legacy cleanup fails", { concurrency: false }, async () => {
+  const caches = cacheStorage();
+  let keyReads = 0;
+  const originalKeys = caches.keys.bind(caches);
+  caches.keys = async () => {
+    keyReads += 1;
+    if (keyReads === 2) throw new Error("cleanup blocked");
+    return originalKeys();
+  };
+  const url = currentUrl("/data/cleanup.json");
+  let warnings = 0;
+
+  const value = await withBrowserGlobals({
+    online: true,
+    caches,
+    fetch: async () => new Response("[31,32]", { status: 200, headers: { "content-type": "application/json" } }),
+  }, async (browserWindow) => {
+    browserWindow.addEventListener("english-flow-offline-cache-error", () => { warnings += 1; });
+    return fetchJsonWithRecovery(url, validArray);
+  });
+
+  assert.deepEqual(value, [31, 32]);
+  assert.equal(warnings, 0);
+  const current = await caches.open(CURRENT_CACHE);
+  assert.deepEqual(await (await current.match(url)).json(), [31, 32]);
 });
 
 test("offline without a cache fails immediately without attempting fetch", { concurrency: false }, async () => {
@@ -141,12 +187,10 @@ test("a successful network response is returned and remembered", { concurrency: 
   const value = await withBrowserGlobals({ online: true, caches, fetch: async () => {
     fetches += 1;
     return new Response("[9,10]", { status: 200, headers: { "content-type": "application/json" } });
-  } }, async () => {
-    return fetchJsonWithRecovery("/data/network.json", validArray);
-  });
+  } }, async () => fetchJsonWithRecovery("/data/network.json", validArray));
   assert.deepEqual(value, [9, 10]);
   assert.equal(fetches, 1);
-  const cache = await caches.open("english-flow-content-v20");
+  const cache = await caches.open(CURRENT_CACHE);
   assert.deepEqual(await (await cache.match("/data/network.json")).json(), [9, 10]);
 });
 
@@ -162,6 +206,8 @@ test("a first-load response does not finish before its offline copy is committed
   const caches = {
     async open() { return cache; },
     async match() { return undefined; },
+    async keys() { return []; },
+    async delete() { return false; },
   };
   let settled = false;
   const pending = withBrowserGlobals({

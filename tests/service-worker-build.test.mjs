@@ -24,13 +24,14 @@ test("unchanged published files produce identical workers across repeated stampi
   assert.equal(await buildServiceWorker(output, source), first);
 });
 
-test("HTML, lazy assets, public files and worker logic each invalidate the offline shell", async (t) => {
+test("HTML, lazy assets, deployment metadata, public files and worker logic each invalidate the offline shell", async (t) => {
   const output = await fixture(t);
   let previous = await buildServiceWorker(output, source);
   for (const [name, contents] of [
     ["index.html", '<script src="/assets/page.js"></script><title>Updated</title>'],
     ["assets/page.js", "export const page = 2;"],
     ["assets/reading.js", "export const reading = 1;"],
+    ["build-info.json", '{"commit":"1111111111111111111111111111111111111111"}'],
     ["icon.svg", '<svg xmlns="http://www.w3.org/2000/svg"/>'],
   ]) {
     await writeFile(path.join(output, name), contents);

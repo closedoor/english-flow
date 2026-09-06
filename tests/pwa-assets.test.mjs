@@ -75,9 +75,12 @@ test("large NGSL data is split from the initial page module", async () => {
   assert.match(wordData, /wordPackMemoryCache/);
   assert.match(wordData, /wordPackPromiseCache/);
   assert.match(wordData, /onProgress\?\./);
-  assert.match(contentLoader, /CONTENT_REVISION = "v20"/);
-  assert.match(contentLoader, /CONTENT_CACHE_NAME = `english-flow-content-\$\{CONTENT_REVISION\}`/);
+  assert.match(contentLoader, /VITE_ENGLISH_FLOW_CONTENT_REVISION/);
+  assert.match(contentLoader, /CONTENT_REVISION = configuredRevision/);
+  assert.match(contentLoader, /CONTENT_CACHE_NAME = `\$\{CONTENT_CACHE_PREFIX\}\$\{CONTENT_REVISION\}`/);
   assert.match(contentLoader, /legacyCachedJson/);
+  assert.match(contentLoader, /cacheRevision/);
+  assert.match(contentLoader, /\.reverse\(\)/);
   assert.match(contentLoader, /url\.replace\(\/\[\?#\]\.\*\$\/, ""\)/);
   assert.match(contentLoader, /RETRY_DELAYS = \[0, 500, 1_500\]/);
   assert.match(contentLoader, /new AbortController\(\)/);
