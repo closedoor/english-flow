@@ -63,15 +63,21 @@ export function runCommand(command, args, { env = process.env, timeoutMs = 0, sh
 }
 
 export async function buildRender() {
-  const contentRevision = await calculateContentRevision();
-  const env = {
+  const baseEnv = {
     ...process.env,
     ENGLISH_FLOW_RENDER_EXPORT: "1",
-    VITE_ENGLISH_FLOW_CONTENT_REVISION: contentRevision,
   };
   const vinext = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "vinext.cmd" : "vinext");
 
-  await runCommand(process.execPath, ["scripts/sync-ngsl-packs.mjs"], { env });
+  // The browser packs are generated from the canonical source. Hash only after
+  // synchronization so a source-content change can never reuse an old cache key.
+  await runCommand(process.execPath, ["scripts/sync-ngsl-packs.mjs"], { env: baseEnv });
+  const contentRevision = await calculateContentRevision();
+  const env = {
+    ...baseEnv,
+    VITE_ENGLISH_FLOW_CONTENT_REVISION: contentRevision,
+  };
+
   await runCommand(vinext, ["build"], { env, timeoutMs: BUILD_TIMEOUT_MS, shell: process.platform === "win32" });
   await runCommand(process.execPath, ["scripts/write-build-info.mjs"], { env });
   await runCommand(process.execPath, ["scripts/stamp-service-worker.mjs"], { env });

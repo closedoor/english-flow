@@ -21,8 +21,15 @@ test("build and Render scripts are portable and use the current official site", 
   assert.doesNotMatch(shellBuild, /\btimeout\b/);
   assert.doesNotMatch(nodeBuild, /\btimeout --signal\b/);
   assert.match(nodeBuild, /VITE_ENGLISH_FLOW_CONTENT_REVISION/);
+  const buildFunction = nodeBuild.slice(nodeBuild.indexOf("export async function buildRender"));
+  assert.ok(
+    buildFunction.indexOf("scripts/sync-ngsl-packs.mjs") < buildFunction.indexOf("const contentRevision = await calculateContentRevision()"),
+    "content fingerprint must be calculated after generated packs are synchronized",
+  );
   assert.match(layout, new RegExp(OFFICIAL_SITE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(renderConfig, /path: \/build-info\.json[\s\S]*Cache-Control[\s\S]*no-cache/);
+  assert.match(workflow, /actions\/checkout@v7/);
+  assert.match(workflow, /actions\/setup-node@v7/);
   assert.match(workflow, /Verify Render production deployment/);
   assert.match(workflow, /EXPECTED_COMMIT: \$\{\{ github\.sha \}\}/);
 });
