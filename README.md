@@ -2,9 +2,13 @@
 
 一个面向日常练习的英语学习网站，包含 NGSL 高频词、3,000 组长短句、核心句型和分级阅读。
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fclosedoor%2Fenglish-flow)
+## 在线访问
 
-点击上方按钮，登录 Render 后检查将创建的 `english-flow` Static Site，并批准部署。仓库根目录的 `render.yaml` 已包含分支、构建命令、发布目录、Node 版本、自动部署和缓存响应头配置。
+**Render 正式站点：<https://english-flow-mwnn.onrender.com>**
+
+该站点连接 `main` 分支。代码推送到 `main` 后，Render 会依据仓库根目录的 `render.yaml` 自动构建并部署。
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fclosedoor%2Fenglish-flow)
 
 - 单词听读、记忆与难词复习。
 - 句子与句型练习、阅读理解和错题回顾。
