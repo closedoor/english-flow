@@ -17,7 +17,7 @@ test("manifest is installable on a phone", async () => {
 test("service worker has an offline shell and update lifecycle", async () => {
   const worker = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
   assert.match(worker, /wordflow-ngsl-/);
-  assert.match(worker, /v33/);
+  assert.match(worker, /v34/);
   assert.match(worker, /CORE_SHELL/);
   assert.match(worker, /favicon\.ico/);
   assert.doesNotMatch(worker, /OPTIONAL_CONTENT/);

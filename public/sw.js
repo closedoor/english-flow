@@ -1,5 +1,7 @@
 const CACHE_PREFIX = "wordflow-ngsl-";
-const CACHE = `${CACHE_PREFIX}v33`;
+// The production build replaces this value with a fingerprint of its files.
+const BUILD_REVISION = "local";
+const CACHE = `${CACHE_PREFIX}v34-${BUILD_REVISION}`;
 const STAGING_CACHE = `${CACHE}-staging`;
 const OPTIONAL_CACHE_TIMEOUT = 8000;
 const NAVIGATION_TIMEOUT = 3000;

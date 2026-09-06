@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildServiceWorker } from "./stamp-service-worker.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const output = path.join(root, "dist/client");
@@ -23,7 +24,11 @@ async function checkPublicFiles(directory, relative = "") {
     } else {
       const source = await readFile(path.join(directory, entry.name));
       const built = await readFile(path.join(output, name));
-      assert.ok(source.equals(built), `Missing or altered public asset: ${name}`);
+      if (name === "sw.js") {
+        assert.equal(built.toString(), await buildServiceWorker(output, source.toString()), "Service worker does not match this published build");
+      } else {
+        assert.ok(source.equals(built), `Missing or altered public asset: ${name}`);
+      }
       publicFiles++;
     }
   }

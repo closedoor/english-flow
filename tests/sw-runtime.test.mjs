@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
 const ORIGIN = "https://english-flow.test";
 const workerSource = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
-const ACTIVE_CACHE = "wordflow-ngsl-v33";
+const ACTIVE_CACHE = "wordflow-ngsl-v34-local";
 
 function cacheKey(request) {
   const value = request instanceof Request ? request.url : String(request);
@@ -47,7 +47,7 @@ class MemoryCacheStorage {
   }
 }
 
-function loadWorker({ caches, fetch, timers = {} }) {
+function loadWorker({ caches, fetch, timers = {}, source = workerSource }) {
   const listeners = new Map();
   const lifecycle = { skipWaitingCalls: 0, claimCalls: 0 };
   const self = {
@@ -59,7 +59,7 @@ function loadWorker({ caches, fetch, timers = {} }) {
     },
   };
 
-  vm.runInNewContext(workerSource, {
+  vm.runInNewContext(source, {
     AbortController,
     Request,
     Response,
@@ -401,4 +401,46 @@ test("a hung uncached script times out and a later request can recover", async (
   online = true;
   assert.equal(await (await dispatchFetch(listeners.get("fetch"), request)).text(), "recovered");
   assert.equal(await (await (await caches.open(ACTIVE_CACHE)).match(request)).text(), "recovered");
+});
+
+test("the actual production worker upgrades the old shell and serves every built module offline", async () => {
+  const output = new URL("../dist/client/", import.meta.url);
+  const source = await readFile(new URL("sw.js", output), "utf8");
+  assert.match(source, /const BUILD_REVISION = "[0-9a-f]{20}";/);
+  const caches = new MemoryCacheStorage();
+  const old = await caches.open("wordflow-ngsl-v33");
+  await old.put("/", new Response("old-shell", { headers: { "content-type": "text/html" } }));
+  const content = await caches.open("english-flow-content-v20");
+  await content.put("/data/test.json?rev=v20", new Response("[20]"));
+  let offline = false;
+  const { listeners, lifecycle } = loadWorker({
+    source, caches,
+    fetch: async (request) => {
+      if (offline) throw new Error("network unavailable");
+      const url = new URL(request instanceof Request ? request.url : String(request), ORIGIN);
+      const filename = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
+      const type = filename.endsWith(".html") ? "text/html"
+        : filename.endsWith(".js") ? "text/javascript"
+          : filename.endsWith(".css") ? "text/css"
+            : filename.endsWith(".png") ? "image/png"
+              : filename.endsWith(".ico") ? "image/x-icon"
+                : filename.endsWith(".webmanifest") ? "application/manifest+json" : "application/octet-stream";
+      return new Response(await readFile(new URL(filename, output)), { headers: { "content-type": type } });
+    },
+  });
+  await dispatchExtendable(listeners.get("install"));
+  assert.equal(await (await old.match("/")).text(), "old-shell", "an open old page keeps its complete cache during install");
+  assert.equal(lifecycle.skipWaitingCalls, 0);
+  await dispatchExtendable(listeners.get("activate"));
+  assert.ok(!(await caches.keys()).includes("wordflow-ngsl-v33"));
+  assert.equal(await (await content.match("/data/test.json?rev=v20")).text(), "[20]");
+  offline = true;
+  const navigation = { method: "GET", mode: "navigate", url: `${ORIGIN}/`, toString() { return this.url; } };
+  assert.equal(await (await dispatchFetch(listeners.get("fetch"), navigation)).text(), await readFile(new URL("index.html", output), "utf8"));
+  for (const filename of await readdir(new URL("assets/", output))) {
+    if (!/\.(js|css)$/.test(filename)) continue;
+    const response = await dispatchFetch(listeners.get("fetch"), new Request(`${ORIGIN}/assets/${filename}`));
+    assert.equal(response.status, 200, `${filename} must be available without opening its module first`);
+    assert.equal(await response.text(), await readFile(new URL(`assets/${filename}`, output), "utf8"));
+  }
 });
