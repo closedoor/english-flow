@@ -1,0 +1,108 @@
+name: Verify live Render site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/verify-live-render-site.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Wait for the current Render deployment and smoke-test it
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          site='https://english-flow-mwnn.onrender.com'
+          expected_commit='${{ github.sha }}'
+
+          for attempt in $(seq 1 50); do
+            echo "============================================================"
+            echo "Attempt ${attempt}/50 at $(date -u +%FT%TZ)"
+            rm -f headers.txt index.html manifest.json sw.js
+
+            code="$(curl -sS -L --connect-timeout 15 --max-time 45 \
+              -D headers.txt -o index.html -w '%{http_code}' "$site/" || true)"
+            echo "HTTP_CODE=$code"
+
+            if [[ "$code" == "200" ]]; then
+              python3 - <<'PY'
+          import html
+          import pathlib
+          import re
+
+          text = pathlib.Path('index.html').read_text('utf-8', errors='ignore')
+          title = re.search(r'<title[^>]*>(.*?)</title>', text, re.I | re.S)
+          title_text = html.unescape(re.sub(r'\s+', ' ', title.group(1)).strip()) if title else '(no title)'
+          print(f'PAGE_TITLE={title_text}')
+          print(f'BODY_BYTES={len(text.encode("utf-8"))}')
+          print(f'HAS_MANIFEST={"manifest.webmanifest" in text}')
+          print(f'HAS_APP_MARKER={"词流英语" in text}')
+          print(f'HAS_CORRECT_ORIGIN={"https://english-flow-mwnn.onrender.com" in text}')
+          PY
+
+              if grep -qi '<title>词流英语</title>' index.html \
+                && grep -q 'manifest.webmanifest' index.html \
+                && grep -q 'https://english-flow-mwnn.onrender.com' index.html; then
+
+                manifest_code="$(curl -sS -L --connect-timeout 15 --max-time 45 \
+                  -o manifest.json -w '%{http_code}' "$site/manifest.webmanifest" || true)"
+                sw_code="$(curl -sS -L --connect-timeout 15 --max-time 45 \
+                  -o sw.js -w '%{http_code}' "$site/sw.js" || true)"
+                echo "MANIFEST_HTTP_CODE=$manifest_code"
+                echo "SERVICE_WORKER_HTTP_CODE=$sw_code"
+
+                python3 - <<'PY'
+          import json
+          import pathlib
+          import re
+          import subprocess
+
+          manifest = json.loads(pathlib.Path('manifest.json').read_text('utf-8'))
+          print(f'MANIFEST_NAME={manifest.get("name")}')
+          print(f'MANIFEST_START_URL={manifest.get("start_url")}')
+          print(f'MANIFEST_ICONS={len(manifest.get("icons", []))}')
+
+          text = pathlib.Path('index.html').read_text('utf-8', errors='ignore')
+          refs = re.findall(r'(?:src|href)="([^"#]+)"', text)
+          assets = []
+          for ref in refs:
+              if ref.startswith('/assets/') and ref not in assets:
+                  assets.append(ref)
+          print(f'ASSET_REFERENCES={len(assets)}')
+          for ref in assets[:8]:
+              result = subprocess.run(
+                  ['curl', '-sS', '-L', '--connect-timeout', '15', '--max-time', '45',
+                   '-o', '/dev/null', '-w', '%{http_code}',
+                   'https://english-flow-mwnn.onrender.com' + ref],
+                  text=True, capture_output=True
+              )
+              print(f'ASSET {ref} HTTP={result.stdout.strip()}')
+              if result.stdout.strip() != '200':
+                  raise SystemExit(f'Asset failed: {ref}')
+          PY
+
+                if [[ "$manifest_code" == "200" && "$sw_code" == "200" ]]; then
+                  echo "LIVE_RENDER_URL=$site"
+                  echo "LIVE_SITE_VERIFIED=true"
+                  echo "VERIFYING_GITHUB_COMMIT=$expected_commit"
+                  exit 0
+                fi
+              fi
+            fi
+
+            sleep 12
+          done
+
+          echo "The Render service did not become a valid English Flow deployment in time."
+          echo "--- Last response headers ---"
+          cat headers.txt 2>/dev/null || true
+          echo "--- Last HTML prefix ---"
+          head -c 1500 index.html 2>/dev/null || true
+          exit 1
