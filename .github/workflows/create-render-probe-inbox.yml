@@ -1,0 +1,33 @@
+name: Create Render probe inbox
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/create-render-probe-inbox.yml
+
+permissions:
+  contents: read
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Create temporary public request inbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl -fsS -X POST \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            --data '{"expiry":86400,"request_limit":20,"default_content":"ok","default_content_type":"text/plain"}' \
+            https://webhook.site/token)"
+          echo "$response"
+          python3 - <<'PY' <<<"$response"
+          import json, sys
+          payload = json.load(sys.stdin)
+          print(f"PROBE_TOKEN={payload['uuid']}")
+          print(f"PROBE_URL=https://webhook.site/{payload['uuid']}")
+          print(f"REQUESTS_API=https://webhook.site/token/{payload['uuid']}/requests?sorting=newest&per_page=20")
+          PY
