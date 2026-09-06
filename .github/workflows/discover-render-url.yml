@@ -13,57 +13,48 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Probe expected Render URLs
+      - name: Verify the deployed English Flow site
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
+          url='https://english-flow-mwnn.onrender.com/'
 
-          candidates=(
-            "https://english-flow.onrender.com/"
-            "https://english-flow-v3.onrender.com/"
-            "https://english-flow-v3-20260906.onrender.com/"
-          )
+          for attempt in $(seq 1 48); do
+            echo "Probe attempt ${attempt}/48: ${url}"
+            rm -f headers.txt body.html manifest.json
 
-          found=0
-          for url in "${candidates[@]}"; do
-            echo "============================================================"
-            echo "PROBING_URL=$url"
-            rm -f headers.txt body.html
+            code="$(curl --connect-timeout 15 --max-time 60 --retry 2 --retry-delay 3 \
+              -sS -L -D headers.txt -o body.html -w '%{http_code}' "$url" || true)"
 
-            if curl --connect-timeout 15 --max-time 60 --retry 2 --retry-delay 5 \
-              -sS -L -D headers.txt -o body.html \
-              -w 'HTTP_CODE=%{http_code}\nEFFECTIVE_URL=%{url_effective}\nREMOTE_IP=%{remote_ip}\n' \
-              "$url"; then
-              echo "--- final response headers ---"
-              tail -n 30 headers.txt || true
-              echo "--- page metadata ---"
-              python3 - <<'PY'
-          import html
-          import pathlib
-          import re
-
-          text = pathlib.Path("body.html").read_text("utf-8", errors="ignore")
-          title = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
-          title_text = html.unescape(re.sub(r"\s+", " ", title.group(1)).strip()) if title else "(no title)"
-          print(f"PAGE_TITLE={title_text}")
-          print(f"HAS_ENGLISH_FLOW_TITLE={title_text == '词流英语'}")
-          print(f"HAS_APP_MARKER={'词流英语' in text and 'manifest.webmanifest' in text}")
-          print(f"BODY_BYTES={len(text.encode('utf-8'))}")
+            title="$(python3 - <<'PY'
+          import html, pathlib, re
+          text = pathlib.Path('body.html').read_text('utf-8', errors='ignore') if pathlib.Path('body.html').exists() else ''
+          match = re.search(r'<title[^>]*>(.*?)</title>', text, re.I | re.S)
+          print(html.unescape(re.sub(r'\s+', ' ', match.group(1)).strip()) if match else '')
           PY
+          )"
 
-              if grep -qi '<title>词流英语</title>' body.html; then
-                echo "VERIFIED_RENDER_URL=$url"
-                found=1
-                break
-              fi
-            else
-              echo "REQUEST_FAILED=$url"
+            echo "HTTP_CODE=${code}"
+            echo "PAGE_TITLE=${title}"
+
+            if [[ "$code" == "200" ]] \
+              && [[ "$title" == "词流英语" ]] \
+              && grep -q 'manifest.webmanifest' body.html \
+              && curl --connect-timeout 15 --max-time 60 -fsS "${url}manifest.webmanifest" -o manifest.json \
+              && grep -q '词流英语' manifest.json; then
+              echo "VERIFIED_RENDER_URL=${url}"
+              echo "DEPLOYMENT_STATUS=LIVE"
+              echo '--- final response headers ---'
+              tail -n 30 headers.txt || true
+              echo '--- manifest ---'
+              cat manifest.json
+              exit 0
             fi
+
+            sleep 10
           done
 
-          if [[ "$found" -ne 1 ]]; then
-            echo "No expected Render URL returned the English Flow application."
-            exit 1
-          fi
+          echo 'The Render service exists, but the expected English Flow page did not become live in time.'
+          exit 1
