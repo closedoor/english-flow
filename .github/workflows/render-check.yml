@@ -1,0 +1,23 @@
+name: Check Render availability
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/render-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check expected Render URL
+        run: |
+          curl --fail --show-error --silent --location --max-time 60 https://english-flow.onrender.com/ --output page.html
+          grep --fixed-strings --quiet '<title>词流英语</title>' page.html
+          echo 'RENDER_URL=https://english-flow.onrender.com/'
+          echo 'RESULT=English Flow page is live'
