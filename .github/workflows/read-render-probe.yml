@@ -1,0 +1,56 @@
+name: Read Render probe inbox
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/read-render-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Wait for Render build callback
+        shell: bash
+        run: |
+          set -euo pipefail
+          api='https://webhook.site/token/ba36bb2f-6efd-485a-a9f1-083a7f44ac6e/requests?sorting=newest&per_page=20'
+
+          for attempt in $(seq 1 42); do
+            echo "Probe attempt ${attempt}/42"
+            response="$(curl -fsS \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              "$api")"
+
+            count="$(python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("data", [])))' <<<"$response")"
+            if [[ "$count" -gt 0 ]]; then
+              echo "$response" > probe-response.json
+              python3 - <<'PY'
+          import json
+          import pathlib
+          import urllib.parse
+
+          payload = json.loads(pathlib.Path('probe-response.json').read_text())
+          print(f"CAPTURED_REQUESTS={len(payload.get('data', []))}")
+          for item in payload.get('data', []):
+              content = item.get('content') or ''
+              form = urllib.parse.parse_qs(content, keep_blank_values=True)
+              print('--- Render callback ---')
+              print(f"created_at={item.get('created_at')}")
+              print(f"user_agent={item.get('user_agent')}")
+              for key in ('url', 'hostname', 'service_name', 'service_id', 'service_type', 'commit'):
+                  print(f"{key}={form.get(key, [''])[0]}")
+          PY
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo 'No Render callback was received within seven minutes.'
+          exit 1
