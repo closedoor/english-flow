@@ -17,37 +17,28 @@ jobs:
         with:
           node-version: 22.13.0
           cache: npm
+      - name: Apply reviewed changes and align regression coverage
+        run: python3 .audit/finalize.py
       - run: npm ci
-      - name: Baseline cache fault and type diagnostics
-        run: |
-          node --test .audit/cache-fault.test.mjs > /tmp/cache-baseline.log 2>&1 && STATUS=0 || STATUS=$?
-          cat /tmp/cache-baseline.log
-          echo "BASELINE_CACHE_EXIT=$STATUS"
-          node_modules/.bin/tsc --noEmit --incremental false > /tmp/types.log 2>&1 && STATUS=0 || STATUS=$?
-          cat /tmp/types.log
-          echo "TYPECHECK_EXIT=$STATUS"
-      - name: Build unchanged production source
-        run: npm run build:render > /tmp/build.log 2>&1 || { cat /tmp/build.log; exit 1; }
-      - name: Install isolated browser engines
-        run: |
-          npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1
-          node /tmp/english-flow-browser/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/install.log 2>&1 || { tail -60 /tmp/install.log; exit 1; }
-      - name: Reproduce partial-load problems before fixes
-        run: |
-          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client >/tmp/http.log 2>&1 &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID"' EXIT
-          node .audit/browser-network.mjs && STATUS=0 || STATUS=$?
-          echo "BASELINE_NETWORK_EXIT=$STATUS"
-      - name: Apply reviewed resilience fixes
-        run: python3 .audit/apply.py
+      - name: TypeScript validation
+        run: npm run typecheck
       - name: Full unit and regression suite
-        run: npm test > /tmp/tests.log 2>&1 || { tail -160 /tmp/tests.log; exit 1; }; tail -12 /tmp/tests.log
+        run: |
+          if ! npm test > /tmp/tests.log 2>&1; then
+            grep -B 2 -A 18 '^not ok' /tmp/tests.log | cut -c 1-300
+            tail -12 /tmp/tests.log
+            exit 1
+          fi
+          tail -12 /tmp/tests.log
       - name: Lint and explicit Render build
         run: |
           npm run lint
           npm run build:render > /tmp/build.log 2>&1 || { cat /tmp/build.log; exit 1; }
           tail -5 /tmp/build.log
+      - name: Install isolated browser engines
+        run: |
+          npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1
+          node /tmp/english-flow-browser/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/install.log 2>&1 || { tail -60 /tmp/install.log; exit 1; }
       - name: Verify all browser flows and new weak-network scenarios
         run: |
           python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client >/tmp/http.log 2>&1 &
