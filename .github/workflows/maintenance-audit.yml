@@ -1,0 +1,52 @@
+name: Isolated browser audit
+on:
+  push:
+    branches: [maintenance/audit-20260912]
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RENDER_EXTERNAL_URL: http://127.0.0.1:4173
+      PLAYWRIGHT_MODULE: /tmp/english-flow-browser/node_modules/playwright/index.mjs
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - name: Prepare isolated browser fixtures
+        run: python3 .maintenance/test-preflight.py
+      - name: Apply reviewed maintenance patch if present
+        run: |
+          if [ -f .maintenance/apply.py ]; then python3 .maintenance/apply.py; fi
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build:render
+      - name: Install isolated browser test tools
+        run: |
+          npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1
+          node /tmp/english-flow-browser/node_modules/playwright/cli.js install --with-deps chromium webkit
+      - name: Exercise production build in real browsers
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/english-flow-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          node .maintenance/browser-audit.mjs
+      - name: Save verified source changes on the isolated branch only
+        run: |
+          if [ -f .maintenance/apply.py ]; then
+            test "$GITHUB_REF_NAME" = maintenance/audit-20260912
+            git add app scripts tests .github/workflows/validate.yml package.json
+            if ! git diff --cached --quiet; then
+              git config user.name 'github-actions[bot]'
+              git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+              git commit -m 'Apply browser-verified English Flow maintenance fixes'
+              git push origin HEAD:refs/heads/maintenance/audit-20260912
+            fi
+          fi
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
