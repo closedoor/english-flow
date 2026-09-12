@@ -90,7 +90,7 @@ await runCheck("chromium", "serious-accessibility-rules-pass-on-primary-screens"
         id: item.id,
         impact: item.impact,
         help: item.help,
-        nodes: item.nodes.slice(0, 3).map((node) => ({ target: node.target, summary: node.failureSummary })),
+        nodes: item.nodes.slice(0, 100).map((node) => ({ target: node.target, summary: node.failureSummary })),
       }));
     });
     for (const violation of current) violations.push({ screen: label, ...violation });
