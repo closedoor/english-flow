@@ -1,0 +1,22 @@
+import {pathToFileURL} from 'node:url';
+const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
+const browser=await chromium.launch();
+const context=await browser.newContext({viewport:{width:320,height:740},hasTouch:true});
+const page=await context.newPage();
+await page.goto('http://127.0.0.1:4173'); await page.locator('.bottom-nav').waitFor({timeout:30000});
+await page.locator('.bottom-nav button').filter({hasText:'学习'}).click();
+await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
+await page.locator('.word-card').waitFor();
+await page.locator('.word-card').evaluate(node=>{
+  const finger=x=>({clientX:x,clientY:100,identifier:1});
+  const send=(type,touches,changedTouches)=>{const event=new Event(type,{bubbles:true});Object.defineProperties(event,{touches:{value:touches},changedTouches:{value:changedTouches}});node.dispatchEvent(event);};
+  send('touchstart',[finger(240)],[]);
+  send('touchstart',[finger(240),{...finger(60),identifier:2}],[]);
+  send('touchend',[{...finger(60),identifier:2}],[finger(70)]);
+});
+await page.waitForTimeout(400);
+console.log('BASELINE_PINCH_INDEX',await page.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-active-session-v1')).index));
+await page.evaluate(()=>localStorage.setItem('wordflow-active-session-v1',JSON.stringify({version:1,kind:'group',updatedAt:Date.now(),path:'frequency',mode:'test',wordIds:[1,2,3],index:2,ratings:{1:'known',2:'known',3:'known'},stage:'quiz',quizIndex:0,quizAnswer:'',quizFeedback:null,quizResults:[]})));
+await page.reload(); await page.locator('.quiz-page').waitFor();
+console.log('BASELINE_QUIZ_HEADER',JSON.stringify(await page.locator('.quiz-page .compact-header').evaluate(node=>[...node.children].map(child=>{const r=child.getBoundingClientRect();return{text:child.textContent,width:r.width,height:r.height,left:r.left,right:r.right};}))));
+await browser.close();
