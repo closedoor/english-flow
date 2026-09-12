@@ -73,3 +73,7 @@ test('quiz pause text has a content-width column and cannot wrap into an icon sl
   assert.match(styles,/\.quiz-page \.compact-header\{grid-template-columns:max-content minmax\(0,1fr\) 44px/);
   assert.match(styles,/\.quiz-page \.pause-quiz\{white-space:nowrap\}/);
 });
+
+test('swipe cards preserve native pinch zoom as well as vertical scrolling',()=>{
+  assert.ok(styles.includes('.word-card,.sentence-study-card{touch-action:pan-y pinch-zoom}'));
+});

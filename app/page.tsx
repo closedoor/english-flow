@@ -507,7 +507,7 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false);
   const activeDialog = externalUpdateDetected ? "sync" : pendingBackup ? "restore" : resetProgressOpen ? "reset" : discardRequest ? "discard" : installOpen ? "install" : null;
   const hasOpenDialog = activeDialog !== null;
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const touchStart = useRef<{ x: number; y: number; identifier: number } | null>(null);
   const cardActionLock = useRef(false);
   const sentenceActionLock = useRef(false);
   const patternActionLock = useRef(false);
@@ -1400,12 +1400,24 @@ export default function Home() {
   };
 
   const beginCardSwipe = (event: React.TouchEvent<HTMLElement>) => {
-    if (event.target instanceof Element && event.target.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"]')) {
+    // A second finger cancels the gesture: browser pinch-to-zoom must never
+    // navigate the learner to another card or mark any progress.
+    if (event.touches.length !== 1 || (event.target instanceof Element && event.target.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"]'))) {
       touchStart.current = null;
       return;
     }
     const touch = event.touches[0];
-    touchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    touchStart.current = touch ? { x: touch.clientX, y: touch.clientY, identifier: touch.identifier } : null;
+  };
+
+  const endCardSwipe = (event: React.TouchEvent<HTMLElement>, move: (direction: number) => void) => {
+    const start = touchStart.current;
+    touchStart.current = null;
+    const touch = event.changedTouches[0];
+    if (!start || event.touches.length !== 0 || event.changedTouches.length !== 1 || !touch || touch.identifier !== start.identifier) return;
+    const distanceX = touch.clientX - start.x;
+    const distanceY = touch.clientY - start.y;
+    if (Math.abs(distanceX) > 55 && Math.abs(distanceX) > Math.abs(distanceY) * 1.25) move(distanceX < 0 ? 1 : -1);
   };
 
   const revealReviewAnswer = (wordId: number) => {
@@ -2123,7 +2135,7 @@ export default function Home() {
     <section className="page learn-page sentence-learn-page">
       <header className="compact-header"><button className="round-button" onClick={restoreSentenceSetupPreferences} aria-label="返回句库设置并保留进度">‹</button><div><p className="eyebrow">{sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label}</p><h1>{sentenceMode === "speak" ? "看中文说英文" : "句子卡片"}</h1></div><button className="round-button" disabled={!currentSentence || (sentenceMode === "speak" && !sentenceTranslationOpen)} onClick={() => currentSentence && playSpeech(currentSentence.text, .68)} aria-label="慢速播放">0.7×</button></header>
       <div className="session-progress" role="progressbar" aria-label="本组句子学习进度" aria-valuemin={0} aria-valuemax={sentenceSessionIds.length} aria-valuenow={ratedSentenceCount}><span style={{ width: `${sentenceSessionIds.length ? ratedSentenceCount / sentenceSessionIds.length * 100 : 0}%` }} /></div><p className="card-count" aria-live="polite">第 {safeSentenceIndex + 1} 张 · 已标记 {ratedSentenceCount} / {sentenceSessionIds.length}</p>
-      {sentenceLoadError ? <div className="sentence-card-loading sentence-card-error" role="alert"><div><b>{networkOnline ? "这组句子暂时无法恢复" : "网络已断开，联网后会自动恢复这组句子"}</b><button onClick={() => window.location.reload()}>重新载入页面</button></div></div> : sentenceLoading || !currentSentence ? <div className="sentence-card-loading" role="status">正在恢复这组句子…</div> : <div className="sentence-card sentence-study-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => { if (!touchStart.current) return; const distanceX = event.changedTouches[0].clientX - touchStart.current.x; const distanceY = event.changedTouches[0].clientY - touchStart.current.y; if (Math.abs(distanceX) > 55 && Math.abs(distanceX) > Math.abs(distanceY) * 1.25) moveSentence(distanceX < 0 ? 1 : -1); touchStart.current = null; }} onTouchCancel={() => { touchStart.current = null; }}>
+      {sentenceLoadError ? <div className="sentence-card-loading sentence-card-error" role="alert"><div><b>{networkOnline ? "这组句子暂时无法恢复" : "网络已断开，联网后会自动恢复这组句子"}</b><button onClick={() => window.location.reload()}>重新载入页面</button></div></div> : sentenceLoading || !currentSentence ? <div className="sentence-card-loading" role="status">正在恢复这组句子…</div> : <div className="sentence-card sentence-study-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => endCardSwipe(event, moveSentence)} onTouchCancel={() => { touchStart.current = null; }}>
         <div className="sentence-card-top"><span>{currentSentence.length === "short" ? "短句" : currentSentence.length === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === currentSentence.category)?.label}</span><button className={currentSentenceSaved ? "saved" : ""} aria-label={currentSentenceSaved ? "取消收藏" : "收藏句子"} onClick={() => setSentenceSaved((items) => currentSentenceSaved ? items.filter((id) => id !== currentSentence.id) : [...items, currentSentence.id])}>{currentSentenceSaved ? "★" : "☆"}</button></div>
         {sentenceMode === "bilingual" ? <><button className="sentence-listen" onClick={() => playSpeech(currentSentence.text, .76)}><span aria-hidden="true">♪</span><b>播放英文</b><small>系统英文语音 · 慢速</small></button><p lang="en" className="sentence-english">{currentSentence.text}</p><button className="sentence-translation-toggle" aria-expanded={sentenceTranslationOpen} onClick={() => setSentenceTranslationOpen((open) => !open)}>{sentenceTranslationOpen ? currentSentence.translation : "点击显示中文翻译"}</button></> : <><div className="speak-prompt"><span>先不要看答案</span><small>看中文，自己完整说出英文</small><p>{currentSentence.translation}</p></div>{sentenceTranslationOpen ? <div id={`sentence-answer-${currentSentence.id}`} ref={sentenceAnswerRef} className="speak-answer" tabIndex={-1} role="status" aria-live="polite" aria-atomic="true"><span>英文答案</span><p lang="en" className="sentence-english">{currentSentence.text}</p><button className="sentence-listen" onClick={() => playSpeech(currentSentence.text, .76)}><span aria-hidden="true">♪</span><b>播放英文</b><small>听一遍核对表达</small></button></div> : <button className="reveal-answer" aria-expanded="false" aria-controls={`sentence-answer-${currentSentence.id}`} onClick={() => setSentenceTranslationOpen(true)}>我说好了，查看英文答案</button>}</>}
         {(sentenceMode === "bilingual" || sentenceTranslationOpen) && <div className="sentence-source">{currentSentence.adapted ? "学习化整理自：" : "来源："}<a href={`https://tatoeba.org/en/sentences/show/${currentSentence.sourceId}`} target="_blank" rel="noreferrer">Tatoeba #{currentSentence.sourceId}</a>{currentSentence.adapted ? <> · 原始英/中贡献者：{currentSentence.author} / {currentSentence.translationAuthor}</> : <> · 英文 {currentSentence.author} · 中文 {currentSentence.translationAuthor}</>}</div>}
@@ -2250,7 +2262,7 @@ export default function Home() {
     <section className="page learn-page">
       <header className="compact-header"><button className={singleWordLookup ? "library-back" : "round-button"} onClick={() => singleWordLookup ? returnToWordLibrary() : openLearningSetup()} aria-label={singleWordLookup ? "返回词库" : "退出本组"}>{singleWordLookup ? "‹ 词库" : "‹"}</button><div><p className="eyebrow">{sessionPath === "frequency" ? "NGSL 高频词" : scenes.find((item) => item.id === sessionPath)?.name} · {sessionMode === "test" ? "学后测试" : "自由学习"}</p><h1>核心词卡</h1></div><button className="round-button" onClick={() => playSpeech(current.example, .72)} aria-label="慢速播放">0.7×</button></header>
       <div className="session-progress" role="progressbar" aria-label="本组学习进度" aria-valuemin={0} aria-valuemax={sessionWords.length} aria-valuenow={ratedCardCount}><span style={{ width: `${(ratedCardCount / sessionWords.length) * 100}%` }} /></div><p className="card-count" aria-live="polite">第 {index + 1} 张 · 已标记 {ratedCardCount} / {sessionWords.length}</p>
-      <div className="word-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => { if (!touchStart.current) return; const distanceX = event.changedTouches[0].clientX - touchStart.current.x; const distanceY = event.changedTouches[0].clientY - touchStart.current.y; if (Math.abs(distanceX) > 55 && Math.abs(distanceX) > Math.abs(distanceY) * 1.25) moveCard(distanceX < 0 ? 1 : -1); touchStart.current = null; }} onTouchCancel={() => { touchStart.current = null; }}>
+      <div className="word-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => endCardSwipe(event, moveCard)} onTouchCancel={() => { touchStart.current = null; }}>
         <div className="card-topline"><span className="scene-pill">{sessionPath === "frequency" ? current.rank ? `NGSL #${current.rank}` : "实用场景词组" : `${scenes.find((scene) => scene.id === sessionPath)?.icon} ${scenes.find((scene) => scene.id === sessionPath)?.name}`}</span><button className="sound-button" onClick={() => playSpeech(current.word)} aria-label={`播放 ${current.word} 发音`}>♪</button></div>
         <div className="word-heading"><h2 lang="en" className={current.word.length > 12 ? "long" : ""} ref={wordHeadingRef} tabIndex={-1}>{current.word}</h2><p>{current.phonetic || "点击右上角听发音"}</p><strong>{current.meaning}</strong>{current.exampleForm && current.exampleForm !== current.word && <small>句中形式：{current.exampleForm}</small>}</div><div className="card-divider" />
         <div className="card-section"><span className="section-label">句中搭配</span><div className="chips" lang="en">{current.collocations.map((item) => <span key={item}>{item}</span>)}</div></div>
