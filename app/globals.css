@@ -267,3 +267,9 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 
 /* Keep native pinch zoom available inside swipeable learning cards. */
 .word-card,.sentence-study-card{touch-action:pan-y pinch-zoom}
+
+/* Keep recovery and reload choices reachable on narrow phones. */
+.sentence-load-error{flex-wrap:wrap}
+.sentence-load-error>span{flex:1 1 220px}
+.sentence-load-actions{display:flex;flex-wrap:wrap;gap:8px;max-width:100%}
+.sentence-load-actions button{white-space:normal;min-height:44px;flex:1 1 auto}
