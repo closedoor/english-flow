@@ -21,6 +21,7 @@ jobs:
         run: |
           python3 .maintenance/test-preflight.py
           python3 .maintenance/apply.py
+          python3 .maintenance/finalize-touch.py
       - name: Install existing locked dependencies
         run: npm ci
       - name: Unit and regression tests
