@@ -12,7 +12,8 @@
     "validate:render": "node scripts/validate-render.mjs",
     "verify:production": "node scripts/verify-production.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "test:browser": "node scripts/browser-smoke.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

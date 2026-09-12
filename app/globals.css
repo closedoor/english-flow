@@ -117,7 +117,7 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .speak-answer:focus,.pattern-answer:focus{outline:3px solid rgba(43,161,130,.22);outline-offset:3px}
 .week-card span.done.today{outline:2px solid #2ba182;background:#dff4ed;color:var(--green)}
 
-.reading-detail-page{padding-top:16px}
+.reading-detail-page{padding-top:calc(16px + env(safe-area-inset-top))}
 .reading-detail .back-line{margin-bottom:12px;padding:0 6px;color:#3f665b;font-weight:800}
 .reading-detail>h1{margin-top:5px}
 .reading-audio-controls{margin-bottom:10px}
@@ -259,3 +259,11 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
   .pattern-category-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
   .discard-actions{grid-template-columns:minmax(0,1fr)}
 }
+
+/* The quiz pause label needs its own content-width column, not an icon slot. */
+.quiz-page .compact-header{grid-template-columns:max-content minmax(0,1fr) 44px;gap:8px}
+.quiz-page .compact-header>div{min-width:0}
+.quiz-page .pause-quiz{white-space:nowrap}
+
+/* Keep native pinch zoom available inside swipeable learning cards. */
+.word-card,.sentence-study-card{touch-action:pan-y pinch-zoom}
