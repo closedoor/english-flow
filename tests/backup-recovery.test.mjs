@@ -178,7 +178,10 @@ test("restore is confirmed, protected from double taps and reloads only after su
 
 test("partial sentence recovery and phone-sized controls remain present", () => {
   assert.match(page, /Promise\.allSettled\(packs\.map/);
-  assert.match(page, /result\.status === "fulfilled"/);
+  const packStart = page.indexOf('import("./sentence-data").then(({ loadSentencePack })');
+  const publication = page.indexOf('if (active) setSentencePacks', packStart);
+  const completion = page.indexOf('.then((results) =>', packStart);
+  assert.ok(packStart >= 0 && publication > packStart && publication < completion, "Each successful pack must publish before aggregate completion");
   assert.match(page, /results\.some\(\(result\) => result\.status === "rejected"\)/);
   assert.doesNotMatch(sentenceData, /sentencePackCache\.clear\(\)/);
   assert.match(page, /离线模式 · 已加载内容和本机记录仍可使用/);

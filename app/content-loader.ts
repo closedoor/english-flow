@@ -44,28 +44,42 @@ async function currentCachedJson<T>(url: string, validate: JsonValidator<T>) {
 async function legacyCachedJson<T>(url: string, validate: JsonValidator<T>) {
   if (typeof caches === "undefined") return null;
   const unversionedUrl = url.replace(/[?#].*$/, "");
+  let cacheNames: string[] = [];
   try {
-    const cacheNames = typeof caches.keys === "function" ? await caches.keys() : [];
-    // CacheStorage.keys() is creation ordered. Checking it in reverse keeps the
-    // newest usable pack first even now that revisions are content hashes.
-    const olderContentCaches = cacheNames
-      .filter((name) => name.startsWith(CONTENT_CACHE_PREFIX) && name !== CONTENT_CACHE_NAME)
-      .reverse();
-    for (const cacheName of olderContentCaches) {
-      const revision = cacheRevision(cacheName);
-      const cache = await caches.open(cacheName);
-      for (const candidate of new Set([revision ? `${unversionedUrl}?rev=${revision}` : "", unversionedUrl])) {
-        if (!candidate) continue;
-        const saved = await cache.match(candidate);
-        if (!saved) continue;
-        try {
-          return await parseValidatedJson(saved.clone(), validate);
-        } catch {
-          await cache.delete(candidate).catch(() => false);
-        }
+    cacheNames = typeof caches.keys === "function" ? await caches.keys() : [];
+  } catch {
+    // The old shell fallback can still be readable when enumeration fails.
+  }
+  const olderContentCaches = cacheNames
+    .filter((name) => name.startsWith(CONTENT_CACHE_PREFIX) && name !== CONTENT_CACHE_NAME)
+    .reverse();
+  for (const cacheName of olderContentCaches) {
+    const revision = cacheRevision(cacheName);
+    let cache: Cache;
+    try {
+      cache = await caches.open(cacheName);
+    } catch {
+      // A single damaged or unavailable cache must not hide other revisions.
+      continue;
+    }
+    for (const candidate of new Set([revision ? `${unversionedUrl}?rev=${revision}` : "", unversionedUrl])) {
+      if (!candidate) continue;
+      let saved: Response | undefined;
+      try {
+        saved = await cache.match(candidate);
+      } catch {
+        continue;
+      }
+      if (!saved) continue;
+      try {
+        return await parseValidatedJson(saved.clone(), validate);
+      } catch {
+        await cache.delete(candidate).catch(() => false);
       }
     }
-    // Older shell workers cached data without a dedicated content-cache name.
+  }
+  // Older shell workers cached data without a dedicated content-cache name.
+  try {
     const saved = await caches.match(unversionedUrl);
     if (saved) return await parseValidatedJson(saved.clone(), validate);
   } catch {
