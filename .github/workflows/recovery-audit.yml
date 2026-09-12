@@ -1,0 +1,68 @@
+name: Isolated recovery-state audit
+on:
+  push:
+    branches: [maintenance/recovery-states-20260912]
+permissions:
+  contents: write
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RENDER_EXTERNAL_URL: http://127.0.0.1:4173
+      PLAYWRIGHT_MODULE: /tmp/english-flow-browser/node_modules/playwright/index.mjs
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Build unchanged production source
+        run: npm run build:render > /tmp/build.log 2>&1 || { tail -100 /tmp/build.log; exit 1; }
+      - name: Install isolated browsers
+        run: |
+          npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1
+          node /tmp/english-flow-browser/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/install.log 2>&1 || { tail -80 /tmp/install.log; exit 1; }
+      - name: Reproduce failed-request behavior before changes
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client >/tmp/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          node .audit/browser-recovery.mjs && STATUS=0 || STATUS=$?
+          echo "BASELINE_RECOVERY_EXIT=$STATUS"
+      - name: Apply scoped recovery fixes
+        run: python3 .audit/apply-recovery.py
+      - name: Unit and regression tests
+        run: |
+          if ! npm test >/tmp/tests.log 2>&1; then
+            grep -B 2 -A 14 '^not ok' /tmp/tests.log | cut -c 1-350
+            tail -14 /tmp/tests.log
+            exit 1
+          fi
+          tail -12 /tmp/tests.log
+      - name: Type check, lint and explicit production build
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run build:render >/tmp/build.log 2>&1 || { tail -100 /tmp/build.log; exit 1; }
+          tail -5 /tmp/build.log
+      - name: All browser scenarios including failed-request recovery
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client >/tmp/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          npm run test:browser
+      - name: Save verified source on isolated branch only
+        run: |
+          test "$GITHUB_REF_NAME" = maintenance/recovery-states-20260912
+          git add app/page.tsx app/globals.css scripts/browser-recovery.mjs package.json TESTING.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          if ! git diff --cached --quiet; then
+            git commit -m 'Verify truthful failed-request states and in-page sentence recovery'
+            git push origin HEAD:refs/heads/maintenance/recovery-states-20260912
+          fi
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
