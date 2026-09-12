@@ -43,9 +43,9 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
           npm run test:browser
-      - name: Save only verified product changes to the isolated branch
+      - name: Save verified non-workflow product changes to the isolated branch
         run: |
-          git add app/page.tsx app/globals.css scripts/browser-accessibility.mjs tests/deep-audit-regression.test.mjs package.json TESTING.md .github/workflows/validate.yml
+          git add app/page.tsx app/globals.css scripts/browser-accessibility.mjs tests/deep-audit-regression.test.mjs package.json TESTING.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git diff --cached --stat
