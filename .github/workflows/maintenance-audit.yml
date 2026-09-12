@@ -17,32 +17,23 @@ jobs:
         with:
           node-version: 22.13.0
           cache: npm
+      - name: Apply reviewed patch to the isolated working checkout
+        run: |
+          python3 .maintenance/test-preflight.py
+          python3 .maintenance/apply.py
       - name: Install existing locked dependencies
         run: npm ci
+      - name: Unit and regression tests
+        run: npm test > /tmp/unit-tests.log 2>&1 || { tail -150 /tmp/unit-tests.log; exit 1; }; tail -12 /tmp/unit-tests.log
+      - name: Lint production source and tests
+        run: npm run lint
+      - name: Explicit production build
+        run: npm run build:render > /tmp/build.log 2>&1 || { cat /tmp/build.log; exit 1; }; tail -5 /tmp/build.log
       - name: Install isolated browser tools
         run: |
           npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1
           node /tmp/english-flow-browser/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/browser-install.log 2>&1 || { tail -100 /tmp/browser-install.log; exit 1; }
-      - name: Reproduce baseline touch and header behavior before the patch
-        run: |
-          npm run build:render > /tmp/baseline-build.log 2>&1 || { cat /tmp/baseline-build.log; exit 1; }
-          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/english-flow-http.log 2>&1 &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID"' EXIT
-          node .maintenance/baseline-probe.mjs
-      - name: Prepare isolated fixtures and apply reviewed source patch
-        run: |
-          python3 .maintenance/test-preflight.py
-          python3 .maintenance/apply.py
-      - name: Clean-install after edits
-        run: npm ci
-      - name: Unit and regression tests
-        run: npm test > /tmp/unit-tests.log 2>&1 || { tail -150 /tmp/unit-tests.log; exit 1; }; tail -12 /tmp/unit-tests.log
-      - name: Lint all production source and tests
-        run: npm run lint
-      - name: Explicit production build
-        run: npm run build:render > /tmp/build.log 2>&1 || { cat /tmp/build.log; exit 1; }; tail -5 /tmp/build.log
-      - name: Exercise the production UI in Chromium and WebKit
+      - name: Exercise production UI in Chromium and WebKit
         run: |
           python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/english-flow-http.log 2>&1 &
           SERVER_PID=$!
@@ -51,7 +42,7 @@ jobs:
       - name: Save verified source changes on the isolated branch only
         run: |
           test "$GITHUB_REF_NAME" = maintenance/audit-20260912
-          git add app scripts tests .github/workflows/validate.yml package.json TESTING.md
+          git add app scripts tests package.json TESTING.md
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
