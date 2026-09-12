@@ -2390,7 +2390,7 @@ export default function Home() {
     </section>
   );
 
-  if (!wordData || !hydrated) return <main className="app-shell"><div className="phone-stage app-loading" role="status" aria-live="polite"><div className="loading-mark" aria-hidden="true">EN</div><b>{wordDataLoadError ? "核心词库暂时没有加载成功" : "词流英语"}</b><span>{wordDataLoadError ? (networkOnline ? "已保存成功下载的数据；重新载入页面可恢复缺少部分。" : "当前处于离线状态，联网后会自动继续载入。") : wordDataLoadedPacks ? `核心词库已加载 ${wordDataLoadedPacks}/3，正在继续…` : "正在载入核心词库并恢复学习进度…"}</span>{wordDataLoadError && <button onClick={() => window.location.reload()}>重新载入页面</button>}</div></main>;
+  if (!wordData || !hydrated) return <main className="app-shell"><div className="phone-stage app-loading" role="status" aria-live="polite"><div className="loading-mark" aria-hidden="true">EN</div><b>{wordDataLoadError ? "核心词库暂时没有加载成功" : "词流英语"}</b><span>{wordDataLoadError ? (networkOnline ? "已保存成功下载的数据；可以先重试缺少部分，仍失败时再重新载入页面。" : "当前处于离线状态，联网后会自动继续载入。") : wordDataLoadedPacks ? `核心词库已加载 ${wordDataLoadedPacks}/3，正在继续…` : "正在载入核心词库并恢复学习进度…"}</span>{wordDataLoadError && <div className="app-loading-actions"><button disabled={!networkOnline} onClick={() => { setWordDataLoadError(false); setWordDataLoadedPacks(0); setWordDataLoadAttempt((value) => value + 1); }}>重试核心词库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div>}</div></main>;
 
   return <main className="app-shell"><div className="phone-stage" style={speechNotice || offlineCacheWriteError || !networkOnline ? { paddingBottom: statusToastHeight + 64 } : undefined}>
     <div inert={hasOpenDialog}>

@@ -273,3 +273,47 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .sentence-load-error>span{flex:1 1 220px}
 .sentence-load-actions{display:flex;flex-wrap:wrap;gap:8px;max-width:100%}
 .sentence-load-actions button{white-space:normal;min-height:44px;flex:1 1 auto}
+
+
+/* Deep audit: in-page core recovery and WCAG AA secondary-text contrast. */
+.app-loading-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:9px;margin-top:10px;max-width:100%;padding:0 16px}
+.app-loading-actions button{min-width:130px;min-height:46px;padding:0 16px;border:1px solid var(--green-dark);border-radius:14px;font-size:13px;font-weight:800}
+.app-loading-actions button:first-child{background:var(--green-dark);color:#fff}
+.app-loading-actions button:last-child{background:#fff;color:var(--green-dark)}
+.app-loading-actions button:disabled{opacity:.55;cursor:not-allowed}
+.section-heading button,
+.scene-card small,
+.mode-grid small,
+.path-card small,
+.scene-list small,
+.count-switch button:not(.selected),
+.rank-switch button:not(.selected),
+.library-list button>span,
+.library-note,
+.session-choice-summary,
+.sentence-section-switch button:not(.selected),
+.sentence-mode-grid button small,
+.sentence-band-switch button:not(.selected),
+.sentence-band-switch button small,
+.level-switch button:not(.selected),
+.level-switch button small,
+.reading-number,
+.reading-card p,
+.reading-card>i,
+.reading-overview small,
+.reading-resume small,
+.reading-resume p,
+.reading-zh-title,
+.reading-meta,
+.content-load-state,
+.content-load-state>span,
+.segment-control button:not(.selected),
+.empty-state p,
+.review-top,
+.review-card>p,
+.review-pager span,
+.mini-example small,
+.sentence-progress-panel p small,
+.data-management small{color:#526071}
+.percent{color:var(--green-dark)}
+@media(max-width:340px){.app-loading-actions{width:100%;flex-direction:column}.app-loading-actions button{width:100%}}

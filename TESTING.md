@@ -17,7 +17,7 @@ The validation workflow builds the existing app and tests it in real headless Ch
 The browser tools are deliberately installed outside the application's dependency graph. To run the same suite on a development machine:
 
 ```sh
-npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1
+npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
 node /tmp/english-flow-browser/node_modules/playwright/cli.js install chromium webkit
 RENDER_EXTERNAL_URL=http://127.0.0.1:4173 npm run build:render
 python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client
@@ -26,7 +26,7 @@ python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client
 In another terminal:
 
 ```sh
-PLAYWRIGHT_MODULE=/tmp/english-flow-browser/node_modules/playwright/index.mjs npm run test:browser
+PLAYWRIGHT_MODULE=/tmp/english-flow-browser/node_modules/playwright/index.mjs AXE_SOURCE=/tmp/english-flow-browser/node_modules/axe-core/axe.min.js npm run test:browser
 ```
 
 The suite exercises all six tabs at 320, 375, 390, 480 and 1280 CSS pixels; word and quiz resume; sentence speaking and pattern substitution; reading answers; valid and damaged backups; review undo; blocked storage; stale-window protection; and synthetic single-/multi-finger gestures. No browser check counts simulated audio as a successful physical speaker test. Screenshots on failure go to the temporary `english-flow-evidence` folder (override with `BROWSER_EVIDENCE_DIR`).
@@ -49,3 +49,8 @@ The standard validation job now also runs an explicit TypeScript check (`npm run
 ## Failed requests and in-page recovery
 
 `test:browser` also runs `scripts/browser-recovery.mjs` in Chromium and WebKit. Local request interception rejects missing sentence packs and verifies that search, favorites and reinforcement lists do not claim definitive absence; partial result counts disclose their coverage; retry preserves the document, query and learning records; and already loaded practice still resumes after reload. Complete genuinely empty searches and returning to a loaded selection remain covered. Recovery controls are checked at 320 CSS pixels. The full-document reload action remains available for cached dynamic-import failures. These tests use synthetic records, never the production site's storage. No learning identifiers, local-storage keys, backup format or locked dependency versions change.
+
+
+## Core-content recovery and accessibility
+
+The browser command injects a transient failure into one NGSL data pack in Chromium and WebKit. It verifies that the loading screen can retry inside the same document, preserve local records, reuse the packs already cached successfully and still retain full-page reload as a fallback. The suite also checks reduced-motion behavior and runs axe-core WCAG A/AA rules on the six primary screens after their lazy content is ready. Critical or serious violations fail CI. The audit dependency remains isolated from the application dependency graph and does not change the lock file or production bundle.

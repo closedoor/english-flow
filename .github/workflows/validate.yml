@@ -55,6 +55,7 @@ jobs:
     env:
       RENDER_EXTERNAL_URL: http://127.0.0.1:4173
       PLAYWRIGHT_MODULE: /tmp/english-flow-browser/node_modules/playwright/index.mjs
+      AXE_SOURCE: /tmp/english-flow-browser/node_modules/axe-core/axe.min.js
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -65,7 +66,7 @@ jobs:
       - run: npm run build:render
       - name: Install isolated browser tools
         run: |
-          npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1
+          npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
           node /tmp/english-flow-browser/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/browser-install.log 2>&1 || { tail -100 /tmp/browser-install.log; exit 1; }
       - name: Test production UI, persistence and offline behavior
         run: |
