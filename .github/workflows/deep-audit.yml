@@ -1,0 +1,35 @@
+name: Isolated deep audit
+
+on:
+  push:
+    branches: [maintenance/deep-audit-20260912]
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RENDER_EXTERNAL_URL: http://127.0.0.1:4173
+      PLAYWRIGHT_MODULE: /tmp/english-flow-deep/node_modules/playwright/index.mjs
+      AXE_SOURCE: /tmp/english-flow-deep/node_modules/axe-core/axe.min.js
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build:render
+      - name: Install isolated browser audit tools
+        run: |
+          npm install --prefix /tmp/english-flow-deep --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
+          node /tmp/english-flow-deep/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/deep-install.log 2>&1 || { tail -100 /tmp/deep-install.log; exit 1; }
+      - name: Reproduce current deep-audit failures
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/deep-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          node .audit/deep-audit.mjs
