@@ -923,11 +923,15 @@ export default function Home() {
     if (tab !== "sentences" || sentenceSection !== "library") return;
     let active = true;
     const packs: (1 | 2 | 3)[] = sentenceStage === "cards" ? [SENTENCE_PACK_BY_BAND[sentenceBand]] : sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly ? [1, 2, 3] : [SENTENCE_PACK_BY_BAND[sentenceBand]];
-    import("./sentence-data").then(({ loadSentencePack }) => Promise.allSettled(packs.map((pack) => loadSentencePack(pack).then((items) => {
-      // Publish each usable pack without waiting for unrelated slow requests.
-      if (active) setSentencePacks((current) => current[pack] === items ? current : { ...current, [pack]: items });
-      return [pack, items] as const;
-    }))))
+    import("./sentence-data").then(({ loadSentencePack }) => {
+      if (!active) return [];
+      setSentenceLoadError(false);
+      return Promise.allSettled(packs.map((pack) => loadSentencePack(pack).then((items) => {
+        // Publish each usable pack without waiting for unrelated slow requests.
+        if (active) setSentencePacks((current) => current[pack] === items ? current : { ...current, [pack]: items });
+        return [pack, items] as const;
+      })));
+    })
       .then((results) => {
         if (!active) return;
         setSentenceLoadError(results.some((result) => result.status === "rejected"));
@@ -1170,7 +1174,9 @@ export default function Home() {
   const canResumePattern = patternStage === "setup" && patternSessionIds.length > ratedPatternCount;
   const hasUnfinishedPattern = patternSessionIds.length > ratedPatternCount;
   const requiredSentencePacks: (1 | 2 | 3)[] = sentenceStage === "cards" ? [SENTENCE_PACK_BY_BAND[sentenceBand]] : sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly ? [1, 2, 3] : [SENTENCE_PACK_BY_BAND[sentenceBand]];
-  const sentenceLoading = requiredSentencePacks.some((pack) => !sentencePacks[pack]) && !sentenceLoadError;
+  // Request failure does not establish that a search or saved list is empty.
+  const sentencePacksIncomplete = requiredSentencePacks.some((pack) => !sentencePacks[pack]);
+  const sentenceLoading = sentencePacksIncomplete && !sentenceLoadError;
   const sentenceSelectionLoading = !sentencePacks[SENTENCE_PACK_BY_BAND[sentenceBand]] && !sentenceLoadError;
   const nextNgslWord = words.find((word) => !studiedSet.has(word.id)) ?? null;
   const selectedScene = path === "frequency" ? null : scenes.find((scene) => scene.id === path) ?? null;
@@ -1298,6 +1304,11 @@ export default function Home() {
     wordBrowserReturnRef.current = true;
     setLearnStage("setup");
     setTab("learn");
+  };
+
+  const retrySentenceContent = () => {
+    setSentenceLoadError(false);
+    setSentenceLoadAttempt((attempt) => attempt + 1);
   };
 
   const openSentenceBrowser = (savedOnly: boolean, reviewOnly = false) => {
@@ -2113,22 +2124,22 @@ export default function Home() {
       <p className="page-intro">选择直接学习英文，或者先看中文、自己说出英文。每张卡的进度都会自动保存在本机。</p>
       <div className="sentence-section-switch" role="group" aria-label="句子学习内容"><button className="selected" aria-pressed="true">日常长短句</button><button aria-pressed="false" onClick={() => setSentenceSection("patterns")}>核心句型</button></div>
       {canResumeSentence && <button className="resume-session-card" onClick={resumeSentenceSession}><span>继续上次</span><div><b>未完成的句子练习</b><small>第 {Math.min(sentenceIndex + 1, sentenceSessionIds.length)} 张 · 已标记 {ratedSentenceCount} / {sentenceSessionIds.length}</small></div><i>›</i></button>}
-      {sentenceLoadError && <div className="sentence-load-error" role="alert"><span>{networkOnline ? "部分句库尚未载入，已显示可用内容。重新载入页面可恢复缺少的数据。" : "当前处于离线状态，已缓存的句子仍可使用；联网后会自动补全。"}</span><button onClick={() => window.location.reload()}>重新载入页面</button></div>}
+      {sentenceLoadError && sentencePacksIncomplete && <div className="sentence-load-error" role="alert"><span>{networkOnline ? "部分句库尚未载入，已有内容和本机记录仍保留。可以先重试；仍失败时再重新载入页面。" : "当前处于离线状态，已缓存的句子仍可使用；联网后会自动补全。"}</span><div className="sentence-load-actions"><button onClick={retrySentenceContent}>重试缺少的句库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div></div>}
       <div className="sentence-summary"><div><b>{sentenceMastered.length}</b><small>已掌握</small></div><button className={sentenceReviewOnly ? "selected" : ""} aria-pressed={sentenceReviewOnly} aria-label={`查看 ${sentenceDifficult.length} 个待加强句子`} onClick={() => openSentenceBrowser(false, true)}><b>{sentenceDifficult.length}</b><small>待加强</small></button><button className={sentenceSavedOnly ? "selected" : ""} aria-pressed={sentenceSavedOnly} onClick={() => openSentenceBrowser(true)}><b>{sentenceSaved.length}</b><small>{sentenceSavedOnly ? "正在看收藏" : "收藏句子"}</small></button></div>
       <div className="setup-block"><h2>选择练习方式</h2><div className="sentence-mode-grid"><button className={sentenceMode === "bilingual" ? "selected" : ""} aria-pressed={sentenceMode === "bilingual"} onClick={() => setSentenceMode("bilingual")}><span>EN</span><div><b>英文卡片</b><small>先看英文，再查看中文</small></div></button><button className={sentenceMode === "speak" ? "selected" : ""} aria-pressed={sentenceMode === "speak"} onClick={() => setSentenceMode("speak")}><span>中</span><div><b>看中文说英文</b><small>先开口，再揭晓答案</small></div></button></div></div>
       <div className="setup-block"><div className="row-heading"><h2>每组句数</h2><small>学完逐句标记</small></div><div className="count-switch"><button className={sentenceCount === 10 ? "selected" : ""} aria-pressed={sentenceCount === 10} onClick={() => setSentenceCount(10)}>10 句</button><button className={sentenceCount === 20 ? "selected" : ""} aria-pressed={sentenceCount === 20} onClick={() => setSentenceCount(20)}>20 句</button></div></div>
       <div className="setup-block"><h2>选择句子长度</h2><div className="sentence-band-switch">
         {(["short", "medium", "long"] as const).map((band) => <button key={band} className={sentenceBand === band ? "selected" : ""} aria-pressed={sentenceBand === band} onClick={() => { setSentenceBand(band); setSentenceSavedOnly(false); setSentenceReviewOnly(false); setSentenceSearch(""); setSentenceResultLimit(30); }}>{band === "short" ? "短句" : band === "medium" ? "常用句" : "长句"}<small>{band === "short" ? "2–7 词" : band === "medium" ? "8–12 词" : "13–18 词"}</small></button>)}
       </div></div>
-      <div className="setup-block"><div className="row-heading"><h2>选择沟通场景</h2><small>{sentenceSelectionLoading ? "正在加载…" : `${availableCount} 句可学`}</small></div><div className="sentence-categories sentence-category-grid" role="group" aria-label="句子场景">{sentenceCategories.map((category) => <button key={category.id} className={sentenceCategory === category.id ? "selected" : ""} aria-pressed={sentenceCategory === category.id} onClick={() => { setSentenceCategory(category.id); setSentenceSavedOnly(false); setSentenceReviewOnly(false); setSentenceResultLimit(30); }}>{category.label}</button>)}</div></div>
+      <div className="setup-block"><div className="row-heading"><h2>选择沟通场景</h2><small>{sentenceSelectionLoading ? "正在加载…" : !sentencePacks[SENTENCE_PACK_BY_BAND[sentenceBand]] ? "句库未载入" : `${availableCount} 句可学`}</small></div><div className="sentence-categories sentence-category-grid" role="group" aria-label="句子场景">{sentenceCategories.map((category) => <button key={category.id} className={sentenceCategory === category.id ? "selected" : ""} aria-pressed={sentenceCategory === category.id} onClick={() => { setSentenceCategory(category.id); setSentenceSavedOnly(false); setSentenceReviewOnly(false); setSentenceResultLimit(30); }}>{category.label}</button>)}</div></div>
       <p className="session-choice-summary" aria-live="polite"><span>“”</span> 当前：{sentenceMode === "speak" ? "看中文说英文" : "英文卡片"} · {sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label} · {Math.min(sentenceCount, availableCount)} 句</p>
       <button className="sticky-start primary-action" disabled={sentenceSelectionLoading || availableCount === 0} onClick={() => startSentenceSession()}>开始这组学习</button>
       {difficultInSelection > 0 && <button className="sentence-review-start" onClick={() => startSentenceSession(true)}>复习当前范围内 {Math.min(sentenceCount, difficultInSelection)} 个待加强句子</button>}
-      <div ref={sentenceBrowserRef} tabIndex={-1} className="setup-block sentence-browser"><div className="row-heading"><h2>{sentenceSavedOnly ? "收藏的句子" : sentenceReviewOnly ? "待加强的句子" : "查找完整句库"}</h2><small>{sentenceSavedOnly || sentenceReviewOnly ? `${filteredSentences.length} 句` : sentenceSearch ? `${filteredSentences.length} 个结果` : "支持中英文"}</small></div>
+      <div ref={sentenceBrowserRef} tabIndex={-1} className="setup-block sentence-browser"><div className="row-heading"><h2>{sentenceSavedOnly ? "收藏的句子" : sentenceReviewOnly ? "待加强的句子" : "查找完整句库"}</h2><small>{sentenceSavedOnly || sentenceReviewOnly ? `${sentencePacksIncomplete ? "已载入 " : ""}${filteredSentences.length} 句` : sentenceSearch ? `${sentencePacksIncomplete ? "已载入 " : ""}${filteredSentences.length} 个结果` : "支持中英文"}</small></div>
         {sentenceReviewOnly && <p className="browser-hint">这里包含所有句长和场景。点一句开始复习，标记学会后会从这里移除。</p>}
         {(sentenceSavedOnly || sentenceReviewOnly) && <button className="browser-switch" onClick={() => openSentenceBrowser(false)}>‹ 返回句库搜索</button>}
         {!sentenceSavedOnly && !sentenceReviewOnly && <label className="sentence-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="搜索长短句" value={sentenceSearch} onChange={(event) => { setSentenceSearch(event.target.value); setSentenceResultLimit(30); }} placeholder="搜索英文或中文" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="search" /></label>}
-        {(sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly) && <div className="sentence-result-list">{sentenceLoading && !filteredSentences.length ? <p role="status">正在加载完整句库…</p> : filteredSentences.length ? <>{sentenceLoading && <p className="browser-hint" role="status">其余句库仍在加载，先显示已载入的结果。</p>}{filteredSentences.slice(0, sentenceResultLimit).map((item) => <button key={item.id} data-sentence-id={item.id} onClick={() => startSentenceSession(false, item)}><div><b lang="en">{item.text}</b><small>{item.translation}</small></div><i>›</i></button>)}<p className="sentence-result-count">已显示 {Math.min(sentenceResultLimit, filteredSentences.length)} / {filteredSentences.length} 句</p>{sentenceResultLimit < filteredSentences.length && <button className="library-more" onClick={() => setSentenceResultLimit((value) => value + 30)}>再显示 30 句</button>}</> : <p>{sentenceSavedOnly ? "还没有收藏句子。学习时点 ☆ 就能在这里找到。" : sentenceReviewOnly ? "当前没有待加强的句子。以后标记“还不熟悉”的句子会出现在这里。" : "没有找到相关句子，请换一个关键词。"}</p>}</div>}
+        {(sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly) && <div className="sentence-result-list">{sentencePacksIncomplete && !filteredSentences.length ? <p role="status">{sentenceLoading ? "正在加载完整句库…" : sentenceSavedOnly ? "收藏记录仍保留，相关句库尚未载入。请重试缺少的句库。" : sentenceReviewOnly ? "待加强记录仍保留，相关句库尚未载入。请重试缺少的句库。" : "句库尚未完整载入，暂时无法确认是否有匹配句子。请重试缺少的句库。"}</p> : filteredSentences.length ? <>{sentencePacksIncomplete && <p className="browser-hint" role="status">{sentenceLoading ? "其余句库仍在加载，先显示已载入的结果。" : "部分句库未载入，当前仅显示已载入的结果。"}</p>}{filteredSentences.slice(0, sentenceResultLimit).map((item) => <button key={item.id} data-sentence-id={item.id} onClick={() => startSentenceSession(false, item)}><div><b lang="en">{item.text}</b><small>{item.translation}</small></div><i>›</i></button>)}<p className="sentence-result-count">已显示 {Math.min(sentenceResultLimit, filteredSentences.length)} / {sentencePacksIncomplete ? "已载入 " : ""}{filteredSentences.length} 句</p>{sentenceResultLimit < filteredSentences.length && <button className="library-more" onClick={() => setSentenceResultLimit((value) => value + 30)}>再显示 30 句</button>}</> : <p>{sentenceSavedOnly ? "还没有收藏句子。学习时点 ☆ 就能在这里找到。" : sentenceReviewOnly ? "当前没有待加强的句子。以后标记“还不熟悉”的句子会出现在这里。" : "没有找到相关句子，请换一个关键词。"}</p>}</div>}
       </div>
       <div className="source-card sentence-license"><b>句库说明</b><p>共 3,000 组 Tatoeba 英汉对应句，短句、常用句、长句各 1,000 句。学习状态和当前卡片位置只保存在当前设备。</p><div><a href="https://tatoeba.org/en/downloads" target="_blank" rel="noreferrer">Tatoeba 数据与授权</a></div></div>
     </section>;
