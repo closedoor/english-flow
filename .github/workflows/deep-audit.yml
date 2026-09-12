@@ -9,8 +9,9 @@ permissions:
 
 jobs:
   audit:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       RENDER_EXTERNAL_URL: http://127.0.0.1:4173
       PLAYWRIGHT_MODULE: /tmp/english-flow-deep/node_modules/playwright/index.mjs
@@ -21,15 +22,35 @@ jobs:
         with:
           node-version: 22.13.0
           cache: npm
-      - run: npm ci
-      - run: npm run build:render
+      - name: Apply scoped product fixes
+        run: python3 .audit/apply-deep.py
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Unit, regression and production-build tests
+        run: npm test
+      - name: TypeScript, lint and explicit Render build
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run build:render
       - name: Install isolated browser audit tools
         run: |
           npm install --prefix /tmp/english-flow-deep --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
           node /tmp/english-flow-deep/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/deep-install.log 2>&1 || { tail -100 /tmp/deep-install.log; exit 1; }
-      - name: Reproduce current deep-audit failures
+      - name: Run all browser, recovery and accessibility scenarios
         run: |
           python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/deep-http.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
-          node .audit/deep-audit.mjs
+          npm run test:browser
+      - name: Save only verified product changes to the isolated branch
+        run: |
+          git add app/page.tsx app/globals.css scripts/browser-accessibility.mjs tests/deep-audit-regression.test.mjs package.json TESTING.md .github/workflows/validate.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'Verify in-page core recovery and WCAG contrast repairs'
+          git push origin HEAD:refs/heads/maintenance/deep-audit-20260912
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
