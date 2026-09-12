@@ -13,7 +13,7 @@
     "verify:production": "node scripts/verify-production.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "test:browser": "node scripts/browser-smoke.mjs && node scripts/browser-network.mjs && node scripts/browser-recovery.mjs",
+    "test:browser": "node scripts/browser-smoke.mjs && node scripts/browser-network.mjs && node scripts/browser-recovery.mjs && node scripts/browser-accessibility.mjs",
     "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
