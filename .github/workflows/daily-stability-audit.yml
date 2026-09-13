@@ -1,0 +1,79 @@
+name: Isolated daily stability audit
+
+on:
+  push:
+    branches: [maintenance/daily-stability-20260913]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-stability-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RENDER_EXTERNAL_URL: http://127.0.0.1:4173
+      PLAYWRIGHT_MODULE: /tmp/english-flow-daily/node_modules/playwright/index.mjs
+      AXE_SOURCE: /tmp/english-flow-daily/node_modules/axe-core/axe.min.js
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Build unchanged production source for baseline probes
+        run: npm run build:render
+      - name: Install isolated browser tools
+        run: |
+          npm install --prefix /tmp/english-flow-daily --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
+          node /tmp/english-flow-daily/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/daily-browser-install.log 2>&1 || { tail -100 /tmp/daily-browser-install.log; exit 1; }
+      - name: Reproduce stalled cache operations before fixing
+        run: |
+          set +e
+          node --test tests/cache-stall-runtime.test.mjs > /tmp/daily-cache-baseline.log 2>&1
+          STATUS=$?
+          set -e
+          cat /tmp/daily-cache-baseline.log
+          test "$STATUS" -ne 0
+      - name: Reproduce keyboard regressions in both engines before fixing
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/daily-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          set +e
+          DAILY_PROBE_ONLY=1 node scripts/browser-daily.mjs
+          STATUS=$?
+          set -e
+          test "$STATUS" -ne 0
+      - name: Apply minimal product fixes
+        run: python3 .audit/apply-daily.py
+      - name: Run all unit and regression tests
+        run: npm test
+      - name: Check types, lint and explicit Render build
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run build:render
+      - name: Run complete browser suites and daily-use journeys
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/daily-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          npm run test:browser
+      - name: Save verified product files to isolated branch only
+        run: |
+          git diff --exit-code package-lock.json render.yaml app/backup-data.ts app/session-utils.ts public/data
+          git add app/content-loader.ts app/page.tsx package.json TESTING.md tests/cache-stall-runtime.test.mjs scripts/browser-daily.mjs
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          git commit -m 'Verify daily-use cache deadlines and keyboard submission guards'
+          git push origin HEAD:refs/heads/maintenance/daily-stability-20260913
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
