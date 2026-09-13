@@ -27,7 +27,9 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - name: Apply scoped rapid-action fixes
-        run: python3 .audit/apply-rapid-actions.py
+        run: |
+          python3 .audit/apply-rapid-actions.py
+          python3 .audit/fix-rapid-test-harness.py
       - name: Install locked dependencies and lint tooling
         run: |
           npm ci --include=dev
@@ -61,7 +63,7 @@ jobs:
           exit "$STATUS"
       - name: Save verified product changes to the isolated branch
         run: |
-          git add app/page.tsx tests/rapid-actions-stability.test.mjs tests/session-selection.test.mjs TESTING.md
+          git add app/page.tsx tests/rapid-actions-stability.test.mjs tests/session-selection.test.mjs tests/progress-boundaries-runtime.test.mjs tests/sentence-browse-runtime.test.mjs TESTING.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git diff --cached --stat
