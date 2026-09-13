@@ -65,6 +65,7 @@ function harness(patch = {}) {
     requestAnimationFrame(callback) { frames.set(++nextFrame, callback); return nextFrame; },
     cancelAnimationFrame(id) { frames.delete(id); },
     scrollTo(options) { window.scrollY = options.top; scrollCalls.push({ ...options }); },
+    setTimeout(callback) { callback(); return 1; },
   };
   const buttons = new Map(items.map((item) => [item.id, {
     focus(options) { focusCalls.push({ target: item.id, ...options }); },
@@ -107,6 +108,7 @@ function harness(patch = {}) {
     sentencePacks: { 1: items.slice(0, 50), 2: [], 3: items.slice(50) },
     SENTENCE_PACK_BY_BAND: { short: 1, medium: 2, long: 3 },
     practiceRotationRef: { current: { word: 0, sentence: 0, pattern: 0 } },
+    wordStartLock: { current: false }, sentenceStartLock: { current: false }, patternStartLock: { current: false },
     STORAGE: { practiceRotation: "rotation", sentencePreferences: "preferences" },
     writeJson(key, value) { writes.push([key, JSON.parse(JSON.stringify(value))]); },
     takeRotatedSpread,

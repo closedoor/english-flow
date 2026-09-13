@@ -67,6 +67,8 @@ test("fast repeated taps cannot rate the same card or submit a quiz twice", () =
   assert.match(page, /if \(quizActionLock\.current\.submitted >= quizIndex\) return/);
   assert.match(page, /quizActionLock\.current\.advanced >= quizIndex/);
   assert.match(page, /if \(reviewActionLock\.current\) return/);
+  assert.match(page, /sentenceActionLock\.current === sentenceId/);
+  assert.match(page, /patternActionLock\.current === patternId/);
 });
 
 test("major screen transitions return to the top", () => {

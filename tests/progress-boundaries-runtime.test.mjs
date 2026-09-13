@@ -72,6 +72,8 @@ function markReading(completed, days = []) {
   const result = { completed: [...completed], days: [...days] };
   vm.runInNewContext(readingHandler, {
     readingCompleted: completed,
+    readingCompletionLock: { current: null },
+    window: { setTimeout(callback) { callback(); } },
     Date: class extends Date { constructor(...args) { super(...(args.length ? args : ["2026-09-05T12:00:00"])); } },
     setReadingCompleted: (update) => { result.completed = [...update(result.completed)]; },
     setReadingLast() {},

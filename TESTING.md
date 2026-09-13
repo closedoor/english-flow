@@ -66,3 +66,8 @@ The normal browser suite also exercises fast, real-world mobile behavior in Chro
 - accepting a fast intentional rating on the next card while still rejecting duplicate taps on the same card;
 - completing a full ten-word session, repeated navigation and viewport rotation;
 - keeping the primary learning action reachable in a short landscape viewport while offline.
+
+
+## Rapid-action and accidental double-tap coverage
+
+Chromium and WebKit now verify that accidental double taps cannot start two sessions, reverse a reading completion, duplicate a sentence favorite or download two backups. Rating protection is scoped to the current word, sentence or pattern, so a fast intentional action on the next item remains usable.

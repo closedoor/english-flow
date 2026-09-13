@@ -509,8 +509,13 @@ export default function Home() {
   const hasOpenDialog = activeDialog !== null;
   const touchStart = useRef<{ x: number; y: number; identifier: number } | null>(null);
   const cardActionLock = useRef<number | null>(null);
-  const sentenceActionLock = useRef(false);
-  const patternActionLock = useRef(false);
+  const sentenceActionLock = useRef<number | null>(null);
+  const patternActionLock = useRef<string | null>(null);
+  const wordStartLock = useRef(false);
+  const sentenceStartLock = useRef(false);
+  const patternStartLock = useRef(false);
+  const readingCompletionLock = useRef<string | null>(null);
+  const sentenceSaveLock = useRef<number | null>(null);
   const quizActionLock = useRef({ submitted: -1, advanced: -1 });
   const reviewActionLock = useRef(false);
   const quizInputRef = useRef<HTMLInputElement | null>(null);
@@ -1401,10 +1406,31 @@ export default function Home() {
   };
 
   const toggleReadingCompleted = (reading: ReadingItem) => {
-    setReadingCompleted((current) => current.includes(reading.id) ? current.filter((id) => id !== reading.id) : [...current, reading.id]);
+    const readingId = reading.id;
+    if (readingCompletionLock.current === readingId) return;
+    readingCompletionLock.current = readingId;
+    window.setTimeout(() => {
+      if (readingCompletionLock.current === readingId) readingCompletionLock.current = null;
+    }, 350);
+    const completing = !readingCompleted.includes(readingId);
+    setReadingCompleted((current) => completing
+      ? current.includes(readingId) ? current : [...current, readingId]
+      : current.filter((id) => id !== readingId));
     // Reading recency intentionally uses the wall clock after a user action.
-    setReadingLast({ id: reading.id, updatedAt: Date.now() });
-    if (!readingCompleted.includes(reading.id)) noteStudyDay();
+    setReadingLast({ id: readingId, updatedAt: Date.now() });
+    if (completing) noteStudyDay();
+  };
+
+  const toggleSentenceSaved = (sentenceId: number) => {
+    if (sentenceSaveLock.current === sentenceId) return;
+    sentenceSaveLock.current = sentenceId;
+    window.setTimeout(() => {
+      if (sentenceSaveLock.current === sentenceId) sentenceSaveLock.current = null;
+    }, 350);
+    const saving = !sentenceSaved.includes(sentenceId);
+    setSentenceSaved((items) => saving
+      ? items.includes(sentenceId) ? items : [...items, sentenceId]
+      : items.filter((id) => id !== sentenceId));
   };
 
   const retryReadingQuestion = (readingId: string, optionIndex: number) => {
@@ -1688,6 +1714,9 @@ export default function Home() {
   };
 
   const startSession = (pathOverride?: LearnPath, modeOverride?: LearnMode, countOverride?: 10 | 20) => {
+    if (wordStartLock.current) return;
+    wordStartLock.current = true;
+    window.setTimeout(() => { wordStartLock.current = false; }, 350);
     wordBrowserOriginRef.current = null;
     wordBrowserReturnRef.current = false;
     const selectedPath = pathOverride ?? path;
@@ -1898,6 +1927,9 @@ export default function Home() {
   };
 
   const beginSentenceSession = (reviewOnly = false, singleSentence?: SentenceItem) => {
+    if (sentenceStartLock.current) return;
+    sentenceStartLock.current = true;
+    window.setTimeout(() => { sentenceStartLock.current = false; }, 350);
     const source = singleSentence ? [singleSentence] : sentencePacks[SENTENCE_PACK_BY_BAND[sentenceBand]] ?? [];
     const categoryPool = source.filter((item) => sentenceCategory === "all" || item.category === sentenceCategory);
     const masteredIds = new Set(sentenceMastered);
@@ -1968,9 +2000,13 @@ export default function Home() {
   };
 
   const finishSentenceCard = (known: boolean) => {
-    if (!currentSentence || sentenceActionLock.current) return;
-    sentenceActionLock.current = true;
-    window.setTimeout(() => { sentenceActionLock.current = false; }, 350);
+    if (!currentSentence) return;
+    const sentenceId = currentSentence.id;
+    if (sentenceActionLock.current === sentenceId) return;
+    sentenceActionLock.current = sentenceId;
+    window.setTimeout(() => {
+      if (sentenceActionLock.current === sentenceId) sentenceActionLock.current = null;
+    }, 350);
     noteStudyDay();
     markSentenceSeen(currentSentence.id);
     if (known) {
@@ -2013,6 +2049,9 @@ export default function Home() {
   };
 
   const beginPatternSession = (reviewOnly = false) => {
+    if (patternStartLock.current) return;
+    patternStartLock.current = true;
+    window.setTimeout(() => { patternStartLock.current = false; }, 350);
     const masteredIds = new Set(patternMastered);
     const difficultIds = new Set(patternDifficult);
     const source = availablePatterns;
@@ -2065,9 +2104,13 @@ export default function Home() {
   };
 
   const finishPattern = (known: boolean) => {
-    if (!currentPattern || patternActionLock.current) return;
-    patternActionLock.current = true;
-    window.setTimeout(() => { patternActionLock.current = false; }, 350);
+    if (!currentPattern) return;
+    const patternId = currentPattern.id;
+    if (patternActionLock.current === patternId) return;
+    patternActionLock.current = patternId;
+    window.setTimeout(() => {
+      if (patternActionLock.current === patternId) patternActionLock.current = null;
+    }, 350);
     noteStudyDay();
     if (known) {
       setPatternMastered((items) => items.includes(currentPattern.id) ? items : [...items, currentPattern.id]);
@@ -2156,7 +2199,7 @@ export default function Home() {
       <header className="compact-header"><button className="round-button" onClick={restoreSentenceSetupPreferences} aria-label="返回句库设置并保留进度">‹</button><div><p className="eyebrow">{sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label}</p><h1>{sentenceMode === "speak" ? "看中文说英文" : "句子卡片"}</h1></div><button className="round-button" disabled={!currentSentence || (sentenceMode === "speak" && !sentenceTranslationOpen)} onClick={() => currentSentence && playSpeech(currentSentence.text, .68)} aria-label="慢速播放">0.7×</button></header>
       <div className="session-progress" role="progressbar" aria-label="本组句子学习进度" aria-valuemin={0} aria-valuemax={sentenceSessionIds.length} aria-valuenow={ratedSentenceCount}><span style={{ width: `${sentenceSessionIds.length ? ratedSentenceCount / sentenceSessionIds.length * 100 : 0}%` }} /></div><p className="card-count" aria-live="polite">第 {safeSentenceIndex + 1} 张 · 已标记 {ratedSentenceCount} / {sentenceSessionIds.length}</p>
       {sentenceLoadError ? <div className="sentence-card-loading sentence-card-error" role="alert"><div><b>{networkOnline ? "这组句子暂时无法恢复" : "网络已断开，联网后会自动恢复这组句子"}</b><button onClick={() => window.location.reload()}>重新载入页面</button></div></div> : sentenceLoading || !currentSentence ? <div className="sentence-card-loading" role="status">正在恢复这组句子…</div> : <div className="sentence-card sentence-study-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => endCardSwipe(event, moveSentence)} onTouchCancel={() => { touchStart.current = null; }}>
-        <div className="sentence-card-top"><span>{currentSentence.length === "short" ? "短句" : currentSentence.length === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === currentSentence.category)?.label}</span><button className={currentSentenceSaved ? "saved" : ""} aria-label={currentSentenceSaved ? "取消收藏" : "收藏句子"} onClick={() => setSentenceSaved((items) => currentSentenceSaved ? items.filter((id) => id !== currentSentence.id) : [...items, currentSentence.id])}>{currentSentenceSaved ? "★" : "☆"}</button></div>
+        <div className="sentence-card-top"><span>{currentSentence.length === "short" ? "短句" : currentSentence.length === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === currentSentence.category)?.label}</span><button className={currentSentenceSaved ? "saved" : ""} aria-label={currentSentenceSaved ? "取消收藏" : "收藏句子"} onClick={() => toggleSentenceSaved(currentSentence.id)}>{currentSentenceSaved ? "★" : "☆"}</button></div>
         {sentenceMode === "bilingual" ? <><button className="sentence-listen" onClick={() => playSpeech(currentSentence.text, .76)}><span aria-hidden="true">♪</span><b>播放英文</b><small>系统英文语音 · 慢速</small></button><p lang="en" className="sentence-english">{currentSentence.text}</p><button className="sentence-translation-toggle" aria-expanded={sentenceTranslationOpen} onClick={() => setSentenceTranslationOpen((open) => !open)}>{sentenceTranslationOpen ? currentSentence.translation : "点击显示中文翻译"}</button></> : <><div className="speak-prompt"><span>先不要看答案</span><small>看中文，自己完整说出英文</small><p>{currentSentence.translation}</p></div>{sentenceTranslationOpen ? <div id={`sentence-answer-${currentSentence.id}`} ref={sentenceAnswerRef} className="speak-answer" tabIndex={-1} role="status" aria-live="polite" aria-atomic="true"><span>英文答案</span><p lang="en" className="sentence-english">{currentSentence.text}</p><button className="sentence-listen" onClick={() => playSpeech(currentSentence.text, .76)}><span aria-hidden="true">♪</span><b>播放英文</b><small>听一遍核对表达</small></button></div> : <button className="reveal-answer" aria-expanded="false" aria-controls={`sentence-answer-${currentSentence.id}`} onClick={() => setSentenceTranslationOpen(true)}>我说好了，查看英文答案</button>}</>}
         {(sentenceMode === "bilingual" || sentenceTranslationOpen) && <div className="sentence-source">{currentSentence.adapted ? "学习化整理自：" : "来源："}<a href={`https://tatoeba.org/en/sentences/show/${currentSentence.sourceId}`} target="_blank" rel="noreferrer">Tatoeba #{currentSentence.sourceId}</a>{currentSentence.adapted ? <> · 原始英/中贡献者：{currentSentence.author} / {currentSentence.translationAuthor}</> : <> · 英文 {currentSentence.author} · 中文 {currentSentence.translationAuthor}</>}</div>}
       </div>}
