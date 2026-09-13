@@ -31,6 +31,36 @@ for old, new in replacements:
 
 page_path.write_text(page)
 
+backup_test_path = Path("tests/backup-actions-runtime.test.mjs")
+backup_test = backup_test_path.read_text()
+old_backup_context = "      backupActionLock: lock, setBackupBusy: (value) => busy.push(value),"
+new_backup_context = "      backupActionLock: lock, backupExportStartedAtRef: { current: 0 }, setBackupBusy: (value) => busy.push(value),"
+if backup_test.count(old_backup_context) != 1:
+    raise SystemExit("Unexpected backup runtime harness")
+backup_test_path.write_text(backup_test.replace(old_backup_context, new_backup_context))
+
+session_test_path = Path("tests/session-selection.test.mjs")
+session_test = session_test_path.read_text()
+old_session_test = '''test("fast repeated taps cannot rate multiple cards or quiz answers", () => {
+  assert.match(page, /if \\(cardActionLock\\.current\\) return/);
+  assert.match(page, /if \\(quizActionLock\\.current\\.submitted >= quizIndex\\) return/);
+  assert.match(page, /quizActionLock\\.current\\.advanced >= quizIndex/);
+  assert.match(page, /if \\(reviewActionLock\\.current\\) return/);
+  assert.match(page, /setTimeout\\(\\(\\) => \\{ cardActionLock\\.current = false; \\}, 350\\)/);
+});'''
+new_session_test = '''test("fast repeated taps cannot rate the same card or submit a quiz twice", () => {
+  assert.match(page, /const cardId = current\\.id/);
+  assert.match(page, /if \\(cardActionLock\\.current === cardId\\) return/);
+  assert.match(page, /if \\(cardActionLock\\.current === cardId\\) cardActionLock\\.current = null/);
+  assert.doesNotMatch(page, /if \\(cardActionLock\\.current\\) return/);
+  assert.match(page, /if \\(quizActionLock\\.current\\.submitted >= quizIndex\\) return/);
+  assert.match(page, /quizActionLock\\.current\\.advanced >= quizIndex/);
+  assert.match(page, /if \\(reviewActionLock\\.current\\) return/);
+});'''
+if session_test.count(old_session_test) != 1:
+    raise SystemExit("Unexpected repeated-tap regression block")
+session_test_path.write_text(session_test.replace(old_session_test, new_session_test))
+
 source = Path(".audit/daily-use-audit.mjs").read_text()
 Path("scripts/browser-daily-use.mjs").write_text(source)
 
@@ -62,4 +92,4 @@ The normal browser suite also exercises fast, real-world mobile behavior in Chro
 """
     testing_path.write_text(testing)
 
-print("Applied scoped backup-export and per-card interaction guards; added permanent daily-use browser coverage.")
+print("Applied scoped backup-export and per-card interaction guards; updated legacy regressions and permanent daily-use coverage.")
