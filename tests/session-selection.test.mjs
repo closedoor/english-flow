@@ -59,12 +59,14 @@ test("new NGSL words advance before difficult and completed words", () => {
   assert.match(startSession, /practiceRotationRef\.current\.word/);
 });
 
-test("fast repeated taps cannot rate multiple cards or quiz answers", () => {
-  assert.match(page, /if \(cardActionLock\.current\) return/);
+test("fast repeated taps cannot rate the same card or submit a quiz twice", () => {
+  assert.match(page, /const cardId = current\.id/);
+  assert.match(page, /if \(cardActionLock\.current === cardId\) return/);
+  assert.match(page, /if \(cardActionLock\.current === cardId\) cardActionLock\.current = null/);
+  assert.doesNotMatch(page, /if \(cardActionLock\.current\) return/);
   assert.match(page, /if \(quizActionLock\.current\.submitted >= quizIndex\) return/);
   assert.match(page, /quizActionLock\.current\.advanced >= quizIndex/);
   assert.match(page, /if \(reviewActionLock\.current\) return/);
-  assert.match(page, /setTimeout\(\(\) => \{ cardActionLock\.current = false; \}, 350\)/);
 });
 
 test("major screen transitions return to the top", () => {

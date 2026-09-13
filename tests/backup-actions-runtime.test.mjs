@@ -55,7 +55,7 @@ test("export includes unsaved learning and paused sessions even when storage is 
     await vm.runInNewContext(exportCode, {
       ...current, ...backup, window: browserWindow, File,
       navigator: { canShare: () => true, share: async (payload) => { file = payload.files[0]; } },
-      backupActionLock: lock, setBackupBusy: (value) => busy.push(value),
+      backupActionLock: lock, backupExportStartedAtRef: { current: 0 }, setBackupBusy: (value) => busy.push(value),
       setBackupNotice: (value) => { notice = value; },
     });
     const exported = JSON.parse(await file.text());

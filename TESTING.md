@@ -54,3 +54,15 @@ The standard validation job now also runs an explicit TypeScript check (`npm run
 ## Core-content recovery and accessibility
 
 The browser command injects a transient failure into one NGSL data pack in Chromium and WebKit. It verifies that the loading screen can retry inside the same document, preserve local records, reuse the packs already cached successfully and still retain full-page reload as a fallback. The suite also checks reduced-motion behavior and runs axe-core WCAG A/AA rules on the six primary screens after their lazy content is ready. Critical or serious violations fail CI. The audit dependency remains isolated from the application dependency graph and does not change the lock file or production bundle.
+
+
+## Daily-use stability coverage
+
+The normal browser suite also exercises fast, real-world mobile behavior in Chromium and WebKit:
+
+- reconnecting after a core word pack fails while the device is offline;
+- preserving a rating when the learner refreshes immediately after tapping;
+- preventing an accidental double-tap from downloading duplicate backup files;
+- accepting a fast intentional rating on the next card while still rejecting duplicate taps on the same card;
+- completing a full ten-word session, repeated navigation and viewport rotation;
+- keeping the primary learning action reachable in a short landscape viewport while offline.

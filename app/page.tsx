@@ -508,7 +508,7 @@ export default function Home() {
   const activeDialog = externalUpdateDetected ? "sync" : pendingBackup ? "restore" : resetProgressOpen ? "reset" : discardRequest ? "discard" : installOpen ? "install" : null;
   const hasOpenDialog = activeDialog !== null;
   const touchStart = useRef<{ x: number; y: number; identifier: number } | null>(null);
-  const cardActionLock = useRef(false);
+  const cardActionLock = useRef<number | null>(null);
   const sentenceActionLock = useRef(false);
   const patternActionLock = useRef(false);
   const quizActionLock = useRef({ submitted: -1, advanced: -1 });
@@ -544,6 +544,7 @@ export default function Home() {
   const resultPrimaryRef = useRef<HTMLButtonElement | null>(null);
   const backupInputRef = useRef<HTMLInputElement | null>(null);
   const backupActionLock = useRef(false);
+  const backupExportStartedAtRef = useRef(0);
   const backupReadRequestRef = useRef(0);
   const statusToastRef = useRef<HTMLDivElement | null>(null);
   const sentenceResumeSnapshotRef = useRef<SentenceSessionSnapshot | null>(null);
@@ -1460,7 +1461,9 @@ export default function Home() {
   };
 
   const exportLearningBackup = async () => {
-    if (backupActionLock.current) return;
+    const startedAt = Date.now();
+    if (backupActionLock.current || startedAt - backupExportStartedAtRef.current < 750) return;
+    backupExportStartedAtRef.current = startedAt;
     backupActionLock.current = true;
     setBackupBusy("export");
     try {
@@ -1742,9 +1745,12 @@ export default function Home() {
   };
 
   const finishCard = (known: boolean) => {
-    if (cardActionLock.current) return;
-    cardActionLock.current = true;
-    window.setTimeout(() => { cardActionLock.current = false; }, 350);
+    const cardId = current.id;
+    if (cardActionLock.current === cardId) return;
+    cardActionLock.current = cardId;
+    window.setTimeout(() => {
+      if (cardActionLock.current === cardId) cardActionLock.current = null;
+    }, 350);
     noteStudyDay();
     if (known) markMastered(current.id); else addDifficult(current.id);
     const nextRatings = { ...cardRatings, [current.id]: known ? "known" as const : "difficult" as const };
