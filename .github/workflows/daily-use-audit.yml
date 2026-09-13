@@ -30,8 +30,19 @@ jobs:
         run: python3 .audit/apply-daily-stability.py
       - name: Install locked dependencies
         run: npm ci
-      - name: Run unit and regression tests
-        run: npm test
+      - name: Verify new daily-use regressions
+        run: node --test tests/daily-use-stability.test.mjs
+      - name: Run complete unit and regression suite
+        run: |
+          set +e
+          npm test > /tmp/npm-test.log 2>&1
+          STATUS=$?
+          if [ "$STATUS" -ne 0 ]; then
+            grep -n -B 12 -A 45 -E "not ok|ERR_ASSERTION|Error:" /tmp/npm-test.log | tail -260 || tail -260 /tmp/npm-test.log
+          else
+            tail -35 /tmp/npm-test.log
+          fi
+          exit "$STATUS"
       - name: Run type, lint and explicit Render checks
         run: |
           npm run typecheck
