@@ -5,7 +5,7 @@ on:
     branches: [maintenance/daily-use-stability-20260913]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: daily-use-stability-${{ github.ref }}
@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   audit:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -25,6 +26,8 @@ jobs:
         with:
           node-version: 22.13.0
           cache: npm
+      - name: Apply scoped rapid-action fixes
+        run: python3 .audit/apply-rapid-actions.py
       - name: Install locked dependencies and lint tooling
         run: |
           npm ci --include=dev
@@ -56,3 +59,12 @@ jobs:
             grep -E 'SUMMARY|AXE_SERIOUS' /tmp/browser-tests.log
           fi
           exit "$STATUS"
+      - name: Save verified product changes to the isolated branch
+        run: |
+          git add app/page.tsx tests/rapid-actions-stability.test.mjs tests/session-selection.test.mjs TESTING.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'Stabilize rapid starts, ratings and toggles'
+          git push origin HEAD:refs/heads/maintenance/daily-use-stability-20260913
