@@ -1,0 +1,38 @@
+name: Daily-use stability audit
+
+on:
+  push:
+    branches: [maintenance/daily-use-stability-20260913]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-use-stability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_MODULE: /tmp/english-flow-daily/node_modules/playwright/index.mjs
+      RENDER_EXTERNAL_URL: http://127.0.0.1:4173
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build:render
+      - name: Install isolated browser tools
+        run: |
+          npm install --prefix /tmp/english-flow-daily --no-save --package-lock=false playwright@1.56.1
+          node /tmp/english-flow-daily/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/daily-browser-install.log 2>&1 || { tail -100 /tmp/daily-browser-install.log; exit 1; }
+      - name: Exercise daily-use and stability scenarios
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/daily-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          node .audit/daily-use-audit.mjs
