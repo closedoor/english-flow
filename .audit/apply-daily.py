@@ -13,7 +13,7 @@ helper = '''// Cache Storage has no AbortSignal. Bound each cache phase separate
 // Promise.race observes late rejections too; timed-out operations are never
 // treated as a confirmed offline save, and no learning records are touched.
 async function withinCacheDeadline<T>(operation: Promise<T>): Promise<T> {
-  let timeout: ReturnType<typeof window.setTimeout> | undefined;
+  let timeout: number | undefined;
   try {
     return await Promise.race([
       operation,
