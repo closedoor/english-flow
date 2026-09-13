@@ -5,7 +5,7 @@ on:
     branches: [maintenance/daily-use-stability-20260913]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: daily-use-stability-${{ github.ref }}
@@ -13,7 +13,6 @@ concurrency:
 
 jobs:
   audit:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -26,23 +25,10 @@ jobs:
         with:
           node-version: 22.13.0
           cache: npm
-      - name: Apply scoped product fixes
-        run: python3 .audit/apply-daily-stability.py
       - name: Install locked dependencies
         run: npm ci
-      - name: Verify new daily-use regressions
-        run: node --test tests/daily-use-stability.test.mjs
       - name: Run complete unit and regression suite
-        run: |
-          set +e
-          npm test > /tmp/npm-test.log 2>&1
-          STATUS=$?
-          if [ "$STATUS" -ne 0 ]; then
-            grep -n -B 12 -A 45 -E "not ok|ERR_ASSERTION|Error:" /tmp/npm-test.log | tail -260 || tail -260 /tmp/npm-test.log
-          else
-            tail -35 /tmp/npm-test.log
-          fi
-          exit "$STATUS"
+        run: npm test
       - name: Run type, lint and explicit Render checks
         run: |
           npm run typecheck
@@ -58,12 +44,3 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
           npm run test:browser
-      - name: Save verified product changes to the isolated branch
-        run: |
-          git add app/page.tsx scripts/browser-daily-use.mjs tests/daily-use-stability.test.mjs tests/backup-actions-runtime.test.mjs tests/session-selection.test.mjs package.json TESTING.md
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git diff --cached --stat
-          test -n "$(git diff --cached --name-only)"
-          git commit -m 'Harden rapid card actions and backup export'
-          git push origin HEAD:refs/heads/maintenance/daily-use-stability-20260913
