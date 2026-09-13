@@ -26,7 +26,7 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - name: Install locked dependencies
-        run: npm ci
+        run: npm ci --include=dev
       - name: Run complete unit and regression suite
         run: npm test
       - name: Run type, lint and explicit Render checks
@@ -43,4 +43,12 @@ jobs:
           python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/daily-http.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
-          npm run test:browser
+          set +e
+          npm run test:browser > /tmp/browser-tests.log 2>&1
+          STATUS=$?
+          if [ "$STATUS" -ne 0 ]; then
+            grep -n -B 8 -A 28 -E '"status":"FAIL"|ERR_ASSERTION|RAPID_ACTIONS_SUMMARY|DAILY_USE_AUDIT_SUMMARY' /tmp/browser-tests.log | tail -320 || tail -320 /tmp/browser-tests.log
+          else
+            grep -E 'SUMMARY|AXE_SERIOUS' /tmp/browser-tests.log
+          fi
+          exit "$STATUS"
