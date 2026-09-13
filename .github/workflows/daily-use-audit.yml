@@ -60,7 +60,7 @@ jobs:
           npm run test:browser
       - name: Save verified product changes to the isolated branch
         run: |
-          git add app/page.tsx scripts/browser-daily-use.mjs tests/daily-use-stability.test.mjs package.json TESTING.md
+          git add app/page.tsx scripts/browser-daily-use.mjs tests/daily-use-stability.test.mjs tests/backup-actions-runtime.test.mjs tests/session-selection.test.mjs package.json TESTING.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git diff --cached --stat
