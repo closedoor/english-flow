@@ -4,6 +4,7 @@ export const CONTENT_REVISION = configuredRevision && /^[a-z0-9-]+$/i.test(confi
 const CONTENT_CACHE_PREFIX = "english-flow-content-";
 const CONTENT_CACHE_NAME = `${CONTENT_CACHE_PREFIX}${CONTENT_REVISION}`;
 const DEFAULT_TIMEOUT = 8_000;
+const CACHE_TIMEOUT = 2_000;
 const RETRY_DELAYS = [0, 500, 1_500] as const;
 const OFFLINE_CACHE_ERROR_EVENT = "english-flow-offline-cache-error";
 
@@ -11,6 +12,24 @@ type JsonValidator<T> = (value: unknown) => value is T;
 
 function wait(milliseconds: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+// Cache Storage has no AbortSignal. Bound each cache phase separately so a
+// stalled disk read/write cannot block usable online content indefinitely.
+// Promise.race observes late rejections too; timed-out operations are never
+// treated as a confirmed offline save, and no learning records are touched.
+async function withinCacheDeadline<T>(operation: Promise<T>): Promise<T> {
+  let timeout: number | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = window.setTimeout(() => reject(new Error("Cache operation timed out")), CACHE_TIMEOUT);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) window.clearTimeout(timeout);
+  }
 }
 
 async function parseValidatedJson<T>(response: Response, validate: JsonValidator<T>) {
@@ -107,27 +126,28 @@ async function rememberResponse(url: string, response: Response) {
     return false;
   }
   try {
-    const cache = await caches.open(CONTENT_CACHE_NAME);
-    await cache.put(url, response);
+    await withinCacheDeadline((async () => {
+      const cache = await caches.open(CONTENT_CACHE_NAME);
+      await cache.put(url, response);
+    })());
   } catch {
-    // Network content remains usable for this visit, but it was not saved for
-    // offline use. This is the only failure that should show the warning.
+    // Network content remains usable for this visit, but its offline save could not be confirmed in time. Read and cleanup timeouts must not trigger this warning.
     window.dispatchEvent?.(new Event(OFFLINE_CACHE_ERROR_EVENT));
     return false;
   }
   // Removing older duplicates is only storage housekeeping. A cleanup failure
   // must not claim that the newly written offline copy was lost.
-  await removeLegacyCopies(url).catch(() => undefined);
+  await withinCacheDeadline(removeLegacyCopies(url)).catch(() => undefined);
   return true;
 }
 
 export async function fetchJsonWithRecovery<T>(url: string, validate: JsonValidator<T>) {
-  const cached = await currentCachedJson(url, validate);
+  const cached = await withinCacheDeadline(currentCachedJson(url, validate)).catch(() => null);
   if (cached !== null) return cached;
 
   // Keep a validated previous revision ready. On captive or unreachable Wi-Fi,
   // one short refresh attempt is enough before showing the usable offline copy.
-  const fallback = await legacyCachedJson(url, validate);
+  const fallback = await withinCacheDeadline(legacyCachedJson(url, validate)).catch(() => null);
   const retryDelays = fallback === null ? RETRY_DELAYS : [0] as const;
 
   let lastError: unknown = new Error("Learning content is unavailable");
