@@ -5,7 +5,7 @@ on:
     branches: [maintenance/daily-use-stability-20260913]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: daily-use-stability-${{ github.ref }}
@@ -13,10 +13,12 @@ concurrency:
 
 jobs:
   audit:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       PLAYWRIGHT_MODULE: /tmp/english-flow-daily/node_modules/playwright/index.mjs
+      AXE_SOURCE: /tmp/english-flow-daily/node_modules/axe-core/axe.min.js
       RENDER_EXTERNAL_URL: http://127.0.0.1:4173
     steps:
       - uses: actions/checkout@v7
@@ -24,15 +26,33 @@ jobs:
         with:
           node-version: 22.13.0
           cache: npm
-      - run: npm ci
-      - run: npm run build:render
+      - name: Apply scoped product fixes
+        run: python3 .audit/apply-daily-stability.py
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run unit and regression tests
+        run: npm test
+      - name: Run type, lint and explicit Render checks
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run build:render
       - name: Install isolated browser tools
         run: |
-          npm install --prefix /tmp/english-flow-daily --no-save --package-lock=false playwright@1.56.1
+          npm install --prefix /tmp/english-flow-daily --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
           node /tmp/english-flow-daily/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/daily-browser-install.log 2>&1 || { tail -100 /tmp/daily-browser-install.log; exit 1; }
-      - name: Exercise daily-use and stability scenarios
+      - name: Run all browser, recovery, accessibility and daily-use scenarios
         run: |
           python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/daily-http.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
-          node .audit/daily-use-audit.mjs
+          npm run test:browser
+      - name: Save verified product changes to the isolated branch
+        run: |
+          git add app/page.tsx scripts/browser-daily-use.mjs tests/daily-use-stability.test.mjs package.json TESTING.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'Harden rapid card actions and backup export'
+          git push origin HEAD:refs/heads/maintenance/daily-use-stability-20260913
