@@ -22,6 +22,16 @@ p.write_text(once(s, old, new))
 
 p=Path('scripts/browser-autoplay.mjs')
 s=p.read_text()
+# React may delegate at document level, so its handler must run before the
+# fixture's bubble cleanup. Automation evaluation may itself confer browser
+# activation; model activation only from the explicitly exercised input here.
+s=once(s, 'gesture:false, fail:false', 'gesture:false, activated:false, fail:false') if 'gesture:false, fail:false' in s else once(s, 'gesture:false,fail:false', 'gesture:false,activated:false,fail:false')
+s=once(s, '      window.__speech=state;', '''      window.__speech=state;
+      Object.defineProperty(navigator,'userActivation',{configurable:true,value:{
+        get hasBeenActive(){return state.activated;},get isActive(){return state.gesture;}
+      }});''')
+s=once(s, "document.addEventListener(event,()=>{state.gesture=true;},true);", "document.addEventListener(event,()=>{state.gesture=true;state.activated=true;},true);")
+s=once(s, "document.addEventListener(event,()=>{state.gesture=false;});", "window.addEventListener(event,()=>{state.gesture=false;});")
 extra='''  await check('horizontal-swipe-starts-current-example-without-old-callbacks',async page=>{
     await begin(page);await count(page,1);
     await page.locator('.word-card').evaluate(card=>{
@@ -43,4 +53,4 @@ extra='''  await check('horizontal-swipe-starts-current-example-without-old-call
   });
 '''
 p.write_text(once(s, "  await check('manual-audio-interrupts-repetition-without-restarting-it'", extra + "  await check('manual-audio-interrupts-repetition-without-restarting-it'"))
-print('Updated extracted-handler fixtures and added swipe/modal autoplay cases without removing assertions.')
+print('Updated extracted-handler fixtures and added deterministic activation, swipe/modal autoplay cases without removing assertions.')
