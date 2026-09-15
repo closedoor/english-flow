@@ -48,7 +48,7 @@ for(const engine of ['chromium','webkit']){
   }
   if(process.env.SETUP_START_BASELINE==='1'){
     await check('before-change-positions',async page=>{
-      for(const module of ['学习','句库']){await nav(page,module);await enabled(page);console.log('SETUP_START_BASELINE',JSON.stringify({engine,module,...await topStart(page)}));}
+      for(const tabLabel of ['学习','句库']){await nav(page,tabLabel);await enabled(page);console.log('SETUP_START_BASELINE',JSON.stringify({engine,tabLabel,...await topStart(page)}));}
     });
     await browser.close();continue;
   }
