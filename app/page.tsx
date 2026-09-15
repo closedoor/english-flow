@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { scenes, type SceneId, type WordItem } from "./data";
 import { corePatterns, patternCategories, type PatternCategory } from "./pattern-data";
 import { BACKUP_MAX_BYTES, createLearningBackup, isLearningBackup, restoreLearningBackupData, type LearningBackup } from "./backup-data";
-import { isSpeechSupported, SPEECH_ERROR_EVENT, SPEECH_PLAYBACK_EVENT, speak, startSegmentedSpeech, stopSpeech, toggleSegmentedSpeech, type SpeechPlaybackState } from "./speech-playback";
+import { isSpeechSupported, SPEECH_ERROR_EVENT, SPEECH_PLAYBACK_EVENT, speak, startRepeatedSpeech, startSegmentedSpeech, stopSpeech, toggleSegmentedSpeech, type SpeechPlaybackState } from "./speech-playback";
 import { blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, takeRotatedSpread } from "./session-utils";
 
 type Tab = "home" | "learn" | "sentences" | "read" | "review" | "progress";
@@ -422,6 +422,9 @@ export default function Home() {
   const [preferences, setPreferences] = useState<SessionPreferences>({ mode: "test", count: 10, path: "frequency" });
   const { mode, count, path } = preferences;
   const [sessionMode, setSessionMode] = useState<LearnMode>("test");
+  // This visit's playback choice deliberately stays outside learning backups.
+  const [autoWordExamples, setAutoWordExamples] = useState(true);
+  const wordExampleStartedRef = useRef<string | null>(null);
   const [wordSessionKind, setWordSessionKind] = useState<"group" | "lookup">("group");
   const [sessionPath, setSessionPath] = useState<LearnPath>("frequency");
   const [sessionWords, setSessionWords] = useState<WordItem[]>([]);
@@ -1239,12 +1242,31 @@ export default function Home() {
   }, [tab, reviewView]);
 
   useEffect(() => {
+    const automatic = hydrated && autoWordExamples && !hasOpenDialog && tab === "learn"
+      && learnStage === "cards" && sessionPath === "frequency" && wordSessionKind === "group" && current;
+    const signature = current ? `${current.id}:${current.example}` : null;
+    // iOS needs the first utterance in a real input handler. Do not cancel the
+    // new card's already-started queue when React commits that same transition.
+    if (automatic && signature && wordExampleStartedRef.current === signature) {
+      wordExampleStartedRef.current = null;
+      return;
+    }
+    wordExampleStartedRef.current = null;
+    stopSpeech();
+    // A restored page may not have audio permission yet. Keep the explicit
+    // replay control usable instead of repeatedly prompting or faking a click.
+    if (automatic && !document.hidden && navigator.userActivation?.hasBeenActive !== false) {
+      startRepeatedSpeech(current.example, 3);
+    }
+  }, [autoWordExamples, current?.id, current?.example, currentPattern?.id, currentReviewWordId, currentSentence?.id, hasOpenDialog, hydrated, learnStage, patternDrillIndex, patternStage, quizWord?.id, readingId, reviewView, sentenceSection, sentenceStage, sessionPath, tab, wordSessionKind, current]);
+
+  useEffect(() => {
     window.addEventListener("pagehide", stopSpeech);
     return () => {
       stopSpeech();
       window.removeEventListener("pagehide", stopSpeech);
     };
-  }, [current?.id, currentPattern?.id, currentReviewWordId, currentSentence?.id, learnStage, patternDrillIndex, patternStage, quizWord?.id, readingId, reviewView, sentenceSection, sentenceStage, tab]);
+  }, []);
 
   useEffect(() => {
     if (!hydrated || hasOpenDialog || tab !== "read") return;
@@ -1684,6 +1706,30 @@ export default function Home() {
     });
   };
 
+  const playAutomaticWordExample = (word: WordItem | undefined, selectedPath: LearnPath = sessionPath, kind = wordSessionKind, enabled = autoWordExamples) => {
+    if (!enabled || selectedPath !== "frequency" || kind !== "group" || !word || document.hidden) return;
+    wordExampleStartedRef.current = `${word.id}:${word.example}`;
+    // Start synchronously in the click/touch handler, including the first card.
+    if (!startRepeatedSpeech(word.example, 3)) {
+      setSpeechNotice("例句朗读未能启动，请点一次“重播三遍”，或检查设备的英文语音设置。");
+    }
+  };
+
+  const replayWordExample = () => {
+    if (!current || document.hidden) return;
+    wordExampleStartedRef.current = null;
+    if (!startRepeatedSpeech(current.example, 3)) {
+      setSpeechNotice("例句朗读未能启动，请点一次“重播三遍”，或检查设备的英文语音设置。");
+    }
+  };
+
+  const toggleWordExamples = () => {
+    stopSpeech();
+    wordExampleStartedRef.current = null;
+    setAutoWordExamples(!autoWordExamples);
+    if (!autoWordExamples) playAutomaticWordExample(current, sessionPath, wordSessionKind, true);
+  };
+
   const startSession = (pathOverride?: LearnPath, modeOverride?: LearnMode, countOverride?: 10 | 20) => {
     wordBrowserOriginRef.current = null;
     wordBrowserReturnRef.current = false;
@@ -1706,6 +1752,7 @@ export default function Home() {
       const candidates = groupIndex === 0 ? group.slice(0, remaining) : takeRotatedSpread(group, remaining, selectionRotation + groupIndex);
       return [...items, ...candidates];
     }, []);
+    playAutomaticWordExample(selected[0], selectedPath, "group");
     saveSessionPreferences({ path: selectedPath, mode: selectedMode, count: selectedCount });
     setSessionPath(selectedPath);
     setSessionMode(selectedMode);
@@ -1751,7 +1798,10 @@ export default function Home() {
     setCardRatings(nextRatings);
     const nextIndex = sessionWords.findIndex((word, wordIndex) => wordIndex > index && !nextRatings[word.id]);
     const wrappedIndex = nextIndex >= 0 ? nextIndex : sessionWords.findIndex((word) => !nextRatings[word.id]);
-    if (wrappedIndex >= 0) setIndex(wrappedIndex);
+    if (wrappedIndex >= 0) {
+      playAutomaticWordExample(sessionWords[wrappedIndex]);
+      setIndex(wrappedIndex);
+    }
     else if (sessionMode === "test") {
       quizActionLock.current = { submitted: -1, advanced: -1 };
       setLearnStage("quiz");
@@ -1761,6 +1811,8 @@ export default function Home() {
 
   const moveCard = (direction: number) => {
     const next = Math.min(Math.max(index + direction, 0), sessionWords.length - 1);
+    if (next === index) return;
+    playAutomaticWordExample(sessionWords[next]);
     setIndex(next);
   };
 
@@ -2282,6 +2334,13 @@ export default function Home() {
         <div className="card-section"><span className="section-label">句中搭配</span><div className="chips" lang="en">{current.collocations.map((item) => <span key={item}>{item}</span>)}</div></div>
         <div className="example-box"><div><span className="section-label">场景句子</span><button onClick={() => playSpeech(current.example)} aria-label="播放场景句子">♪</button></div><p lang="en">{highlightedExample(current)}</p><small>{current.translation}</small></div>
       </div>
+      {sessionPath === "frequency" && wordSessionKind === "group" && <div className="word-auto-controls">
+        <div role="group" aria-label="例句自动朗读设置">
+          <button type="button" aria-pressed={autoWordExamples} onClick={toggleWordExamples}>自动例句三遍：{autoWordExamples ? "开" : "关"}</button>
+          <button type="button" onClick={replayWordExample}>重播三遍</button>
+        </div>
+        <p>{autoWordExamples ? "切换词卡后自动朗读例句三遍。" : "本次已关闭自动朗读。"}刷新后若没有声音，点一次“重播三遍”。手动播放会结束当前自动朗读。</p>
+      </div>}
       <div className="sentence-pager" role="group" aria-label="切换词卡"><button disabled={index === 0} onClick={() => moveCard(-1)}>‹ 上一张</button><span>{index + 1} / {sessionWords.length}</span><button disabled={index === sessionWords.length - 1} onClick={() => moveCard(1)}>下一张 ›</button></div>
       <div className="learn-actions"><button className={`secondary-action ${currentCardRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishCard(false)}>{currentCardRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentCardRating === "known" ? "is-mastered" : ""}`} onClick={() => finishCard(true)}>{currentCardRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>
     </section>

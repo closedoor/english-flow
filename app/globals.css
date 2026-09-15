@@ -317,3 +317,12 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .data-management small{color:#526071}
 .percent{color:var(--green-dark)}
 @media(max-width:340px){.app-loading-actions{width:100%;flex-direction:column}.app-loading-actions button{width:100%}}
+
+
+/* NGSL playback controls retain readable labels and touch targets at 320px. */
+.word-auto-controls { margin: 12px 0; }
+.word-auto-controls > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.word-auto-controls button { min-height: 44px; padding: 8px 12px; border: 1px solid #c9ced6; border-radius: 12px; background: #fff; color: #334155; font-size: 14px; font-weight: 600; }
+.word-auto-controls button[aria-pressed="true"] { border-color: #64748b; background: #edf2f7; }
+.word-auto-controls button:focus-visible { outline: 2px solid #334155; outline-offset: 3px; }
+.word-auto-controls p { margin: 8px 0 0; color: #526071; font-size: 12px; line-height: 1.6; }
