@@ -54,11 +54,38 @@ function responseMatchesRequest(request, response) {
   return true;
 }
 
+// Some static hosts label .webmanifest as binary/octet-stream. Do not reject
+// a whole release for that header alone, and never accept an HTML error page.
+// Only the exact application manifest gets this validated MIME repair.
+async function normalizeManifestResponse(request, response) {
+  if (!response || response.status !== 200) return response;
+  const value = request instanceof Request ? request.url : String(request);
+  const url = new URL(value, self.location.origin);
+  const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (url.origin !== self.location.origin || url.pathname !== "/manifest.webmanifest"
+    || !["binary/octet-stream", "application/octet-stream"].includes(contentType)) return response;
+  try {
+    const text = await response.clone().text();
+    if (text.length > 64_000) return response;
+    const manifest = JSON.parse(text);
+    if (!manifest || manifest.name !== "词流英语" || manifest.start_url !== "/" || manifest.scope !== "/"
+      || !Array.isArray(manifest.icons) || manifest.icons.length < 2
+      || !manifest.icons.every((icon) => icon && typeof icon.src === "string" && new URL(icon.src, url).origin === self.location.origin)) return response;
+    const headers = Object.fromEntries(response.headers.entries());
+    headers["content-type"] = "application/manifest+json; charset=utf-8";
+    delete headers["content-encoding"];
+    delete headers["content-length"];
+    return new Response(text, { status: response.status, statusText: response.statusText, headers });
+  } catch {
+    return response;
+  }
+}
+
 async function fetchAndCache(request, timeoutMs = 0) {
   const controller = timeoutMs ? new AbortController() : null;
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
-    const response = await fetch(request, controller ? { signal: controller.signal } : undefined);
+    const response = await normalizeManifestResponse(request, await fetch(request, controller ? { signal: controller.signal } : undefined));
     if (response.ok && responseMatchesRequest(request, response)) {
       try {
         const cache = await caches.open(CACHE);
@@ -96,14 +123,14 @@ async function cacheCompleteBuildGraph(cache, initialUrls, tolerateFailures = fa
     if (!url || visited.has(url)) continue;
     visited.add(url);
     if (visited.size > MAX_SHELL_ASSETS) throw new Error("App shell contains too many assets");
-    let response = await cache.match(url);
+    let response = await normalizeManifestResponse(url, await cache.match(url));
     if (response && !responseMatchesRequest(url, response)) {
       await cache.delete(url);
       response = undefined;
     }
     if (!response) {
       try {
-        response = await fetchWithTimeout(url, OPTIONAL_CACHE_TIMEOUT);
+        response = await normalizeManifestResponse(url, await fetchWithTimeout(url, OPTIONAL_CACHE_TIMEOUT));
       } catch (error) {
         if (tolerateFailures) continue;
         throw error;
