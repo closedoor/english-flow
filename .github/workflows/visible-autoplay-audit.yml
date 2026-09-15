@@ -4,6 +4,9 @@ on:
     branches: [maintenance/visible-autoplay-20260915]
 permissions:
   contents: write
+concurrency:
+  group: visible-autoplay-audit
+  cancel-in-progress: true
 jobs:
   audit:
     runs-on: ubuntu-latest
@@ -14,6 +17,8 @@ jobs:
       AXE_SOURCE: /tmp/english-flow-browser/node_modules/axe-core/axe.min.js
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 22.13.0
