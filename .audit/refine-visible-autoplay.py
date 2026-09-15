@@ -28,7 +28,7 @@ assert s.count(needle)==1;s=s.replace(needle,extra+needle);p.write_text(s)
 # These source guards still check the complete lifecycle contract; runtime
 # worker and browser assertions are retained unchanged.
 p=Path('tests/pwa-assets.test.mjs');s=p.read_text()
-for a,b in [(r'fetchWithTimeout\(event\.request, NAVIGATION_TIMEOUT\)',r'fetchWithTimeout\(event\.request, url\.searchParams\.has\("ef-update"\) \? 12_000 : NAVIGATION_TIMEOUT\)'),(r'serviceWorker\.register\("\/sw\.js"\)\.then\(cacheLoadedPageAssets\)',r'serviceWorker\.register\("\/sw\.js", \{ updateViaCache: "none" \}\)\.then\(cacheLoadedPageAssets\)')]:
+for a,b in [(r'fetchWithTimeout\(event\.request, NAVIGATION_TIMEOUT\)',r'fetchWithTimeout\(event\.request, url\.searchParams\.has\("ef-update"\) \? 12_000 : NAVIGATION_TIMEOUT\)'),(r'serviceWorker\.register\("\/sw\.js"\)\.then\(cacheLoadedPageAssets\)',r'serviceWorker\.register\("\/sw\.js", \{ updateViaCache: "none" \}\)\.then\(cacheLoadedPageAssets\)'),(r'serviceWorker\.register\("\/sw\.js"\)',r'serviceWorker\.register\("\/sw\.js", \{ updateViaCache: "none" \}\)')]:
  assert s.count(a)==1,a;s=s.replace(a,b)
 p.write_text(s)
 p=Path('tests/session-selection.test.mjs');s=p.read_text();a=r'hasOngoingSession \? setTab\("learn"\) : startSession\(\)';b=r'if \(hasOngoingSession\) \{ if \(learnStage === "cards"\) playAutomaticWordExample\(current\); setTab\("learn"\); \} else startSession\(\)';assert s.count(a)==1;s=s.replace(a,b);p.write_text(s)
