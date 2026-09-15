@@ -1,0 +1,21 @@
+name: Inspect actual deployed NGSL card delivery
+on:
+  push:
+    branches: [maintenance/autoplay-delivery-20260915]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+      - name: Install isolated browser tools
+        run: |
+          npm install --prefix /tmp/ef-delivery --no-save --package-lock=false playwright@1.56.1
+          node /tmp/ef-delivery/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/install.log 2>&1 || { tail -50 /tmp/install.log; exit 1; }
+      - name: Inspect actual origin, rendered controls and card actions
+        run: node .audit/delivery.mjs
