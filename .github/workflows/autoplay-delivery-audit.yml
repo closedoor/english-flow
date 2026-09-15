@@ -1,21 +1,54 @@
-name: Inspect actual deployed NGSL card delivery
+name: Diagnose and repair actual PWA manifest delivery
 on:
   push:
     branches: [maintenance/autoplay-delivery-20260915]
 permissions:
-  contents: read
+  contents: write
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 18
+    env:
+      PLAYWRIGHT_MODULE: /tmp/ef-delivery/node_modules/playwright/index.mjs
+      AXE_SOURCE: /tmp/ef-delivery/node_modules/axe-core/axe.min.js
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22.13.0
+          cache: npm
+      - run: npm ci
       - name: Install isolated browser tools
         run: |
-          npm install --prefix /tmp/ef-delivery --no-save --package-lock=false playwright@1.56.1
+          npm install --prefix /tmp/ef-delivery --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
           node /tmp/ef-delivery/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/install.log 2>&1 || { tail -50 /tmp/install.log; exit 1; }
-      - name: Inspect actual origin, rendered controls and card actions
-        run: node .audit/delivery.mjs
+      - name: Record live worker installation before patch
+        run: |
+          EXPECTED_COMMIT=cfd3aa27ae44b21a5bca334ade86f8140966cb7f node scripts/verify-live-pwa.mjs > /tmp/before-live.log 2>&1 && BEFORE=0 || BEFORE=$?
+          cat /tmp/before-live.log
+          echo "Before-fix verifier exit: $BEFORE"
+      - name: Apply delivery repair and run complete checks
+        run: |
+          python3 .audit/fix-worker.py
+          npm test > /tmp/tests.log 2>&1 || { grep -A18 '^not ok' /tmp/tests.log | head -100; tail -20 /tmp/tests.log; exit 1; }
+          tail -10 /tmp/tests.log
+          npm run typecheck
+          npm run lint
+          npm run build:render > /tmp/build.log 2>&1 || { tail -60 /tmp/build.log; exit 1; }
+          tail -4 /tmp/build.log
+      - name: Browser regressions and real production-MIME rehearsal
+        run: |
+          python3 -c 'import http.server; http.server.SimpleHTTPRequestHandler.extensions_map[".webmanifest"]="binary/octet-stream"; http.server.test(HandlerClass=lambda *a, **kw: http.server.SimpleHTTPRequestHandler(*a, directory="dist/client", **kw), port=4173, bind="127.0.0.1")' > /tmp/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          npm run test:browser
+          EXPECTED_COMMIT=${{ github.sha }} PRODUCTION_URL=http://127.0.0.1:4173/ node scripts/verify-live-pwa.mjs
+      - name: Save only verified product changes to isolated branch
+        run: |
+          git diff --exit-code package-lock.json render.yaml app/page.tsx app/speech-playback.ts app/backup-data.ts public/data
+          git add public/sw.js .github/workflows/validate.yml TESTING.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Validate exact application manifest before repairing static-host MIME for PWA installation'
+          git push origin HEAD:refs/heads/maintenance/autoplay-delivery-20260915
+          git rev-parse HEAD
