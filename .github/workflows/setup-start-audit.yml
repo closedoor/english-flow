@@ -1,0 +1,62 @@
+name: Verify top group-start actions
+on:
+  push:
+    branches: [maintenance/setup-start-top-20260915]
+permissions:
+  contents: write
+concurrency:
+  group: setup-start-top-audit
+  cancel-in-progress: true
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      RENDER_EXTERNAL_URL: http://127.0.0.1:4173
+      PLAYWRIGHT_MODULE: /tmp/ef-setup-start/node_modules/playwright/index.mjs
+      AXE_SOURCE: /tmp/ef-setup-start/node_modules/axe-core/axe.min.js
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Install isolated browser engines
+        run: |
+          npm install --prefix /tmp/ef-setup-start --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
+          node /tmp/ef-setup-start/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/setup-browser-install.log 2>&1 || { tail -50 /tmp/setup-browser-install.log; exit 1; }
+      - name: Measure current group-start positions
+        run: |
+          npm run build:render > /tmp/setup-before-build.log 2>&1 || { tail -60 /tmp/setup-before-build.log; exit 1; }
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client >/tmp/setup-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          SETUP_START_BASELINE=1 node scripts/browser-setup-start.mjs
+      - name: Move the two setup actions and run unit, type and build checks
+        run: |
+          python3 .audit/move-setup-start.py
+          npm test > /tmp/setup-tests.log 2>&1 || { grep -A22 '^not ok' /tmp/setup-tests.log | head -140; tail -20 /tmp/setup-tests.log; exit 1; }
+          tail -10 /tmp/setup-tests.log
+          npm run typecheck
+          npm run lint
+          npm run build:render > /tmp/setup-build.log 2>&1 || { tail -60 /tmp/setup-build.log; exit 1; }
+          tail -4 /tmp/setup-build.log
+      - name: Check direct first-screen taps and all existing browser regressions
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client >/tmp/setup-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          node scripts/browser-setup-start.mjs
+          npm run test:browser
+          EXPECTED_COMMIT=${{ github.sha }} PRODUCTION_URL=http://127.0.0.1:4173/ node scripts/verify-live-pwa.mjs
+      - name: Save only verified product files to the existing repository branch
+        run: |
+          git diff --exit-code package-lock.json render.yaml app/speech-playback.ts app/backup-data.ts app/session-utils.ts public .github/workflows/validate.yml
+          git add app/page.tsx app/globals.css package.json scripts/verify-live-pwa.mjs TESTING.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          git commit -m 'Move word and sentence group-start actions directly below page titles'
+          git push origin HEAD:refs/heads/maintenance/setup-start-top-20260915
+          git rev-parse HEAD
