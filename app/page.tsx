@@ -2362,6 +2362,16 @@ export default function Home() {
     <section className="page learn-page">
       <header className="compact-header"><button className={singleWordLookup ? "library-back" : "round-button"} onClick={() => singleWordLookup ? returnToWordLibrary() : openLearningSetup()} aria-label={singleWordLookup ? "返回词库" : "退出本组"}>{singleWordLookup ? "‹ 词库" : "‹"}</button><div><p className="eyebrow">{sessionPath === "frequency" ? "NGSL 高频词" : scenes.find((item) => item.id === sessionPath)?.name} · {sessionMode === "test" ? "学后测试" : "自由学习"}</p><h1>核心词卡</h1></div><button className="round-button" onClick={() => playSpeech(current.example, .72)} aria-label="慢速播放">0.7×</button></header>
       <div className="session-progress" role="progressbar" aria-label="本组学习进度" aria-valuemin={0} aria-valuemax={sessionWords.length} aria-valuenow={ratedCardCount}><span style={{ width: `${(ratedCardCount / sessionWords.length) * 100}%` }} /></div><p className="card-count" aria-live="polite">第 {index + 1} 张 · 已标记 {ratedCardCount} / {sessionWords.length}</p>
+      <div className="word-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => endCardSwipe(event, moveCard)} onTouchCancel={() => { touchStart.current = null; }}>
+        <div className="card-topline"><span className="scene-pill">{sessionPath === "frequency" ? current.rank ? `NGSL #${current.rank}` : "实用场景词组" : `${scenes.find((scene) => scene.id === sessionPath)?.icon} ${scenes.find((scene) => scene.id === sessionPath)?.name}`}</span><button className="sound-button" onClick={() => playSpeech(current.word)} aria-label={`播放 ${current.word} 发音`}>♪</button></div>
+        <div className="word-heading"><h2 lang="en" className={current.word.length > 12 ? "long" : ""} ref={wordHeadingRef} tabIndex={-1}>{current.word}</h2><p>{current.phonetic || "点击右上角听发音"}</p><strong>{current.meaning}</strong>{current.exampleForm && current.exampleForm !== current.word && <small>句中形式：{current.exampleForm}</small>}</div><div className="card-divider" />
+        <div className="card-section"><span className="section-label">句中搭配</span><div className="chips" lang="en">{current.collocations.map((item) => <span key={item}>{item}</span>)}</div></div>
+        <div className="example-box"><div><span className="section-label">场景句子</span><button onClick={() => playSpeech(current.example)} aria-label="播放场景句子">♪</button></div><p lang="en">{highlightedExample(current)}</p><small>{current.translation}</small></div>
+      </div>
+      <div className="word-card-actions">
+      <div className="sentence-pager" role="group" aria-label="切换词卡"><button disabled={index === 0} onClick={() => moveCard(-1)}>‹ 上一张</button><span>{index + 1} / {sessionWords.length}</span><button disabled={index === sessionWords.length - 1} onClick={() => moveCard(1)}>下一张 ›</button></div>
+      <div className="learn-actions"><button className={`secondary-action ${currentCardRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishCard(false)}>{currentCardRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentCardRating === "known" ? "is-mastered" : ""}`} onClick={() => finishCard(true)}>{currentCardRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>
+      </div>
       {sessionPath === "frequency" && wordSessionKind === "group" && <div className="word-auto-controls">
         <div role="group" aria-label="例句自动朗读设置">
           <button type="button" aria-pressed={autoWordExamples} onClick={toggleWordExamples}>自动例句三遍：{autoWordExamples ? "开" : "关"}</button>
@@ -2369,14 +2379,6 @@ export default function Home() {
         </div>
         <p>{autoWordExamples ? "切换词卡后自动朗读例句三遍。" : "本次已关闭自动朗读。"}刷新后若没有声音，点一次“重播三遍”。手动播放会结束当前自动朗读。</p>
       <small className="word-auto-build">例句三遍版 · {APP_BUILD_COMMIT.slice(0, 7)}</small></div>}
-      <div className="word-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => endCardSwipe(event, moveCard)} onTouchCancel={() => { touchStart.current = null; }}>
-        <div className="card-topline"><span className="scene-pill">{sessionPath === "frequency" ? current.rank ? `NGSL #${current.rank}` : "实用场景词组" : `${scenes.find((scene) => scene.id === sessionPath)?.icon} ${scenes.find((scene) => scene.id === sessionPath)?.name}`}</span><button className="sound-button" onClick={() => playSpeech(current.word)} aria-label={`播放 ${current.word} 发音`}>♪</button></div>
-        <div className="word-heading"><h2 lang="en" className={current.word.length > 12 ? "long" : ""} ref={wordHeadingRef} tabIndex={-1}>{current.word}</h2><p>{current.phonetic || "点击右上角听发音"}</p><strong>{current.meaning}</strong>{current.exampleForm && current.exampleForm !== current.word && <small>句中形式：{current.exampleForm}</small>}</div><div className="card-divider" />
-        <div className="card-section"><span className="section-label">句中搭配</span><div className="chips" lang="en">{current.collocations.map((item) => <span key={item}>{item}</span>)}</div></div>
-        <div className="example-box"><div><span className="section-label">场景句子</span><button onClick={() => playSpeech(current.example)} aria-label="播放场景句子">♪</button></div><p lang="en">{highlightedExample(current)}</p><small>{current.translation}</small></div>
-      </div>
-      <div className="sentence-pager" role="group" aria-label="切换词卡"><button disabled={index === 0} onClick={() => moveCard(-1)}>‹ 上一张</button><span>{index + 1} / {sessionWords.length}</span><button disabled={index === sessionWords.length - 1} onClick={() => moveCard(1)}>下一张 ›</button></div>
-      <div className="learn-actions"><button className={`secondary-action ${currentCardRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishCard(false)}>{currentCardRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentCardRating === "known" ? "is-mastered" : ""}`} onClick={() => finishCard(true)}>{currentCardRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>
     </section>
     );
   };

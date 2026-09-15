@@ -132,9 +132,9 @@ for(const engine of ['chromium','webkit']){
     await page.getByRole('button',{name:'重播三遍',exact:true}).click();await count(page,1);
     assert.equal((await logs(page))[0].gesture,true);
   },snapshot());
-  await check('legacy-ten-word-group-shows-controls-before-card-and-next-speaks-three',async page=>{
+  await check('legacy-ten-word-group-shows-settings-after-actions-and-next-speaks-three',async page=>{
     await ready(page);await page.locator('.word-auto-controls').waitFor();
-    assert.ok((await page.locator('.word-auto-controls').boundingBox()).y < (await page.locator('.word-card').boundingBox()).y);
+    assert.ok(await page.locator('.word-auto-controls').evaluate(el => Boolean(document.querySelector('.learn-actions').compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)));
     await page.locator('[aria-label="切换词卡"] button').last().click();await count(page,1);
     assert.equal((await logs(page))[0].gesture,true);
     const text=await page.locator('.example-box p').innerText();

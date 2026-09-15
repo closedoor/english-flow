@@ -333,4 +333,18 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .app-version-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .app-version-actions button{min-height:44px;padding:8px 12px;border-radius:10px;background:#fff;border:1px solid #9eb8ad;font-weight:600;color:#184d3c}
 .app-version-actions button:disabled{opacity:.55}.word-auto-build{display:block;font-size:11px;color:#526779;margin-top:4px}
-.learn-page>.word-auto-controls{margin:8px 0 14px}
+.learn-page>.word-auto-controls{margin:16px 0 0;padding-top:12px;border-top:1px solid var(--line)}
+
+
+/* Keep repeated study actions reachable; secondary audio settings follow them.
+   clip avoids an unscrollable overflow:hidden ancestor trapping sticky controls.
+   The toolbar stays in normal flow so long text/settings can scroll fully clear. */
+@media (max-width:699px) and (min-height:451px) {
+  .phone-stage:has(.learn-page){overflow-x:clip;overflow-y:visible}
+  .learn-page>.word-card{min-height:0;padding:18px}
+  .learn-page .word-heading{padding:20px 0 18px}
+  .learn-page .card-section{padding:12px 2px}
+  .learn-page>.word-card-actions{position:sticky;bottom:calc(74px + env(safe-area-inset-bottom));z-index:10;margin-top:10px;padding:8px 0 10px;background:var(--paper);border-top:1px solid var(--line)}
+  .word-card-actions>.sentence-pager{margin:0 0 8px}
+  .word-card-actions button{min-height:48px}
+}
