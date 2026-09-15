@@ -261,7 +261,7 @@ test("speech stops when the learner changes cards, screens or leaves the app", (
   assert.match(speechPlayback, /export function stopSpeech\(\)[\s\S]*activeUtterance = null[\s\S]*window\.speechSynthesis\.cancel\(\)/);
   assert.match(page, /window\.addEventListener\("pagehide", stopSpeech\)/);
   assert.match(page, /const currentReviewWordId = tab === "review" \? reviewWordsForSpeech\[Math\.min\(reviewIndex/);
-  assert.match(page, /\[current\?\.id, currentPattern\?\.id, currentReviewWordId, currentSentence\?\.id, learnStage, patternDrillIndex, patternStage, quizWord\?\.id, readingId, reviewView, sentenceSection, sentenceStage, tab\]/);
+  assert.match(page, /\[autoWordExamples, current\?\.id, current\?\.example, currentPattern\?\.id, currentReviewWordId, currentSentence\?\.id, hasOpenDialog, hydrated, learnStage, patternDrillIndex, patternStage, quizWord\?\.id, readingId, reviewView, sentenceSection, sentenceStage, sessionPath, tab, wordSessionKind, current\]/);
 });
 
 test("small secondary controls meet phone touch target sizes", () => {

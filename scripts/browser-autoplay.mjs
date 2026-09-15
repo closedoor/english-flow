@@ -25,11 +25,14 @@ for(const engine of ['chromium','webkit']){
     const context=await browser.newContext({viewport:{width:320,height:780},hasTouch:true,serviceWorkers:'block'});
     await context.addInitScript(({initial,key})=>{
       if(initial&&!sessionStorage.getItem('autoplay-seeded')){sessionStorage.setItem('autoplay-seeded','1');localStorage.setItem(key,JSON.stringify(initial));}
-      const state={log:[],utterances:[],active:null,gesture:false,fail:false,end(){const u=this.active;this.active=null;u?.onend?.();}};
+      const state={log:[],utterances:[],active:null,gesture:false,activated:false,fail:false,end(){const u=this.active;this.active=null;u?.onend?.();}};
       window.__speech=state;
+      Object.defineProperty(navigator,'userActivation',{configurable:true,value:{
+        get hasBeenActive(){return state.activated;},get isActive(){return state.gesture;}
+      }});
       for(const event of ['click','touchend','keydown']){
-        document.addEventListener(event,()=>{state.gesture=true;},true);
-        document.addEventListener(event,()=>{state.gesture=false;});
+        document.addEventListener(event,()=>{state.gesture=true;state.activated=true;},true);
+        window.addEventListener(event,()=>{state.gesture=false;});
       }
       Object.defineProperty(window,'SpeechSynthesisUtterance',{configurable:true,value:class{constructor(text){this.text=text;}}});
       Object.defineProperty(window,'speechSynthesis',{configurable:true,value:{
@@ -64,6 +67,25 @@ for(const engine of ['chromium','webkit']){
     await page.locator('.learn-actions .primary-action').click();await count(page,4);
     assert.equal((await logs(page))[3].text,next);
     await finish(page);await finish(page);await finish(page);assert.equal((await logs(page)).length,6);
+  });
+  await check('horizontal-swipe-starts-current-example-without-old-callbacks',async page=>{
+    await begin(page);await count(page,1);
+    await page.locator('.word-card').evaluate(card=>{
+      const touch=(x)=>({identifier:1,clientX:x,clientY:260});
+      const start=new Event('touchstart',{bubbles:true});Object.defineProperty(start,'touches',{value:[touch(270)]});card.dispatchEvent(start);
+      const end=new Event('touchend',{bubbles:true});Object.defineProperty(end,'touches',{value:[]});Object.defineProperty(end,'changedTouches',{value:[touch(40)]});card.dispatchEvent(end);
+    });
+    await count(page,2);assert.equal((await logs(page))[1].text,await page.locator('.example-box p').innerText());
+    await page.evaluate(()=>window.__speech.utterances[0].onend());assert.equal((await logs(page)).length,2);
+  });
+  await check('confirmation-dialog-stops-audio-and-cancel-resumes-current-card',async page=>{
+    await begin(page);await page.locator('.learn-actions .primary-action').click();await count(page,2);
+    await page.getByRole('button',{name:'退出本组',exact:true}).click();
+    await page.locator('[role="dialog"], [role="alertdialog"]').waitFor();
+    assert.equal(await page.evaluate(()=>window.__speech.active),null);
+    await page.evaluate(()=>window.__speech.utterances[1].onend());assert.equal((await logs(page)).length,2);
+    await page.keyboard.press('Escape');await count(page,3);
+    assert.equal((await logs(page))[2].text,await page.locator('.example-box p').innerText());
   });
   await check('manual-audio-interrupts-repetition-without-restarting-it',async page=>{
     await begin(page);await count(page,1);

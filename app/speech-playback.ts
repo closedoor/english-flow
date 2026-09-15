@@ -237,6 +237,19 @@ export function startSegmentedSpeech(text: string, rate = 0.74, onStart?: () => 
   return playCurrentSegment(run);
 }
 
+// Each repetition is a complete utterance. Advance only on its end event,
+// never on an estimated reading duration. The shared run token means every
+// existing stop/manual-speech action also cancels all remaining repetitions.
+export function startRepeatedSpeech(text: string, repetitions = 3, rate = 0.82) {
+  if (!isSpeechSupported() || !text.trim() || !Number.isInteger(repetitions) || repetitions < 1 || repetitions > 10) return false;
+  if (!stopSpeech()) return false;
+  playbackSegments = Array.from({ length: repetitions }, () => text.trim());
+  playbackIndex = 0;
+  playbackRate = rate;
+  emitPlaybackState("loading");
+  return playCurrentSegment(playbackRun);
+}
+
 export function toggleSegmentedSpeech() {
   if (!isSpeechSupported() || playbackState === "idle" || !playbackSegments.length) return "idle" as const;
   if (playbackState === "loading") return "loading" as const;
