@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { APP_BUILD_COMMIT } from "./version-utils";
 
 const OFFICIAL_SITE = "https://english-flow-mwnn.onrender.com";
 
@@ -10,6 +11,7 @@ export const metadata: Metadata = {
       : OFFICIAL_SITE,
   ),
   title: "词流英语",
+  other: { "english-flow-build": APP_BUILD_COMMIT },
   description: "用 NGSL 高频词、3,000 组日常长短句、核心句型替换和分级阅读，练习听懂、记住并主动说出英语。",
   openGraph: {
     title: "词流英语",

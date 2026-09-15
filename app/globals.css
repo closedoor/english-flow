@@ -326,3 +326,11 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .word-auto-controls button[aria-pressed="true"] { border-color: #64748b; background: #edf2f7; }
 .word-auto-controls button:focus-visible { outline: 2px solid #334155; outline-offset: 3px; }
 .word-auto-controls p { margin: 8px 0 0; color: #526071; font-size: 12px; line-height: 1.6; }
+
+/* Version identity belongs to the running bundle, not cached server metadata. */
+.app-version-panel{margin:12px 20px;padding:14px 16px;border:1px solid #c9d8d3;border-radius:16px;background:#edf7f4;color:#19382f;font-size:13px}
+.app-version-panel p{margin:6px 0;line-height:1.6}.app-version-panel small{display:block;line-height:1.6}
+.app-version-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.app-version-actions button{min-height:44px;padding:8px 12px;border-radius:10px;background:#fff;border:1px solid #9eb8ad;font-weight:600;color:#184d3c}
+.app-version-actions button:disabled{opacity:.55}.word-auto-build{display:block;font-size:11px;color:#526779;margin-top:4px}
+.learn-page>.word-auto-controls{margin:8px 0 14px}

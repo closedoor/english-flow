@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import VersionNotice from "./version-notice";
+import { APP_BUILD_COMMIT, isSnapshotPersisted } from "./version-utils";
 import { scenes, type SceneId, type WordItem } from "./data";
 import { corePatterns, patternCategories, type PatternCategory } from "./pattern-data";
 import { BACKUP_MAX_BYTES, createLearningBackup, isLearningBackup, restoreLearningBackupData, type LearningBackup } from "./backup-data";
@@ -638,7 +640,7 @@ export default function Home() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     navigator.serviceWorker.addEventListener("controllerchange", cacheLoadedPageAssets);
-    navigator.serviceWorker.register("/sw.js").then(cacheLoadedPageAssets).catch(() => undefined);
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(cacheLoadedPageAssets).catch(() => undefined);
     return () => navigator.serviceWorker.removeEventListener("controllerchange", cacheLoadedPageAssets);
   }, []);
 
@@ -1481,6 +1483,32 @@ export default function Home() {
     }
   };
 
+  const canReloadForUpdate = () => {
+    if (!hydrated || tab !== "progress" || hasOpenDialog || backupBusy || externalUpdateDetected || storageWriteError) return false;
+    const snapshot: Record<StorageKey, unknown> = {
+        [STORAGE.mastered]: mastered,
+        [STORAGE.difficult]: difficult,
+        [STORAGE.schedule]: schedule,
+        [STORAGE.days]: studyDays,
+        [STORAGE.session]: preferences,
+        [STORAGE.activeSession]: activeSessionResumeSnapshotRef.current,
+        [STORAGE.readingCompleted]: readingCompleted,
+        [STORAGE.readingLast]: readingLast,
+        [STORAGE.readingAnswers]: readingAnswers,
+        [STORAGE.sentenceSaved]: sentenceSaved,
+        [STORAGE.sentenceSeen]: sentenceSeen,
+        [STORAGE.sentenceMastered]: sentenceMastered,
+        [STORAGE.sentenceDifficult]: sentenceDifficult,
+        [STORAGE.sentencePreferences]: sentenceSetupPreferencesRef.current,
+        [STORAGE.sentenceActiveSession]: sentenceResumeSnapshotRef.current,
+        [STORAGE.patternMastered]: patternMastered,
+        [STORAGE.patternDifficult]: patternDifficult,
+        [STORAGE.patternActiveSession]: patternResumeSnapshotRef.current,
+        [STORAGE.practiceRotation]: practiceRotationRef.current,
+      };
+    try { return isSnapshotPersisted(window.localStorage, snapshot); } catch { return false; }
+  };
+
   const exportLearningBackup = async () => {
     if (backupActionLock.current) return;
     backupActionLock.current = true;
@@ -1708,6 +1736,7 @@ export default function Home() {
 
   const playAutomaticWordExample = (word: WordItem | undefined, selectedPath: LearnPath = sessionPath, kind = wordSessionKind, enabled = autoWordExamples) => {
     if (!enabled || selectedPath !== "frequency" || kind !== "group" || !word || document.hidden) return;
+    setSpeechNotice(null);
     wordExampleStartedRef.current = `${word.id}:${word.example}`;
     // Start synchronously in the click/touch handler, including the first card.
     if (!startRepeatedSpeech(word.example, 3)) {
@@ -1717,6 +1746,7 @@ export default function Home() {
 
   const replayWordExample = () => {
     if (!current || document.hidden) return;
+    setSpeechNotice(null);
     wordExampleStartedRef.current = null;
     if (!startRepeatedSpeech(current.example, 3)) {
       setSpeechNotice("例句朗读未能启动，请点一次“重播三遍”，或检查设备的英文语音设置。");
@@ -2270,6 +2300,10 @@ export default function Home() {
 
   const renderSentences = () => sentenceSection === "patterns" ? (patternStage === "setup" ? renderPatternSetup() : patternStage === "cards" ? renderPatternCards() : renderPatternResult()) : (sentenceStage === "setup" ? renderSentenceSetup() : sentenceStage === "cards" ? renderSentenceCards() : renderSentenceResult());
 
+  const handleHomeStudyClick = () => {
+    if (hasOngoingSession) { if (learnStage === "cards") playAutomaticWordExample(current); setTab("learn"); } else startSession();
+  };
+
   const renderHome = () => (
     <section className="page home-page">
       <header className="home-header">
@@ -2277,7 +2311,7 @@ export default function Home() {
         <div className="streak-badge" aria-label={`连续学习 ${streak} 天`}><span>🔥</span><b>{streak}</b></div>
       </header>
       {dueWords.length > 0 && <button className="review-banner home-review-priority" onClick={() => { setReviewView("due"); setReviewIndex(0); setTab("review"); }}><span aria-hidden="true">↻</span><div><b>{dueWords.length} 个词到期了，先复习</b><small>回忆旧词后，再开始新一组学习</small></div><i aria-hidden="true">›</i></button>}
-      <button className="hero-card" onClick={() => hasOngoingSession ? setTab("learn") : startSession()} aria-label={hasOngoingSession ? `继续${activePathLabel}${learnStage === "quiz" ? "考试" : "学习"}` : `开始${currentPathLabel}，${currentSessionCount}个词，${currentModeLabel}`}>
+      <button className="hero-card" onClick={handleHomeStudyClick} aria-label={hasOngoingSession ? `继续${activePathLabel}${learnStage === "quiz" ? "考试" : "学习"}` : `开始${currentPathLabel}，${currentSessionCount}个词，${currentModeLabel}`}>
         {hasOngoingSession ? <><span className="hero-kicker">继续本组 · {activeScene ? `${activeScene.icon} ${activePathLabel}` : activePathLabel}</span><h2>{learnStage === "quiz" ? `继续第 ${quizIndex + 1} 题` : `继续第 ${index + 1} 张`}</h2><p className="hero-meta" key={`resume-${learnStage}-${quizIndex}-${ratedCardCount}`}><span>{learnStage === "quiz" ? `已完成 ${quizResults.length} / ${sessionWords.length} 题` : `已标记 ${ratedCardCount} / ${sessionWords.length} 个`}</span><span>· 进度已自动保存</span></p></> : <><span className="hero-kicker">今日学习 · {selectedScene ? `${currentPathIcon} ${currentPathLabel}` : nextNgslWord ? `NGSL 从 #${nextNgslWord.rank} 开始` : "NGSL 全库已学习 · 继续巩固"}</span><h2>{currentSessionCount} 个{selectedScene ? `${currentPathLabel}词汇` : "核心词"}</h2><p className="hero-meta" key={`${estimatedMinutes}-${mode}`}><span>约 {estimatedMinutes} 分钟</span><span>· {mode === "test" ? "学完进行填空与听音测试" : "自由滑动学习，不安排考试"}</span></p></>}
         <span className="hero-cta">{hasOngoingSession ? "继续学习" : "开始学习"} <b>→</b></span><i className="orb orb-one" /><i className="orb orb-two" />
       </button>
@@ -2328,19 +2362,19 @@ export default function Home() {
     <section className="page learn-page">
       <header className="compact-header"><button className={singleWordLookup ? "library-back" : "round-button"} onClick={() => singleWordLookup ? returnToWordLibrary() : openLearningSetup()} aria-label={singleWordLookup ? "返回词库" : "退出本组"}>{singleWordLookup ? "‹ 词库" : "‹"}</button><div><p className="eyebrow">{sessionPath === "frequency" ? "NGSL 高频词" : scenes.find((item) => item.id === sessionPath)?.name} · {sessionMode === "test" ? "学后测试" : "自由学习"}</p><h1>核心词卡</h1></div><button className="round-button" onClick={() => playSpeech(current.example, .72)} aria-label="慢速播放">0.7×</button></header>
       <div className="session-progress" role="progressbar" aria-label="本组学习进度" aria-valuemin={0} aria-valuemax={sessionWords.length} aria-valuenow={ratedCardCount}><span style={{ width: `${(ratedCardCount / sessionWords.length) * 100}%` }} /></div><p className="card-count" aria-live="polite">第 {index + 1} 张 · 已标记 {ratedCardCount} / {sessionWords.length}</p>
-      <div className="word-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => endCardSwipe(event, moveCard)} onTouchCancel={() => { touchStart.current = null; }}>
-        <div className="card-topline"><span className="scene-pill">{sessionPath === "frequency" ? current.rank ? `NGSL #${current.rank}` : "实用场景词组" : `${scenes.find((scene) => scene.id === sessionPath)?.icon} ${scenes.find((scene) => scene.id === sessionPath)?.name}`}</span><button className="sound-button" onClick={() => playSpeech(current.word)} aria-label={`播放 ${current.word} 发音`}>♪</button></div>
-        <div className="word-heading"><h2 lang="en" className={current.word.length > 12 ? "long" : ""} ref={wordHeadingRef} tabIndex={-1}>{current.word}</h2><p>{current.phonetic || "点击右上角听发音"}</p><strong>{current.meaning}</strong>{current.exampleForm && current.exampleForm !== current.word && <small>句中形式：{current.exampleForm}</small>}</div><div className="card-divider" />
-        <div className="card-section"><span className="section-label">句中搭配</span><div className="chips" lang="en">{current.collocations.map((item) => <span key={item}>{item}</span>)}</div></div>
-        <div className="example-box"><div><span className="section-label">场景句子</span><button onClick={() => playSpeech(current.example)} aria-label="播放场景句子">♪</button></div><p lang="en">{highlightedExample(current)}</p><small>{current.translation}</small></div>
-      </div>
       {sessionPath === "frequency" && wordSessionKind === "group" && <div className="word-auto-controls">
         <div role="group" aria-label="例句自动朗读设置">
           <button type="button" aria-pressed={autoWordExamples} onClick={toggleWordExamples}>自动例句三遍：{autoWordExamples ? "开" : "关"}</button>
           <button type="button" onClick={replayWordExample}>重播三遍</button>
         </div>
         <p>{autoWordExamples ? "切换词卡后自动朗读例句三遍。" : "本次已关闭自动朗读。"}刷新后若没有声音，点一次“重播三遍”。手动播放会结束当前自动朗读。</p>
-      </div>}
+      <small className="word-auto-build">例句三遍版 · {APP_BUILD_COMMIT.slice(0, 7)}</small></div>}
+      <div className="word-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => endCardSwipe(event, moveCard)} onTouchCancel={() => { touchStart.current = null; }}>
+        <div className="card-topline"><span className="scene-pill">{sessionPath === "frequency" ? current.rank ? `NGSL #${current.rank}` : "实用场景词组" : `${scenes.find((scene) => scene.id === sessionPath)?.icon} ${scenes.find((scene) => scene.id === sessionPath)?.name}`}</span><button className="sound-button" onClick={() => playSpeech(current.word)} aria-label={`播放 ${current.word} 发音`}>♪</button></div>
+        <div className="word-heading"><h2 lang="en" className={current.word.length > 12 ? "long" : ""} ref={wordHeadingRef} tabIndex={-1}>{current.word}</h2><p>{current.phonetic || "点击右上角听发音"}</p><strong>{current.meaning}</strong>{current.exampleForm && current.exampleForm !== current.word && <small>句中形式：{current.exampleForm}</small>}</div><div className="card-divider" />
+        <div className="card-section"><span className="section-label">句中搭配</span><div className="chips" lang="en">{current.collocations.map((item) => <span key={item}>{item}</span>)}</div></div>
+        <div className="example-box"><div><span className="section-label">场景句子</span><button onClick={() => playSpeech(current.example)} aria-label="播放场景句子">♪</button></div><p lang="en">{highlightedExample(current)}</p><small>{current.translation}</small></div>
+      </div>
       <div className="sentence-pager" role="group" aria-label="切换词卡"><button disabled={index === 0} onClick={() => moveCard(-1)}>‹ 上一张</button><span>{index + 1} / {sessionWords.length}</span><button disabled={index === sessionWords.length - 1} onClick={() => moveCard(1)}>下一张 ›</button></div>
       <div className="learn-actions"><button className={`secondary-action ${currentCardRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishCard(false)}>{currentCardRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentCardRating === "known" ? "is-mastered" : ""}`} onClick={() => finishCard(true)}>{currentCardRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>
     </section>
@@ -2456,8 +2490,9 @@ export default function Home() {
     <div className="sr-only" aria-live="polite" aria-atomic="true">{screenAnnouncement}</div>
     {storageWriteError && <div className="storage-warning" role="alert"><div><b>学习记录暂未保存</b><span>请关闭 Safari 无痕浏览，并确认设备还有可用存储空间。</span></div><button aria-label="关闭保存失败提示" onClick={() => setStorageWriteError(false)}>×</button></div>}
     {(speechNotice || offlineCacheWriteError || !networkOnline) && <div className="status-toast-stack" ref={statusToastRef}>{speechNotice && <div className="speech-warning" role="alert"><span>{speechNotice}</span><button aria-label="关闭语音提示" onClick={() => setSpeechNotice(null)}>×</button></div>}{offlineCacheWriteError && <div className="speech-warning offline-cache-warning" role="alert"><span>本次内容可以正常使用，但离线副本暂未确认保存。请检查 Safari 隐私模式和可用空间。</span><button aria-label="关闭离线保存提示" onClick={() => setOfflineCacheWriteError(false)}>×</button></div>}{!networkOnline && <div className="offline-status" role="status">离线模式 · 已加载内容和本机记录仍可使用</div>}</div>}
+    <VersionNotice showDetails={tab === "progress"} beforeReload={canReloadForUpdate} />
     {tab === "home" ? renderHome() : tab === "learn" ? renderLearn() : tab === "sentences" ? renderSentences() : tab === "read" ? renderRead() : tab === "review" ? renderReview() : renderProgress()}
-    {!(tab === "learn" && (learnStage === "quiz" || learnStage === "result")) && <nav className="bottom-nav" aria-label="主导航">{tabItems.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => setTab(item.id)}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}</nav>}
+    {!(tab === "learn" && (learnStage === "quiz" || learnStage === "result")) && <nav className="bottom-nav" aria-label="主导航">{tabItems.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => { if (item.id === "learn" && tab !== "learn" && learnStage === "cards") playAutomaticWordExample(current); setTab(item.id); }}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}</nav>}
     </div>
     {activeDialog === "install" && <div className="sheet-backdrop" onClick={() => setInstallOpen(false)}><div ref={installSheetRef} tabIndex={-1} className="install-sheet" role="dialog" aria-modal="true" aria-labelledby="install-title" onClick={(event) => event.stopPropagation()}><div className="sheet-handle" /><button ref={installCloseRef} className="sheet-close" aria-label="关闭安装说明" onClick={() => setInstallOpen(false)}>×</button><div className="app-preview"><span className="app-preview-icon" aria-hidden="true" /><div><b>词流英语</b><small>添加到主屏幕</small></div></div><h2 id="install-title">在 Safari 中安装</h2><ol><li><span>1</span><p>点击 Safari 底部的<strong>分享按钮</strong>。</p></li><li><span>2</span><p>向下找到并点击<strong>“添加到主屏幕”</strong>。</p></li><li><span>3</span><p>点击右上角<strong>“添加”</strong>即可。</p></li></ol><button className="primary-action full-button" onClick={() => setInstallOpen(false)}>我知道了</button></div></div>}
     {activeDialog === "discard" && discardRequest && <div className="sheet-backdrop discard-backdrop" onClick={() => setDiscardRequest(null)}><div ref={discardDialogRef} tabIndex={-1} className="discard-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description" onClick={(event) => event.stopPropagation()}><span className="discard-icon" aria-hidden="true">↻</span><h2 id="discard-title">结束当前学习？</h2><p id="discard-description">{discardRequest.pattern ? `本组已完成 ${ratedPatternCount} / ${patternSessionIds.length} 个句型。` : discardRequest.sentence ? `本组已标记 ${ratedSentenceCount} / ${sentenceSessionIds.length} 个句子。` : learnStage === "quiz" ? `考试已完成 ${quizResults.length} / ${sessionWords.length} 题。` : `本组已标记 ${ratedCardCount} / ${sessionWords.length} 个词。`}已有记录都会保留，但未完成位置将结束。{(discardRequest.sentenceStart || discardRequest.patternStart) && "确认后会直接开始你刚刚选择的练习。"}</p><div className="discard-actions"><button ref={discardCancelRef} className="secondary-action" onClick={() => setDiscardRequest(null)}>保留进度</button><button className="discard-confirm" onClick={confirmDiscardSession}>{discardRequest.sentenceStart || discardRequest.patternStart ? "结束并开始新练习" : "结束本组"}</button></div></div></div>}

@@ -215,12 +215,18 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  // Version probes must describe the server, never the worker's old cache.
+  if (url.pathname === "/build-info.json") {
+    event.respondWith(fetch(event.request, { cache: "no-store" }).catch(() => Response.error()));
+    return;
+  }
+
   if (event.request.mode === "navigate") {
     event.respondWith((async () => {
       try {
         // Only a completed install may replace the offline document. A network
         // navigation can arrive before its new hashed scripts are downloaded.
-        const response = await fetchWithTimeout(event.request, NAVIGATION_TIMEOUT);
+        const response = await fetchWithTimeout(event.request, url.searchParams.has("ef-update") ? 12_000 : NAVIGATION_TIMEOUT);
         if (response.ok && responseMatchesRequest(event.request, response)) return response;
         return (await safeCacheMatch(event.request)) || (await safeCacheMatch("/")) || response;
       } catch {

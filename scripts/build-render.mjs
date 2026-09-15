@@ -1,3 +1,4 @@
+import { resolveBuildCommit } from "./write-build-info.mjs";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
@@ -76,6 +77,7 @@ export async function buildRender() {
   const env = {
     ...baseEnv,
     VITE_ENGLISH_FLOW_CONTENT_REVISION: contentRevision,
+    VITE_ENGLISH_FLOW_BUILD_COMMIT: await resolveBuildCommit({ env: baseEnv }),
   };
 
   await runCommand(vinext, ["build"], { env, timeoutMs: BUILD_TIMEOUT_MS, shell: process.platform === "win32" });
