@@ -23,7 +23,9 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Apply focused product change
-        run: python3 .audit/apply-ngsl-autoplay.py
+        run: |
+          python3 .audit/apply-ngsl-autoplay.py
+          python3 .audit/refine-ngsl.py
       - name: Tests types lint and production build
         run: |
           npm test > /tmp/ngsl-tests.log 2>&1 || { grep -A30 'not ok' /tmp/ngsl-tests.log; tail -30 /tmp/ngsl-tests.log; exit 1; }
