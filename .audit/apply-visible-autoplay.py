@@ -24,7 +24,8 @@ s=once(s,'  const exportLearningBackup = async () => {',guard+'  const exportLea
 s=once(s,'    {tab === "home" ? renderHome()', '    <VersionNotice showDetails={tab === "progress"} beforeReload={canReloadForUpdate} />\n    {tab === "home" ? renderHome()')
 s=once(s,'    wordExampleStartedRef.current = `${word.id}:${word.example}`;','    setSpeechNotice(null);\n    wordExampleStartedRef.current = `${word.id}:${word.example}`;')
 s=once(s,'  const replayWordExample = () => {\n    if (!current || document.hidden) return;', '  const replayWordExample = () => {\n    if (!current || document.hidden) return;\n    setSpeechNotice(null);')
-s=once(s,'onClick={() => hasOngoingSession ? setTab("learn") : startSession()}', 'onClick={() => { if (hasOngoingSession) { if (learnStage === "cards") playAutomaticWordExample(current); setTab("learn"); } else startSession(); }}')
+s=once(s,'onClick={() => hasOngoingSession ? setTab("learn") : startSession()}', 'onClick={handleHomeStudyClick}')
+s=once(s,'  const renderHome = () => (', '  const handleHomeStudyClick = () => {\n    if (hasOngoingSession) { if (learnStage === "cards") playAutomaticWordExample(current); setTab("learn"); } else startSession();\n  };\n\n  const renderHome = () => (')
 s=once(s,'onClick={() => setTab(item.id)}', 'onClick={() => { if (item.id === "learn" && tab !== "learn" && learnStage === "cards") playAutomaticWordExample(current); setTab(item.id); }}')
 # Put controls before the large word card, where they are actually discoverable
 # on an iPhone. Scope is still NGSL grouped learning, never a quiz answer.
