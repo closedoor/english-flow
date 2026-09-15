@@ -1,0 +1,61 @@
+name: Verify mobile word-card action layout
+on:
+  push:
+    branches: [maintenance/word-layout-20260915]
+permissions:
+  contents: write
+concurrency:
+  group: word-layout-audit
+  cancel-in-progress: true
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      RENDER_EXTERNAL_URL: http://127.0.0.1:4173
+      PLAYWRIGHT_MODULE: /tmp/ef-layout/node_modules/playwright/index.mjs
+      AXE_SOURCE: /tmp/ef-layout/node_modules/axe-core/axe.min.js
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Install isolated browser engines
+        run: |
+          npm install --prefix /tmp/ef-layout --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
+          node /tmp/ef-layout/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/install.log 2>&1 || { tail -50 /tmp/install.log; exit 1; }
+      - name: Measure existing screenshot-sized layout before repair
+        run: |
+          npm run build:render > /tmp/before-build.log 2>&1 || { tail -50 /tmp/before-build.log; exit 1; }
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client >/tmp/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          WORD_LAYOUT_BASELINE=1 node scripts/browser-word-layout.mjs
+      - name: Apply layout-only fix and validate
+        run: |
+          python3 .audit/move-word-controls.py
+          npm test >/tmp/tests.log 2>&1 || { grep -A18 '^not ok' /tmp/tests.log | head -110; tail -15 /tmp/tests.log; exit 1; }
+          tail -10 /tmp/tests.log
+          npm run typecheck
+          npm run lint
+          npm run build:render >/tmp/build.log 2>&1 || { tail -50 /tmp/build.log; exit 1; }
+          tail -4 /tmp/build.log
+      - name: Real browser regressions and direct-tap mobile layout
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client >/tmp/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          node scripts/browser-word-layout.mjs
+          npm run test:browser
+      - name: Save verified layout files without altering speech or learning storage
+        run: |
+          git diff --exit-code package-lock.json render.yaml app/speech-playback.ts app/backup-data.ts app/session-utils.ts public
+          git add app/page.tsx app/globals.css scripts/browser-autoplay.mjs package.json TESTING.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          git commit -m 'Move audio settings below study actions and keep mobile card controls reachable'
+          git push origin HEAD:refs/heads/maintenance/word-layout-20260915
+          git rev-parse HEAD
