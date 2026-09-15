@@ -4,11 +4,15 @@ on:
     branches: [maintenance/autoplay-delivery-20260915]
 permissions:
   contents: write
+concurrency:
+  group: autoplay-delivery-audit
+  cancel-in-progress: true
 jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     env:
+      RENDER_EXTERNAL_URL: http://127.0.0.1:4173
       PLAYWRIGHT_MODULE: /tmp/ef-delivery/node_modules/playwright/index.mjs
       AXE_SOURCE: /tmp/ef-delivery/node_modules/axe-core/axe.min.js
     steps:
