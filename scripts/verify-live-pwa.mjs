@@ -8,6 +8,21 @@ const expected=process.env.EXPECTED_COMMIT;
 assert.match(expected||'',/^[0-9a-f]{40}$/);
 const mimeResponse=await fetch(new URL('/manifest.webmanifest',base),{cache:'no-store',signal:AbortSignal.timeout(12000)});
 console.log('LIVE_MANIFEST_HEADER',mimeResponse.status,mimeResponse.headers.get('content-type'));
+async function verifyTopStart(page, module) {
+  await page.waitForFunction(() => window.scrollY === 0);
+  const metrics = await page.locator('.setup-start').evaluate(button => {
+    const r = button.getBoundingClientRect();
+    const section = button.closest('section');
+    const header = section.querySelector('header').getBoundingClientRect();
+    const firstOption = section.querySelector('.setup-block').getBoundingClientRect();
+    return {top:r.top,bottom:r.bottom,height:r.height,headerBottom:header.bottom,firstOptionTop:firstOption.top,navTop:document.querySelector('.bottom-nav').getBoundingClientRect().top,hit:button.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)),count:section.querySelectorAll('.setup-start').length};
+  });
+  assert.equal(metrics.count, 1);
+  assert.ok(metrics.top >= metrics.headerBottom && metrics.top < 260);
+  assert.ok(metrics.bottom < metrics.firstOptionTop && metrics.bottom < metrics.navTop);
+  assert.ok(metrics.height >= 44 && metrics.hit);
+  console.log('LIVE_SETUP_START_PASS', JSON.stringify({module,commit:expected,...metrics}));
+}
 for(const name of ['chromium','webkit']){
   const browser=await pw[name].launch({headless:true});
   // Brand-new isolated profile, never an existing learner's browser or account.
@@ -48,6 +63,7 @@ for(const name of ['chromium','webkit']){
     assert.ok(cached,'The real worker must complete its app-shell cache, not merely register');
     assert.match(cached.type,/json|manifest/);assert.equal(cached.manifest.name,'词流英语');
     await page.locator('.bottom-nav button').filter({hasText:'学习'}).click();
+    await verifyTopStart(page, 'learn');
     await page.getByRole('button',{name:'自由学习',exact:false}).click();
     await page.getByRole('button',{name:'10 个',exact:true}).click();
     await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
@@ -72,6 +88,13 @@ for(const name of ['chromium','webkit']){
     await page.reload();await page.locator('.word-card').waitFor();
     assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1')),snapshot);
     assert.ok((await page.locator('.word-auto-build').innerText()).includes(expected.slice(0,7)));
+    await page.locator('.bottom-nav button').filter({hasText:'句库'}).click();
+    await page.waitForFunction(() => { const button=document.querySelector('.sentence-page .setup-start'); return button && !button.disabled; });
+    await verifyTopStart(page, 'sentences');
+    const startBox = await page.locator('.setup-start').boundingBox();
+    await page.mouse.click(startBox.x+startBox.width/2, startBox.y+startBox.height/2);
+    await page.locator('.sentence-study-card').waitFor();
+    assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1')),snapshot);
     assert.deepEqual(errors,[]);
     console.log('LIVE_PWA_PASS',JSON.stringify({engine:name,commit:expected,workerActivated:true,manifestCache:cached.cache,cachedManifestType:cached.type,checks,reloadProgressPreserved:true,instrumentedSpeech:true}));
   }catch(error){

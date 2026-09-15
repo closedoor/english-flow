@@ -348,3 +348,10 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
   .word-card-actions>.sentence-pager{margin:0 0 8px}
   .word-card-actions button{min-height:48px}
 }
+
+
+/* Group setup: primary start action comes immediately after the title.
+   Keep it in normal flow; the quiz's bottom-sticky action is unchanged. */
+.setup-start-panel{margin:16px 0 20px;min-width:0}
+.setup-start-panel>.setup-start{position:static;bottom:auto;width:100%;min-height:53px;margin:0;padding:12px 16px;white-space:normal}
+.setup-start-panel>.session-choice-summary{margin:8px 0 0;overflow-wrap:anywhere}
