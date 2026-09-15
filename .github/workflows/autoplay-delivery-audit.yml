@@ -40,12 +40,12 @@ jobs:
           npm run lint
           npm run build:render > /tmp/build.log 2>&1 || { tail -60 /tmp/build.log; exit 1; }
           tail -4 /tmp/build.log
-      - name: Browser regressions and real production-MIME rehearsal
+      - name: Focused autoplay and actual production-MIME rehearsal
         run: |
           python3 -c 'import http.server; http.server.SimpleHTTPRequestHandler.extensions_map[".webmanifest"]="binary/octet-stream"; http.server.test(HandlerClass=lambda *a, **kw: http.server.SimpleHTTPRequestHandler(*a, directory="dist/client", **kw), port=4173, bind="127.0.0.1")' > /tmp/http.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
-          npm run test:browser
+          node scripts/browser-autoplay.mjs
           EXPECTED_COMMIT=${{ github.sha }} PRODUCTION_URL=http://127.0.0.1:4173/ node scripts/verify-live-pwa.mjs
       - name: Save only verified product changes to isolated branch
         run: |

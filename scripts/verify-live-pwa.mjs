@@ -27,10 +27,19 @@ for(const name of ['chromium','webkit']){
     assert.equal(response.status(),200);assert.equal(await page.title(),'词流英语');
     assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'),expected);
     await page.locator('.bottom-nav').waitFor();
-    await page.waitForFunction(async()=>{
-      const registration=await navigator.serviceWorker.getRegistration();
-      return registration?.active?.state==='activated'&&!!navigator.serviceWorker.controller;
-    },null,{timeout:30000});
+    // Resolve the asynchronous registration lookup in Node, rather than
+    // allowing a truthy Promise or an installing worker to satisfy a poll.
+    const deadline=Date.now()+30000;
+    let workerReady=false;
+    while(Date.now()<deadline){
+      workerReady=await page.evaluate(async()=>{
+        const registration=await navigator.serviceWorker.getRegistration();
+        return Boolean(registration?.active?.state==='activated'&&navigator.serviceWorker.controller?.state==='activated');
+      });
+      if(workerReady)break;
+      await page.waitForTimeout(150);
+    }
+    assert.equal(workerReady,true,'The live worker must actually activate and control the page');
     const cached=await page.evaluate(async()=>{
       const names=(await caches.keys()).filter(name=>name.startsWith('wordflow-ngsl-')&&!name.endsWith('-staging'));
       for(const name of names){const response=await(await caches.open(name)).match('/manifest.webmanifest');if(response)return{cache:name,type:response.headers.get('content-type'),manifest:await response.json()};}
