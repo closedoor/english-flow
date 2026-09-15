@@ -1,0 +1,53 @@
+name: Isolated NGSL autoplay verification
+on:
+  push:
+    branches: [maintenance/ngsl-example-repeat-20260915]
+permissions:
+  contents: write
+concurrency:
+  group: ngsl-autoplay-audit
+  cancel-in-progress: true
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RENDER_EXTERNAL_URL: http://127.0.0.1:4173
+      PLAYWRIGHT_MODULE: /tmp/english-flow-browser/node_modules/playwright/index.mjs
+      AXE_SOURCE: /tmp/english-flow-browser/node_modules/axe-core/axe.min.js
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Apply focused product change
+        run: python3 .audit/apply-ngsl-autoplay.py
+      - name: Tests types lint and production build
+        run: |
+          npm test > /tmp/ngsl-tests.log 2>&1 || { grep -A30 'not ok' /tmp/ngsl-tests.log; tail -30 /tmp/ngsl-tests.log; exit 1; }
+          tail -12 /tmp/ngsl-tests.log
+          npm run typecheck
+          npm run lint
+          npm run build:render
+      - name: Install isolated browser engines
+        run: |
+          npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
+          node /tmp/english-flow-browser/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/ngsl-browser-install.log 2>&1 || { tail -80 /tmp/ngsl-browser-install.log; exit 1; }
+      - name: Run existing suites and autoplay interaction checks
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/ngsl-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          npm run test:browser
+      - name: Commit tested product files to isolated branch
+        run: |
+          git diff --exit-code package-lock.json render.yaml app/backup-data.ts app/session-utils.ts public/data
+          git add app/page.tsx app/speech-playback.ts app/globals.css package.json TESTING.md tests scripts/browser-autoplay.mjs
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat
+          git commit -m 'Verify NGSL example autoplay and cancellation behavior'
+          git push origin HEAD:refs/heads/maintenance/ngsl-example-repeat-20260915
+          git rev-parse HEAD
