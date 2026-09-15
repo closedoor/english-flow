@@ -46,7 +46,7 @@ test("service worker has an offline shell and update lifecycle", async () => {
   assert.match(worker, /cacheCompleteBuildGraph\(cache, urls, true\)/);
   assert.match(worker, /responseMatchesRequest/);
   assert.match(worker, /await caches\.delete\(STAGING_CACHE\)/);
-  assert.match(worker, /fetchWithTimeout\(event\.request, NAVIGATION_TIMEOUT\)/);
+  assert.match(worker, /fetchWithTimeout\(event\.request, url\.searchParams\.has\("ef-update"\) \? 12_000 : NAVIGATION_TIMEOUT\)/);
   assert.match(worker, /fetchAndCache\(event\.request, OPTIONAL_CACHE_TIMEOUT\)/);
   assert.match(worker, /name\.endsWith\("-staging"\)/);
   assert.match(worker, /\.slice\(0, MAX_SHELL_ASSETS\)/);
@@ -95,8 +95,8 @@ test("large NGSL data is split from the initial page module", async () => {
   assert.doesNotMatch(page, /contentRevision: CONTENT_REVISION/);
   assert.match(page, /new Set\(\[\.\.\.documentUrls, \.\.\.resourceUrls\]\)/);
   assert.match(page, /addEventListener\("controllerchange", cacheLoadedPageAssets\)/);
-  assert.match(page, /serviceWorker\.register\("\/sw\.js"\)\.then\(cacheLoadedPageAssets\)/);
-  assert.match(page, /useEffect\(\(\) => \{[\s\S]*?serviceWorker\.register\("\/sw\.js"\)[\s\S]*?\}, \[\]\);/);
+  assert.match(page, /serviceWorker\.register\("\/sw\.js", \{ updateViaCache: "none" \}\)\.then\(cacheLoadedPageAssets\)/);
+  assert.match(page, /useEffect\(\(\) => \{[\s\S]*?serviceWorker\.register\("\/sw\.js", \{ updateViaCache: "none" \}\)[\s\S]*?\}, \[\]\);/);
   assert.match(page, /核心词库暂时没有加载成功/);
   assert.match(page, /核心词库已加载 \$\{wordDataLoadedPacks\}\/3/);
   assert.match(page, /import\("\.\/sentence-data"\)/);

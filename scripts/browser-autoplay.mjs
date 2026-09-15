@@ -132,6 +132,25 @@ for(const engine of ['chromium','webkit']){
     await page.getByRole('button',{name:'重播三遍',exact:true}).click();await count(page,1);
     assert.equal((await logs(page))[0].gesture,true);
   },snapshot());
+  await check('legacy-ten-word-group-shows-controls-before-card-and-next-speaks-three',async page=>{
+    await ready(page);await page.locator('.word-auto-controls').waitFor();
+    assert.ok((await page.locator('.word-auto-controls').boundingBox()).y < (await page.locator('.word-card').boundingBox()).y);
+    await page.locator('[aria-label="切换词卡"] button').last().click();await count(page,1);
+    assert.equal((await logs(page))[0].gesture,true);
+    const text=await page.locator('.example-box p').innerText();
+    await finish(page);await finish(page);await finish(page);
+    assert.deepEqual((await logs(page)).map(u=>u.text),[text,text,text]);
+    assert.deepEqual(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).ratings,key),{});
+  },{...snapshot(),kind:undefined,mode:'free',wordIds:Array.from({length:10},(_,i)=>i+22)});
+  await check('resuming-restored-group-from-home-starts-in-click-not-effect',async page=>{
+    await ready(page);await nav(page,'今天');
+    await page.locator('.hero-card').click();await count(page,1);
+    assert.equal((await logs(page))[0].gesture,true);
+  },snapshot());
+  await check('resuming-restored-group-from-navigation-starts-in-click-not-effect',async page=>{
+    await ready(page);await nav(page,'进度');await nav(page,'学习');await count(page,1);
+    assert.equal((await logs(page))[0].gesture,true);
+  },snapshot());
   await check('scene-groups-and-single-word-lookups-keep-manual-audio',async page=>{
     await ready(page);await nav(page,'学习');await page.locator('.scene-list button').first().click();
     await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();assert.equal((await logs(page)).length,0);

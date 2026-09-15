@@ -8,7 +8,7 @@ const speechPlayback = await readFile(new URL("../app/speech-playback.ts", impor
 
 test("home session uses the learner's current choices", () => {
   assert.doesNotMatch(page, /startSession\("frequency",\s*"test",\s*10\)/);
-  assert.match(page, /hasOngoingSession \? setTab\("learn"\) : startSession\(\)/);
+  assert.match(page, /if \(hasOngoingSession\) \{ if \(learnStage === "cards"\) playAutomaticWordExample\(current\); setTab\("learn"\); \} else startSession\(\)/);
   assert.match(page, /currentPathLabel/);
   assert.match(page, /currentSessionCount/);
   assert.match(page, /currentModeLabel/);
