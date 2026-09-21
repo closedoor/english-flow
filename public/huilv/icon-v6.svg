@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+ <title>口袋汇率</title>
+ <rect width="512" height="512" rx="112" fill="#163f34"/>
+ <g fill="none" stroke="#dbf3ac" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M128 150h252l-34-34M384 362H132l34 34"/>
+ </g>
+ <g fill="none" stroke="#f4f8eb" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M220 214c-10-21-45-24-58-3-26 41 68 36 59 73-7 28-50 29-66 5M190 190v126"/>
+  <path d="m276 207 30 39 30-39M306 246v59M281 257h50M281 278h50"/>
+ </g>
+</svg>
