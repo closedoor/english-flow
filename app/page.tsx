@@ -2434,7 +2434,7 @@ export default function Home() {
     return <section className="page sentence-page simple-setup">{commonHeader("句子", "听懂一句，再开口说一句")}
       <div className="setup-start-panel">
         <button aria-describedby="sentence-session-choice" className="sticky-start primary-action setup-start" disabled={sentenceSelectionLoading || availableCount === 0} onClick={() => startSentenceSession()}>开始学习句子</button>
-        <p id="sentence-session-choice" className="session-choice-summary" aria-live="polite"><span>“”</span> 当前：{sentenceMode === "speak" ? "看中文说英文" : "英文卡片"} · {sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label} · 退出自动保存</p>
+        <p id="sentence-session-choice" className="session-choice-summary" aria-live="polite"><span>“”</span> 当前：{sentenceMode === "speak" ? "看中文说英文" : "英文卡片"} · {sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label} · 退出保存</p>
       </div>
       {canResumeSentence && <button className="resume-session-card" onClick={resumeSentenceSession}><span>继续上次</span><div><b>未完成的句子练习</b><small>第 {Math.min(sentenceIndex + 1, sentenceSessionIds.length)} 张 · 已标记 {ratedSentenceCount} / {sentenceSessionIds.length}</small></div><i>›</i></button>}
       {sentenceLoadError && sentencePacksIncomplete && <div className="sentence-load-error" role="alert"><span>{networkOnline ? "部分句库尚未载入，已有内容和本机记录仍保留。可以先重试；仍失败时再重新载入页面。" : "当前处于离线状态，已缓存的句子仍可使用；联网后会自动补全。"}</span><div className="sentence-load-actions"><button onClick={retrySentenceContent}>重试缺少的句库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div></div>}
@@ -2579,7 +2579,7 @@ export default function Home() {
       {commonHeader("单词", "随时开始，随时继续")}
       <div className="setup-start-panel">
         <button aria-describedby="word-session-choice" className="sticky-start primary-action setup-start" onClick={() => startSession()}>开始学习</button>
-        <p id="word-session-choice" className="session-choice-summary" aria-live="polite"><span>{currentPathIcon}</span> 当前：{currentPathLabel} · 退出自动保存</p>
+        <p id="word-session-choice" className="session-choice-summary" aria-live="polite"><span>{currentPathIcon}</span> 当前：{currentPathLabel} · 退出保存</p>
       </div>
       <details className="setup-disclosure word-range" open={wordRangeOpen} onToggle={(event) => setWordRangeOpen(event.currentTarget.open)}><summary><div><b>学习范围</b><small>{currentPathLabel}</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
       <div className="setup-block"><h2>选择词汇路线</h2><button className={`path-card ${path === "frequency" ? "selected" : ""}`} aria-pressed={path === "frequency"} onClick={() => selectPath("frequency")}><span className="path-icon">NG</span><div><b>NGSL 高频顺序</b><small>官方 1.2 版 · 共 {ngslMeta.count.toLocaleString()} 个通用词</small></div><i>{path === "frequency" ? "✓" : "›"}</i></button>

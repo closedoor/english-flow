@@ -140,7 +140,7 @@ test("an ongoing session resumes instead of being silently overwritten", () => {
   assert.match(page, /setDiscardRequest\(\{ wordStart: \{ path: selectedPath \} \}\)/);
   assert.match(page, /id="discard-title">结束当前学习/);
   assert.match(page, /className="discard-confirm" onClick=\{confirmDiscardSession\}/);
-  assert.match(page, /退出自动保存/);
+  assert.match(page, /退出保存/);
 });
 
 test("paused sentence and pattern sessions cannot be silently replaced", () => {

@@ -21,7 +21,7 @@ test('top setup starts retain current choices, sentence-loading guards and patte
   const sentence=page.split('  const renderSentenceSetup =')[1].split('  const renderSentenceCards =')[0];
   const pattern=page.split('  const renderPatternSetup =')[1].split('  const renderPatternCards =')[0];
   assert.match(word,/onClick=\{\(\) => startSession\(\)\}/);
-  assert.match(word,/currentPathLabel[\s\S]*退出自动保存/);
+  assert.match(word,/currentPathLabel[\s\S]*退出保存/);
   assert.doesNotMatch(word,/练习方式|每组词数|count-switch|mode-options/);
   assert.match(sentence,/disabled=\{sentenceSelectionLoading \|\| availableCount === 0\} onClick=\{\(\) => startSentenceSession\(\)\}/);
   assert.match(sentence,/onClick=\{resumeSentenceSession\}/);
