@@ -1,5 +1,6 @@
 import { openSetupDetails } from './browser-disclosures.mjs';
 import { navigate } from './browser-navigation.mjs';
+import {verifySpeechRecovery} from './speech-recovery-checks.mjs';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 if (!process.env.PLAYWRIGHT_MODULE) throw new Error('Set PLAYWRIGHT_MODULE; see TESTING.md.');
@@ -178,3 +179,4 @@ for(const engine of ['chromium','webkit']){
 const failed=results.filter(r=>r.status==='FAIL').length;
 console.log('AUTOPLAY_BROWSER_SUMMARY',JSON.stringify({passed:results.length-failed,failed,total:results.length,instrumentedSpeech:true}));
 if(failed) process.exitCode=1;
+await verifySpeechRecovery(playwright,origin);

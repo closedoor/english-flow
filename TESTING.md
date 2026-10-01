@@ -76,6 +76,14 @@ NGSL grouped word cards (10 or 20 words, free study or study-plus-quiz) now play
 
 ## Installed-user NGSL autoplay and release identity
 
+### Lost speech queues and unavailable system voices
+
+`tests/speech-recovery-runtime.test.mjs` and `scripts/speech-recovery-checks.mjs` explicitly simulate a late native cancel removing freshly queued speech, delayed start callbacks, an unavailable selected voice, and offline/network-dependent voice selection. The browser checks are part of `test:browser` through `browser-autoplay.mjs`, and of the Render live checks through `verify-live-sentences.mjs`. Both Chromium and WebKit use fresh disposable profiles and actual button clicks; the live checks also verify the served full commit identity.
+
+An already empty native queue is not canceled before starting. The first speak remains synchronous in the input handler. Only an unstarted utterance whose native queue disappeared, or whose selected voice failed, gets one bounded recovery; a healthy pending/started queue is never restarted. An unavailable voice is excluded for this visit, and the platform language voice is the fallback. Only completed utterances advance the three English/one Mandarin sequence. Exit, hidden-page cancellation and stale callbacks cancel recovery as well as the original queue. Permission errors still surface rather than triggering automatic retries. No storage, data IDs, voice-wakeup audio, dependency or deployment settings change.
+
+The late-cancel fault corresponds to a documented WebKit issue (https://webkit.org/blog/18325/webkit-features-for-safari-27-0/). Injecting it does not claim reproduction on the user's OS version. Speech faults and voice callbacks are simulated, not physical iPhone/speaker/headset acceptance.
+
 The running bundle and its HTML carry the same full build commit, independently of fetched build-info.json. NGSL auto-example controls show a short release ID; their final placement is below the primary actions (see mobile word-card layout below). Ten-word legacy saved groups lacking the optional kind field are covered, as are synchronous first-input resumes from Home and the learning navigation tab. Existing end-event-based three-repeat playback, manual interruption and quiz exclusion remain in force.
 
 A version notice checks uncached server metadata on visible startup and periodically/on return to the app. It does not replace an already-open document automatically or force a waiting worker to control old pages. Updates require explicit action from Progress, successful read-only comparison of all in-memory learning records with persisted data, and a matching fresh HTML commit. Failed/offline/stale probes and unsaved/concurrent records keep the current document. Learning IDs, local storage keys, backup format and locked dependencies are unchanged.

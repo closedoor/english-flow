@@ -14,10 +14,14 @@ let playbackRate = 0.74;
 let playbackState: SpeechPlaybackState = "idle";
 let pendingPlaybackStart: (() => void) | undefined;
 let startupTimer: ReturnType<typeof setTimeout> | null = null;
+let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+const unavailableVoices = new Set<string>();
 
 function clearStartupTimer() {
   if (startupTimer !== null) clearTimeout(startupTimer);
+  if (recoveryTimer !== null) clearTimeout(recoveryTimer);
   startupTimer = null;
+  recoveryTimer = null;
 }
 
 function emitPlaybackState(state: SpeechPlaybackState) {
@@ -45,30 +49,29 @@ function watchSpeechStartup(run: number, utterance: SpeechSynthesisUtterance) {
   }, 8_000);
 }
 
-function preferredEnglishVoice() {
-  try {
-    const voices = window.speechSynthesis.getVoices();
-    return voices.find((voice) => voice.lang.startsWith("en-US"))
-      ?? voices.find((voice) => voice.lang.startsWith("en"));
-  } catch {
-    return undefined;
-  }
+function voiceLanguage(voice: SpeechSynthesisVoice) {
+  return voice.lang.replace(/_/g, "-").toLowerCase();
 }
 
-function preferredChineseVoice() {
+function voiceKey(voice: SpeechSynthesisVoice) {
+  return `${voice.voiceURI || voice.name || ""}:${voiceLanguage(voice)}`;
+}
+
+function preferredVoice(language: string) {
   try {
-    const voices = window.speechSynthesis.getVoices();
-    const language = (voice: SpeechSynthesisVoice) => voice.lang.replace(/_/g, "-").toLowerCase();
-    return voices.find((voice) => language(voice) === "zh-cn")
-      ?? voices.find((voice) => /^(zh-hans|zh-sg|cmn)(-|$)/.test(language(voice)));
+    const voices = window.speechSynthesis.getVoices().filter((voice) => !unavailableVoices.has(voiceKey(voice))
+      && (language === "zh-CN" ? /^(zh-cn|zh-hans|zh-sg|cmn)(-|$)/.test(voiceLanguage(voice)) : /^en(-|$)/.test(voiceLanguage(voice))));
+    const score = (voice: SpeechSynthesisVoice) => (voice.localService === true ? 4 : 0)
+      + (voiceLanguage(voice) === language.toLowerCase() ? 2 : 0) + (voice.default ? 1 : 0);
+    return voices.sort((a, b) => score(b) - score(a))[0];
   } catch { return undefined; }
 }
 
-function createUtterance(text: string, rate: number, language = "en-US") {
+function createUtterance(text: string, rate: number, language = "en-US", usePlatformVoice = false) {
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = language;
   utterance.rate = rate;
-  const voice = language === "zh-CN" ? preferredChineseVoice() : preferredEnglishVoice();
+  const voice = usePlatformVoice ? undefined : preferredVoice(language);
   if (voice) utterance.voice = voice;
   return utterance;
 }
@@ -114,6 +117,7 @@ export function isSpeechSupported() {
 }
 
 export function stopSpeech() {
+  const hadActiveUtterance = activeUtterance !== null;
   playbackRun += 1;
   clearStartupTimer();
   pendingPlaybackStart = undefined;
@@ -126,7 +130,11 @@ export function stopSpeech() {
   let stopped = true;
   if (isSpeechSupported()) {
     try {
-      window.speechSynthesis.cancel();
+      // Older WebKit can apply cancel() to speech queued immediately afterward.
+      // Do not cancel a native queue which is already confirmed empty.
+      if (hadActiveUtterance || window.speechSynthesis.speaking !== false || window.speechSynthesis.pending !== false) {
+        window.speechSynthesis.cancel();
+      }
       // cancel() clears the queue but does not clear the engine's paused flag.
       // A new word or article must not inherit a stopped article's pause.
       if (window.speechSynthesis.paused) window.speechSynthesis.resume();
@@ -139,49 +147,95 @@ export function stopSpeech() {
   return stopped;
 }
 
-export function speak(text: string, rate = 0.82) {
-  if (!isSpeechSupported()) return false;
-  if (!stopSpeech()) return false;
-  const run = playbackRun;
+function queueUtterance(run: number, text: string, rate: number, language: string,
+  onStart: () => void, onEnd: () => void, onFailure: (error: string) => void,
+  recovery = { used: false }, usePlatformVoice = false) {
+  if (!isSpeechSupported() || run !== playbackRun) return false;
   let utterance: SpeechSynthesisUtterance;
   try {
-    utterance = createUtterance(text, rate);
+    utterance = createUtterance(text, rate, language, usePlatformVoice);
   } catch {
-    emitSpeechError("unavailable");
+    onFailure("unavailable");
     return false;
   }
   activeUtterance = utterance;
   activeUtteranceStarted = false;
+  const current = () => run === playbackRun && activeUtterance === utterance;
+  const recover = (platformVoice: boolean) => {
+    if (!current() || activeUtteranceStarted || recovery.used) return false;
+    recovery.used = true;
+    clearStartupTimer();
+    // Failed utterances may deliver end/start after their error. Invalidate
+    // them before scheduling the replacement so they cannot skip a repeat.
+    activeUtterance = null;
+    activeUtteranceStarted = false;
+    // The first speak stays in the input handler, preserving iOS activation.
+    // Retry only an unstarted, lost/failed utterance, after native cancellation.
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null;
+      if (run === playbackRun && activeUtterance === null) queueUtterance(run, text, rate, language, onStart, onEnd, onFailure, recovery, platformVoice);
+    }, 0);
+    return true;
+  };
   utterance.onstart = () => {
-    if (run !== playbackRun || activeUtterance !== utterance) return;
+    if (!current()) return;
     activeUtteranceStarted = true;
     clearStartupTimer();
+    onStart();
   };
   utterance.onend = () => {
-    if (run === playbackRun && activeUtterance === utterance) {
-      clearStartupTimer();
-      activeUtterance = null;
-    }
+    if (!current()) return;
+    clearStartupTimer();
+    activeUtterance = null;
+    onEnd();
   };
   utterance.onerror = (event) => {
-    if (run === playbackRun && activeUtterance === utterance) {
-      clearStartupTimer();
-      activeUtterance = null;
-      emitSpeechError(event.error || "unavailable");
+    if (!current()) return;
+    const error = event.error || "unavailable";
+    if (!activeUtteranceStarted) {
+      if ((error === "canceled" || error === "interrupted") && recover(false)) return;
+      if (utterance.voice && ["voice-unavailable", "language-unavailable", "synthesis-unavailable", "synthesis-failed"].includes(error)) {
+        unavailableVoices.add(voiceKey(utterance.voice));
+        if (recover(true)) return;
+      }
     }
+    clearStartupTimer();
+    activeUtterance = null;
+    onFailure(error);
   };
   watchSpeechStartup(run, utterance);
+  if (!recovery.used && playbackState !== "paused") {
+    const checkNativeQueue = () => {
+      recoveryTimer = null;
+      if (!current() || activeUtteranceStarted || playbackState === "paused") return;
+      const engine = window.speechSynthesis;
+      if (engine.speaking === false && engine.pending === false) {
+        recover(Boolean(utterance.voice));
+      } else if (typeof engine.speaking === "boolean" && typeof engine.pending === "boolean") {
+        // A native cancel may finish after the first check. The existing
+        // eight-second startup deadline bounds these checks as well.
+        recoveryTimer = setTimeout(checkNativeQueue, 250);
+      }
+    };
+    recoveryTimer = setTimeout(checkNativeQueue, 250);
+  }
   try {
     window.speechSynthesis.speak(utterance);
   } catch {
-    if (run === playbackRun && activeUtterance === utterance) {
+    if (current()) {
       clearStartupTimer();
       activeUtterance = null;
+      onFailure("unavailable");
     }
-    emitSpeechError("unavailable");
     return false;
   }
-  return true;
+  return run === playbackRun;
+}
+
+export function speak(text: string, rate = 0.82) {
+  if (!isSpeechSupported() || !text.trim()) return false;
+  if (!stopSpeech()) return false;
+  return queueUtterance(playbackRun, text, rate, "en-US", () => {}, () => {}, emitSpeechError);
 }
 
 function playCurrentSegment(run: number) {
@@ -191,49 +245,21 @@ function playCurrentSegment(run: number) {
     stopSpeech();
     return false;
   }
-  let utterance: SpeechSynthesisUtterance;
-  try {
-    utterance = createUtterance(text, playbackRates[playbackIndex] ?? playbackRate, playbackLanguages[playbackIndex] ?? "en-US");
-  } catch {
-    emitSpeechError("unavailable");
-    stopSpeech();
-    return false;
-  }
-  activeUtterance = utterance;
-  activeUtteranceStarted = false;
-  utterance.onstart = () => {
-    if (run !== playbackRun || activeUtterance !== utterance) return;
-    activeUtteranceStarted = true;
-    clearStartupTimer();
+  const language = playbackLanguages[playbackIndex] ?? "en-US";
+  if (playbackState !== "paused") emitPlaybackState("loading");
+  return queueUtterance(run, text, playbackRates[playbackIndex] ?? playbackRate, language, () => {
     if (playbackState !== "paused") emitPlaybackState("playing");
     const onStart = pendingPlaybackStart;
     pendingPlaybackStart = undefined;
     onStart?.();
-  };
-  utterance.onend = () => {
-    if (run !== playbackRun || activeUtterance !== utterance) return;
-    clearStartupTimer();
-    activeUtterance = null;
+  }, () => {
     playbackIndex += 1;
     if (playbackIndex >= playbackSegments.length) stopSpeech();
     else playCurrentSegment(run);
-  };
-  utterance.onerror = (event) => {
-    if (run === playbackRun && activeUtterance === utterance) {
-      emitSpeechError(utterance.lang === "zh-CN" ? "chinese-unavailable" : event.error || "unavailable");
-      stopSpeech();
-    }
-  };
-  if (playbackState !== "paused") emitPlaybackState("loading");
-  watchSpeechStartup(run, utterance);
-  try {
-    window.speechSynthesis.speak(utterance);
-  } catch {
-    emitSpeechError("unavailable");
+  }, (error) => {
+    emitSpeechError(language === "zh-CN" ? "chinese-unavailable" : error);
     stopSpeech();
-    return false;
-  }
-  return run === playbackRun;
+  });
 }
 
 export function startSegmentedSpeech(text: string, rate = 0.74, onStart?: () => void) {

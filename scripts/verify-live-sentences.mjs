@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 import {selectSentenceMethod} from './browser-disclosures.mjs';
 import {assertSentenceCardGeometry} from './sentence-card-geometry.mjs';
+import {verifySpeechRecovery} from './speech-recovery-checks.mjs';
 if(!process.env.PLAYWRIGHT_MODULE)throw Error('Set PLAYWRIGHT_MODULE.');
 const pw=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
 const base=new URL(process.env.PRODUCTION_URL||'https://english-flow-mwnn.onrender.com/');
@@ -57,3 +58,4 @@ for(const engine of ['chromium','webkit']){
  }catch(error){console.error('LIVE_SENTENCE_FAIL',JSON.stringify({engine,commit:expected,error:String(error),errors}));process.exitCode=1;}
  finally{await context.close();await browser.close();}
 }
+await verifySpeechRecovery(pw,base.href,expected);
