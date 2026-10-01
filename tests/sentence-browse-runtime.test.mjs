@@ -73,6 +73,8 @@ function harness(patch = {}) {
   }]));
   let visibleIds = new Set();
   const sentenceList = { scrollTop: 0 };
+  const searchInput = {};
+  const document = { activeElement: null, body: {} };
   const browser = {
     querySelector(selector) {
       if (selector === ".sentence-result-list") return sentenceList;
@@ -102,7 +104,7 @@ function harness(patch = {}) {
     band: state.sentenceBand, category: state.sentenceCategory, count: state.sentenceCount, mode: state.sentenceMode,
   } };
   const context = vm.createContext({
-    window, sentenceBrowserRef, sentenceBrowserOriginRef, sentenceSetupPreferencesRef, patternSetupCategoryRef: { current: "travel" }, readingPositionRef: { current: new Map() }, readingPositionReadyRef: { current: false },
+    window, document, sentenceBrowserRef, sentenceBrowserOriginRef, sentenceSetupPreferencesRef, patternSetupCategoryRef: { current: "travel" }, readingPositionRef: { current: new Map() }, readingPositionReadyRef: { current: false },
     words, wordBrowserRef, wordBrowserOriginRef, wordBrowserReturnRef,
     playAutomaticWordExample() {},
     playAutomaticSentenceExample() {},
@@ -156,22 +158,25 @@ function harness(patch = {}) {
   function flushFrames() {
     for (const [id, callback] of [...frames]) { frames.delete(id); callback(); }
   }
-  function invoke(name, ...args) {
+  function invokeDeferred(name, ...args) {
     Object.assign(context, state);
     vm.runInContext(javascript(`(${initializers.get(name).getText(ast)})`), context)(...args);
     render();
+  }
+  function invoke(name, ...args) {
+    invokeDeferred(name, ...args);
     flushFrames();
   }
   render();
   flushFrames();
   scrollCalls.length = 0;
   return {
-    state, items, words, window, focusCalls, scrollCalls, writes, sentenceBrowserOriginRef, sentenceList,
+    state, items, words, window, document, searchInput, focusCalls, scrollCalls, writes, sentenceBrowserOriginRef, sentenceList,
     wordList, wordBrowserOriginRef, wordBrowserReturnRef,
     get visibleSentenceIds() { return [...visibleIds]; },
     get requiredPacks() { return [...vm.runInContext(javascript(`(${initializers.get("requiredSentencePacks").getText(ast)})`), context)]; },
     get requestedPacks() { return [...vm.runInContext(javascript(`(${initializers.get("packs").getText(ast)})`), context)]; },
-    render, flushFrames, invoke,
+    render, flushFrames, invoke, invokeDeferred,
   };
 }
 
@@ -298,6 +303,22 @@ test("favorites and the return-to-search action focus their content and reset ob
   assert.equal(app.state.sentenceSavedOnly, false);
   assert.equal(app.window.scrollY, 1100);
   assert.deepEqual(app.focusCalls.at(-1), { target: "browser", preventScroll: true });
+});
+
+test("a delayed browser focus never interrupts typing or a newer learner control", () => {
+  for (const destination of ["search", "other-control"]) {
+    const app = harness({ sentenceSavedOnly: true });
+    app.invokeDeferred("openSentenceBrowser", false);
+    const focused = destination === "search" ? app.searchInput : { control: "practice-method" };
+    app.document.activeElement = focused;
+    app.render({ sentenceSearch: "airport" });
+    app.window.scrollY = 900;
+    app.flushFrames();
+    assert.equal(app.document.activeElement, focused);
+    assert.equal(app.state.sentenceSearch, "airport");
+    assert.equal(app.window.scrollY, 900, "late presentation must not scroll away from the new action");
+    assert.equal(app.focusCalls.length, 0, "the deferred callback must not take focus from the learner");
+  }
 });
 
 test("the difficult-sentence browser includes other bands and returns correctly after mastering an item", () => {

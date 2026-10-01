@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
+import {selectSentenceMethod} from './browser-disclosures.mjs';
 if(!process.env.PLAYWRIGHT_MODULE)throw Error('Set PLAYWRIGHT_MODULE.');
 const pw=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
 const base=new URL(process.env.PRODUCTION_URL||'https://english-flow-mwnn.onrender.com/');
@@ -19,6 +20,7 @@ for(const engine of ['chromium','webkit']){
  try{
   const url=new URL('/',base);url.searchParams.set('ef-update',expected);const response=await page.goto(url.href,{waitUntil:'domcontentloaded'});assert.equal(response.status(),200);assert.equal(await page.title(),'词流英语');assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'),expected);
   await page.locator('.bottom-nav').waitFor();await page.locator('.bottom-nav button').filter({hasText:'句子'}).click();await page.waitForFunction(()=>{const b=document.querySelector('.sentence-page .setup-start');return b&&!b.disabled;});await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-translation').waitFor();
+  assert.equal(await page.locator('.bottom-nav,.sentence-auto-controls,.session-progress,.card-count,.sentence-source,.sentence-learn-page h1').count(),0);
   let offset=0;const checks=[];
   for(const action of ['first','next','known','difficult']){
    if(action==='next')await page.getByRole('button',{name:'下一句 ›',exact:true}).click();
@@ -32,7 +34,16 @@ for(const engine of ['chromium','webkit']){
   const snapshot=await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1'));
   const session=JSON.parse(snapshot);assert.equal(session.continuous,true);assert.ok(session.sentenceIds.length>20,'Live sentence learning must include the selected range beyond twenty cards');
   for(let i=0;i<2;i++){await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();assert.equal(await page.locator('#discard-title').count(),0);assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1')),snapshot);}
-  assert.deepEqual(errors,[]);console.log('LIVE_SENTENCE_PASS',JSON.stringify({engine,commit:expected,checks,resumeWithoutDialog:true,progressPreserved:true,continuousRange:true,instrumentedSpeech:true}));
+  await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
+  assert.equal(await page.locator('.session-choice-summary,.resume-session-card,.setup-footnote').count(),0);
+  await selectSentenceMethod(page,'看中文说英文');assert.equal(await page.locator('.sentence-range .practice-methods').isVisible(),true);
+  await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('#discard-title').waitFor();await page.getByRole('button',{name:'结束并开始新练习',exact:true}).click();await page.locator('.speak-prompt').waitFor();
+  const spokenBefore=await page.evaluate(()=>window.__liveSentence.log.length);assert.equal(await page.locator('.sentence-english').count(),0);assert.equal(await page.getByRole('button',{name:'慢速播放',exact:true}).isDisabled(),true);
+  assert.equal(await page.locator('.bottom-nav,.sentence-auto-controls,.session-progress,.card-count,.sentence-source,.sentence-learn-page h1').count(),0);
+  await page.getByRole('button',{name:'我说好了，查看英文答案',exact:true}).click();await page.locator('.speak-answer').waitFor();assert.equal(await page.evaluate(()=>window.__liveSentence.log.length),spokenBefore);
+  await page.getByRole('button',{name:'播放英文',exact:true}).click();assert.equal(await page.evaluate(()=>window.__liveSentence.log.length),spokenBefore+1);
+  await page.getByRole('button',{name:'下一句 ›',exact:true}).click();assert.equal(await page.locator('.sentence-english').count(),0);assert.equal(await page.evaluate(()=>window.__liveSentence.log.length),spokenBefore+1);
+  assert.deepEqual(errors,[]);console.log('LIVE_SENTENCE_PASS',JSON.stringify({engine,commit:expected,checks,resumeWithoutDialog:true,progressPreserved:true,continuousRange:true,immersiveSentenceCards:true,practiceMethodsInsideRange:true,setupSummaryAndProgressHidden:true,recallWithoutAnswerLeak:true,instrumentedSpeech:true}));
  }catch(error){console.error('LIVE_SENTENCE_FAIL',JSON.stringify({engine,commit:expected,error:String(error),errors}));process.exitCode=1;}
  finally{await context.close();await browser.close();}
 }

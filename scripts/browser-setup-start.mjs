@@ -1,4 +1,4 @@
-import { openSetupDetails } from './browser-disclosures.mjs';
+import { openSetupDetails, selectSentenceMethod, resumePausedSentence, sentenceChoices } from './browser-disclosures.mjs';
 import { navigate, openLegacyPatterns } from './browser-navigation.mjs';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
@@ -127,8 +127,9 @@ for (const engine of ['chromium', 'webkit']) {
   });
   await check('top-sentence-start-uses-selected-speaking-mode-and-full-selected-band', async page => {
     await navigate(page, '句子'); await enabled(page, sentenceStart);
-    await page.locator('.sentence-mode-grid button').filter({ hasText: '看中文说英文' }).click(); await sentenceBand(page, '常用句');
-    const summary = await page.locator('#sentence-session-choice').innerText(); assert.match(summary, /看中文说英文/); assert.match(summary, /常用句/);
+    await selectSentenceMethod(page, '看中文说英文'); await sentenceBand(page, '常用句');
+    const choices = (await sentenceChoices(page)).join(' '); assert.match(choices, /看中文说英文/); assert.match(choices, /常用句/);
+    await page.evaluate(() => scrollTo(0, 0));
     await tapStart(page, sentenceStart); await page.locator('.speak-prompt').waitFor(); const session = await saved(page, sentenceKey);
     assert.equal(session.continuous, true); assert.ok(session.sentenceIds.length > 20); assert.ok(session.sentenceIds.every(id => id > 1000 && id <= 2000));
     assert.equal(await page.locator('.sentence-english').count(), 0);
@@ -150,10 +151,10 @@ for (const engine of ['chromium', 'webkit']) {
     await page.locator('.learn-actions .secondary-action').click();
     await page.waitForFunction(key => Object.keys(JSON.parse(localStorage.getItem(key)).ratings).length === 1, sentenceKey);
     const before = await saved(page, sentenceKey); await exitSentence(page);
-    await page.locator('.practice-methods button').filter({ hasText: '看中文说英文' }).click();
+    await selectSentenceMethod(page, '看中文说英文');
     assert.deepEqual(await saved(page, sentenceKey), before); await start(page, sentenceStart).click(); await page.locator('#discard-title').waitFor();
     await page.getByRole('button', { name: '保留进度', exact: true }).click(); assert.deepEqual(await saved(page, sentenceKey), before);
-    await page.locator('.resume-session-card').click(); await page.locator('.sentence-study-card').waitFor();
+    await resumePausedSentence(page); await page.locator('.sentence-study-card').waitFor();
     assert.equal(await page.locator('.speak-prompt').count(), 0); assert.deepEqual(await saved(page, sentenceKey), before);
   });
   for (const [name, width, height, largeText] of [['small', 320, 568, false], ['phone', 390, 844, false], ['large-text', 430, 932, true]]) {
@@ -169,9 +170,12 @@ for (const engine of ['chromium', 'webkit']) {
       await navigate(page, '句子'); await enabled(page, sentenceStart); assert.equal(await page.locator('h1').innerText(), '句子');
       for (const selector of ['.sentence-range', '.sentence-find']) assert.equal(await page.locator(selector).evaluate(element => element.open), false);
       assert.equal(await page.locator('.practice-methods button').count(), 2); assert.equal(await page.getByRole('button', { name: '核心句型', exact: true }).count(), 0);
+      assert.equal(await page.locator('.practice-methods').isVisible(), false);
+      assert.equal(await page.locator('.session-choice-summary,.resume-session-card,.setup-footnote').count(), 0);
       for (const label of ['10 句', '20 句']) assert.equal(await page.getByRole('button', { name: label, exact: true }).count(), 0);
-      await page.locator('.practice-methods button').filter({ hasText: '看中文说英文' }).click(); assert.match(await page.locator('#sentence-session-choice').innerText(), /看中文说英文/);
-      await page.locator('.practice-methods button').filter({ hasText: '英文卡片' }).click();
+      await selectSentenceMethod(page, '看中文说英文'); assert.match((await sentenceChoices(page)).join(' '), /看中文说英文/);
+      assert.equal(await page.locator('.sentence-range .practice-methods').isVisible(), true);
+      await selectSentenceMethod(page, '英文卡片');
       await openSetupDetails(page, '.sentence-find'); await page.locator('.sentence-summary button').last().click();
       await page.getByText('还没有收藏句子。学习时点 ☆ 就能在这里找到。', { exact: true }).waitFor();
       await page.locator('.browser-switch').click(); await page.getByRole('searchbox', { name: '搜索长短句' }).fill('I');
@@ -186,12 +190,36 @@ for (const engine of ['chromium', 'webkit']) {
     await navigate(page, '句子'); await enabled(page, sentenceStart); await openSetupDetails(page, '.sentence-find');
     await page.getByRole('searchbox', { name: '搜索长短句' }).fill('I'); await page.locator('.sentence-result-list button[data-sentence-id]').nth(5).click();
     await page.locator('.sentence-study-card').waitFor(); const before = await saved(page, sentenceKey);
-    await navigate(page, '首页'); await navigate(page, '句子'); await exitSentence(page);
-    await page.locator('.practice-methods button').filter({ hasText: '看中文说英文' }).click(); await settleNavigation(page); await page.waitForFunction(() => scrollY === 0);
+    await navigate(page, '首页'); await navigate(page, '句子');
+    await selectSentenceMethod(page, '看中文说英文'); await settleNavigation(page); await page.waitForFunction(() => scrollY === 0);
     await topStart(page, sentenceStart); assert.deepEqual(await saved(page, sentenceKey), before);
     await openSetupDetails(page, '.sentence-find'); assert.equal(await page.getByRole('searchbox', { name: '搜索长短句' }).inputValue(), 'I');
     assert.equal(await page.locator('button[data-sentence-id]:focus').count(), 0);
   });
+  await check('returning-from-favorites-does-not-steal-a-fast-search-input', async page => {
+    await navigate(page, '句子'); await enabled(page, sentenceStart); await openSetupDetails(page, '.sentence-find');
+    await page.locator('.sentence-summary button').last().click();
+    await page.getByText('还没有收藏句子。学习时点 ☆ 就能在这里找到。', { exact: true }).waitFor(); await settleNavigation(page);
+    // Delay the first frame requested by the real return-to-search click so
+    // the learner can focus/type first. Other browser frames remain native.
+    await page.evaluate(() => {
+      const nativeFrame = window.requestAnimationFrame.bind(window);
+      let holdNext = false;
+      document.addEventListener('click', event => { if (event.target.closest('.browser-switch')) holdNext = true; }, true);
+      window.requestAnimationFrame = callback => {
+        if (holdNext) { holdNext = false; window.__sentenceSearchFocusFrame = callback; return nativeFrame(() => {}); }
+        return nativeFrame(callback);
+      };
+    });
+    await page.locator('.browser-switch').click();
+    const input = page.getByRole('searchbox', { name: '搜索长短句' }); await input.fill('airport');
+    assert.equal(await input.evaluate(element => document.activeElement === element), true);
+    assert.equal(await page.evaluate(() => typeof window.__sentenceSearchFocusFrame), 'function');
+    await page.evaluate(() => window.__sentenceSearchFocusFrame(performance.now()));
+    assert.equal(await input.evaluate(element => document.activeElement === element), true, 'The late frame must preserve the learner focus');
+    await page.keyboard.type(' '); assert.equal(await input.inputValue(), 'airport ');
+    await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();
+  }, { width: 320, height: 568 });
   await check('legacy-pattern-v1-keeps-substitution-and-record-management-resume-with-hidden-answer', async page => {
     await page.locator('.pattern-prompt').waitFor(); await page.getByRole('button', { name: '我说好了，查看参考答案', exact: true }).click();
     await page.getByRole('button', { name: '下一组 ›', exact: true }).click();

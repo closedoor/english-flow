@@ -1,5 +1,5 @@
 import { navigate, openLegacyPatterns, openLegacyWords } from './browser-navigation.mjs';
-import { openSetupDetails } from './browser-disclosures.mjs';
+import { openSetupDetails, selectSentenceMethod, sentenceChoices } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -28,7 +28,7 @@ const results = [];
 
 async function retainChoices(page) {
   assert.deepEqual(await stored(page, keys.preferences), choices);
-  const summary = await page.locator('.session-choice-summary').innerText();
+  const summary = (await sentenceChoices(page)).join(' ');
   for (const label of ['看中文说英文', '短句', '餐饮']) assert.ok(summary.includes(label), summary);
 }
 async function beginWords(page) {
@@ -242,9 +242,12 @@ for (const engine of ['chromium', 'webkit']) {
     assert.equal(await page.locator('.practice-methods button').count(), 2);
     assert.equal(await page.getByRole('button',{name:'核心句型',exact:true}).count(),0);
     assert.equal(await page.locator('.practice-methods button[aria-pressed="true"]').count(),1);
-    await page.locator('.practice-methods button').filter({ hasText: '看中文说英文' }).click();
-    assert.match(await page.locator('#sentence-session-choice').innerText(), /看中文说英文/);
-    return { secondaryToolsInitiallyFolded: true, twoPracticeMethodsAtOneLevel: true, wordSearchUsable: true };
+    assert.equal(await page.locator('.practice-methods').isVisible(), false);
+    assert.equal(await page.locator('.session-choice-summary,.resume-session-card,.setup-footnote').count(),0);
+    await selectSentenceMethod(page, '看中文说英文');
+    assert.match((await sentenceChoices(page)).join(' '), /看中文说英文/);
+    assert.equal(await page.locator('.sentence-range .practice-methods').isVisible(),true);
+    return { secondaryToolsInitiallyFolded: true, practiceMethodsInsideRange: true, sentenceSummaryAndProgressHidden: true, wordSearchUsable: true };
   });
 
   await check('cross-range-sentence-lists-search-and-practice-preferences', async page => {

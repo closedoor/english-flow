@@ -1,4 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
+import { selectSentenceMethod } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -151,7 +152,7 @@ for (const engine of ['chromium', 'webkit']) {
   }, {[keys.difficult]:[1]});
   await check('sentence-speaking-reload', async page => {
     await ready(page); await nav(page,'句子');
-    await page.getByRole('button',{name:'看中文说英文',exact:false}).click();
+    await selectSentenceMethod(page,'看中文说英文');
     const start=page.getByRole('button',{name:/开始.*学习|开始.*练习/}).last();
     await start.click();
     await page.locator('.speak-prompt').waitFor();
@@ -205,6 +206,15 @@ for (const engine of ['chromium', 'webkit']) {
     await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistration())?.active?.state === 'activated', null, {timeout:30000});
     await page.reload(); await page.locator('.bottom-nav').waitFor();
     await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
+    if (engine === 'webkit') {
+      // WebKit covers content loaded in this document. The preceding reload
+      // discarded the reading module from memory; load it again before going
+      // offline rather than claiming unsupported offline module navigation.
+      await nav(page,'句子');
+      await page.waitForFunction(()=>!document.querySelector('.sentence-page .setup-start')?.disabled);
+      await nav(page,'阅读'); await page.locator('.reading-card').first().waitFor();
+      await nav(page,'首页');
+    }
     const documentId = await page.evaluate(() => { window.__auditDocumentId = Math.random(); return window.__auditDocumentId; });
     await context.setOffline(true);
     if (engine === 'chromium') {

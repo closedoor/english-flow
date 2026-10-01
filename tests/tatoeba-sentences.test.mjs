@@ -88,7 +88,7 @@ test("sentence learning remembers choices, mastery, difficult cards and interrup
   assert.match(page, /已保留在待加强练习中/);
   assert.match(page, /返回句库设置并保留进度/);
   assert.match(page, /resumeSentenceSession/);
-  assert.match(page, /未完成的句子练习/);
+  assert.match(page, /onClick=\{resumeSentenceSession\}/);
   assert.match(page, /sentenceResumeSnapshotRef/);
   assert.match(page, /newestSnapshot\(cleanSentenceSession\(readJson<unknown>\(STORAGE\.sentenceActiveSession, null\)\), sentenceResumeSnapshotRef\.current\)/);
 });

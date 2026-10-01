@@ -2,7 +2,7 @@ import { navigate } from './browser-navigation.mjs';
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { openSetupDetails } from "./browser-disclosures.mjs";
+import { openSetupDetails, selectSentenceMethod } from "./browser-disclosures.mjs";
 
 if (!process.env.PLAYWRIGHT_MODULE) throw new Error("PLAYWRIGHT_MODULE is required");
 if (!process.env.AXE_SOURCE) throw new Error("AXE_SOURCE is required");
@@ -206,7 +206,7 @@ await runCheck("chromium", "sentence-listening-speaking-and-results-remain-reada
   await page.locator(".result-page").waitFor();
   await checkAccessibility(page, "句子学习结果");
   await page.getByRole("button", { name: "返回句库", exact: true }).click();
-  await page.locator(".sentence-mode-grid button").filter({ hasText: "看中文说英文" }).click();
+  await selectSentenceMethod(page, "看中文说英文");
   await page.getByRole("button", { name: /^开始学习(?:句子)?$/, exact: true }).click();
   await page.locator(".speak-prompt").waitFor();
   await checkAccessibility(page, "中文回忆提示");

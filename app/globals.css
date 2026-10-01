@@ -485,7 +485,7 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
   .dashboard-progress-row,.dashboard-review-grid>button{gap:9px;padding-left:12px;padding-right:12px}
 }
 
-/* The word itself is the screen. Content keeps its natural height so large
+/* The learning card is the screen. Content keeps its natural height so large
    text and long examples remain scrollable above the primary action toolbar. */
 .phone-stage.is-immersive{padding-bottom:0;background:#fff;overflow-x:clip;overflow-y:visible}
 .phone-stage.is-immersive>div:first-child{display:flex;flex-direction:column;height:100dvh}
@@ -498,7 +498,20 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .immersive-learning>.compact-header>.round-button{width:44px;height:44px;flex:0 0 44px;background:var(--paper);border-color:var(--line)}
 .immersive-learning>.compact-header>.library-back{padding:8px 12px;font-size:.875rem;white-space:normal}
 .immersive-learning>.word-card{flex:1;min-height:0;overflow-y:auto;margin:0;padding:12px 4px 18px;border:0;border-radius:0;box-shadow:none;background:#fff}
+.immersive-learning>.sentence-study-card{display:flex;flex:1;flex-direction:column;min-height:0;overflow-y:auto;margin:0;padding:12px 4px 18px;border:0;border-radius:0;box-shadow:none;background:#fff;overscroll-behavior:contain}
+.immersive-learning>.sentence-card-loading{flex:1;min-height:0;border:0;border-radius:0}
 .is-immersive:has(.status-toast-stack) .immersive-learning>.word-card{margin-bottom:calc(var(--status-notice-space, 0px) + 8px)}
+.is-immersive:has(.status-toast-stack) .immersive-learning>.sentence-study-card{margin-bottom:calc(var(--status-notice-space, 0px) + 8px)}
+.immersive-learning .sentence-card-top{flex-shrink:0}
+.immersive-learning .sentence-card-top>span{padding:0;background:transparent}
+.immersive-learning .sentence-listen{display:grid;place-items:center;grid-template-columns:1fr;grid-template-rows:1fr;flex:0 0 44px;width:44px;height:44px;min-height:44px;margin:0;padding:0;border:0;border-radius:50%;background:var(--navy);color:#fff;font-size:22px;text-align:center}
+.immersive-learning .sentence-english{flex:1 0 auto;min-height:130px;margin:20px 4px;font-size:clamp(1.65rem,6.4vw,2.2rem);line-height:1.6}
+.immersive-learning .sentence-translation{flex-shrink:0;margin:0;font-size:1rem;line-height:1.7}
+.immersive-learning .speak-prompt{display:grid;place-items:center;flex:1 0 auto;min-height:140px;margin:16px 0;padding:20px 16px}
+.immersive-learning .speak-prompt p{margin:0;font-size:1.375rem;line-height:1.7;overflow-wrap:anywhere}
+.immersive-learning .reveal-answer{flex-shrink:0;min-height:54px;margin:0;font-size:.875rem;line-height:1.5}
+.immersive-learning .speak-answer{flex-shrink:0;margin:0;padding:16px 4px 4px;scroll-margin:8px}
+.immersive-learning .speak-answer .sentence-english{min-height:0;margin:0 0 16px}
 .immersive-learning .card-topline{gap:12px}
 .immersive-learning .scene-pill{min-width:0;font-size:.75rem;line-height:1.5;overflow-wrap:anywhere}
 .immersive-learning .sound-button{width:44px;height:44px;flex:0 0 44px}
@@ -525,6 +538,7 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 @media(max-width:360px){
   .page.learn-page.immersive-learning{padding-left:12px;padding-right:12px}
   .immersive-learning>.word-card{padding-left:2px;padding-right:2px}
+  .immersive-learning>.sentence-study-card{padding-left:2px;padding-right:2px}
 }
 @media(min-width:700px){
   .phone-stage.is-immersive{margin:0;min-height:100dvh;border-radius:0}
@@ -544,6 +558,8 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
   .is-immersive:has(.status-toast-stack) .immersive-learning{min-height:100dvh}
   .is-immersive:has(.storage-warning) .immersive-learning>.word-card,
   .is-immersive:has(.status-toast-stack) .immersive-learning>.word-card{overflow-y:visible;margin-bottom:0}
+  .is-immersive:has(.storage-warning) .immersive-learning>.sentence-study-card,
+  .is-immersive:has(.status-toast-stack) .immersive-learning>.sentence-study-card{overflow-y:visible;margin-bottom:0}
   .is-immersive:has(.storage-warning) .immersive-learning>.word-card-actions,
   .is-immersive:has(.status-toast-stack) .immersive-learning>.word-card-actions{position:static}
 }

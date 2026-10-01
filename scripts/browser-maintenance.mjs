@@ -1,5 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
-import { openSetupDetails } from './browser-disclosures.mjs';
+import { openSetupDetails, sentenceChoices } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -52,15 +52,16 @@ async function runSentenceMaintenanceChecks(check, origin) {
     await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
   }
   async function retainedChoices(page) {
+    await openSetupDetails(page, '.sentence-range');
     // Returning from a lookup can restore the short-pack preference before its
     // lazy content finishes loading. Check the settled choice, not the interim
     // zero-available count; a changed mode, band, scene or count still fails.
     await page.waitForFunction(() => {
       const button = document.querySelector('.sentence-page .setup-start');
-      const summary = document.querySelector('.session-choice-summary')?.textContent || '';
+      const summary = [...document.querySelectorAll('.sentence-range button[aria-pressed="true"]')].map(button => button.textContent).join(' ');
       return button && !button.disabled && ['看中文说英文', '短句', '餐饮'].every(label => summary.includes(label));
     });
-    const summary = await page.locator('.session-choice-summary').innerText();
+    const summary = (await sentenceChoices(page)).join(' ');
     if (!summary.includes('看中文说英文') || !summary.includes('短句') || !summary.includes('餐饮')) throw Error(`Practice choices changed: ${summary}`);
     const stored = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), preferencesKey);
     if (JSON.stringify(stored) !== JSON.stringify(seedChoices)) throw Error(`Stored practice choices changed: ${JSON.stringify(stored)}`);

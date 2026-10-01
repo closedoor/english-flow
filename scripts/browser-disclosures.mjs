@@ -7,3 +7,19 @@ export async function openSetupDetails(page, selector) {
     await page.waitForFunction(selector => document.querySelector(selector)?.open, selector);
   }
 }
+
+export async function selectSentenceMethod(page, label) {
+  const method = page.locator('.practice-methods button').filter({ hasText: label });
+  if (!await method.isVisible()) await openSetupDetails(page, '.sentence-range');
+  await method.click();
+}
+
+export async function resumePausedSentence(page) {
+  await openSetupDetails(page, '.sentence-range');
+  await page.locator('.sentence-resume-action').click();
+}
+
+export async function sentenceChoices(page) {
+  await openSetupDetails(page, '.sentence-range');
+  return page.locator('.sentence-range button[aria-pressed="true"]').allTextContents();
+}

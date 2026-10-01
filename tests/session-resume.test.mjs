@@ -40,7 +40,7 @@ test("resume affordances only show for unfinished work and handlers require a va
   const patternSetup = sourceBetween("const renderPatternSetup", "const renderPatternCards");
   assert.match(page, /const canResumeSentence = sentenceStage === "setup" && sentenceSessionIds\.length > ratedSentenceCount/);
   assert.match(page, /const canResumePattern = patternStage === "setup" && patternSessionIds\.length > ratedPatternCount/);
-  assert.match(sourceBeforeMarker(sentenceSetup, 'className="resume-session-card"'), /canResumeSentence/);
+  assert.match(sourceBeforeMarker(sentenceSetup, 'className="sentence-review-start sentence-resume-action"'), /canResumeSentence/);
   assert.match(sourceBeforeMarker(patternSetup, 'className="resume-session-card"'), /canResumePattern/);
 
   const sentenceStarter = sourceBetween("const startSentenceSession", "const resumeSentenceSession");

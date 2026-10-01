@@ -3,7 +3,7 @@ import test from 'node:test';
 import {readFile} from 'node:fs/promises';
 const page=await readFile(new URL('../app/page.tsx',import.meta.url),'utf8');
 const css=await readFile(new URL('../app/globals.css',import.meta.url),'utf8');
-for(const [name,next,id,label] of [['renderLearnSetup','renderCards','word-session-choice','开始学习'],['renderSentenceSetup','renderSentenceCards','sentence-session-choice','开始学习句子'],['renderPatternSetup','renderPatternCards','pattern-session-choice','开始句型替换练习']]){
+for(const [name,next,id,label] of [['renderLearnSetup','renderCards','word-session-choice','开始学习'],['renderPatternSetup','renderPatternCards','pattern-session-choice','开始句型替换练习']]){
   test(`${name} keeps one start and its live summary directly below the header`,()=>{
     const section=page.split(`  const ${name} =`)[1].split(`  const ${next} =`)[0];
     assert.equal((section.match(new RegExp(`>${label}</button>`, 'g'))||[]).length,1);

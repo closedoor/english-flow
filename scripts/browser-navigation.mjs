@@ -3,10 +3,12 @@ export async function navigate(page, label) {
   const destination = label === '今天' ? '首页' : label;
   if (!await page.locator('.bottom-nav').isVisible()) {
     const pause = page.getByRole('button', { name: '退出学习并保留进度', exact: true });
+    const sentence = page.getByRole('button', { name: '返回句库设置并保留进度', exact: true });
     const lookup = page.getByRole('button', { name: '返回词库', exact: true });
     const quiz = page.getByRole('button', { name: '暂停考试并保留进度', exact: true });
     const completed = page.getByRole('button', { name: '回到首页', exact: true });
     if (await pause.isVisible()) await pause.click();
+    else if (await sentence.isVisible()) await sentence.click();
     else if (await lookup.isVisible()) await lookup.click();
     else if (await quiz.isVisible()) await quiz.click();
     else if (await completed.isVisible()) await completed.click();
