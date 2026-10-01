@@ -183,6 +183,95 @@ for (const engine of ['chromium', 'webkit']) {
     assert.ok((await page.locator('button:focus').innerText()).includes(title), 'Return focuses the actual originating article');
   });
 
+  await check('word-new-search-and-band-start-at-first-result-without-losing-lookup-return', async page => {
+    await ready(page);
+    await nav(page, '学习');
+    const list = page.locator('.library-list');
+    await list.evaluate(element => { element.scrollTop = 1000; });
+    await page.locator('.rank-switch button').nth(1).click();
+    await page.waitForFunction(() => document.querySelector('.library-list').scrollTop === 0);
+    assert.equal(await list.locator('button').first().getAttribute('data-word-id'), '1001');
+    await list.evaluate(element => { element.scrollTop = 1000; });
+    await page.getByRole('searchbox', { name: '搜索词库' }).fill('e');
+    await page.waitForFunction(() => document.querySelector('.library-list').scrollTop === 0);
+    assert.equal(await list.locator('button').first().getAttribute('data-word-id'), '1');
+
+    await list.evaluate(element => { element.scrollTop = 500; });
+    await page.locator('.library-more').click();
+    await page.waitForFunction(() => document.querySelectorAll('.library-list button').length === 48);
+    assert.equal(await list.evaluate(element => element.scrollTop), 500, 'More results must preserve the current result position');
+
+    const target = list.locator('button').nth(10);
+    await target.scrollIntoViewIfNeeded();
+    const before = await page.evaluate(() => ({ top: scrollY, list: document.querySelector('.library-list').scrollTop }));
+    const id = await target.getAttribute('data-word-id');
+    await target.click();
+    await page.locator('.word-card').waitFor();
+    await page.getByRole('button', { name: '返回词库', exact: true }).click();
+    await page.waitForFunction(({ top, list }) => Math.abs(scrollY - top) <= 2 && document.querySelector('.library-list')?.scrollTop === list, before);
+    assert.equal(await page.locator('button:focus').getAttribute('data-word-id'), id, 'Returning from a lookup must retain the originating result');
+    assert.equal(await list.locator('button').count(), 48, 'A lookup must not reset the expanded result count');
+    await page.getByRole('searchbox', { name: '搜索词库' }).fill('   ');
+    await page.waitForFunction(() => document.querySelector('.library-list').scrollTop === 0);
+    assert.equal(await page.locator('.rank-switch button').nth(1).getAttribute('aria-pressed'), 'true', 'Whitespace is an empty search in both filtering and selection labels');
+    assert.equal(await list.locator('button').first().getAttribute('data-word-id'), '1001');
+    assert.ok(!(await page.locator('.library-block .row-heading small').innerText()).includes('全库'), 'An empty query must not claim a full-library search');
+  });
+
+  await check('sentence-new-query-starts-at-first-result-without-resetting-more-or-return', async page => {
+    await ready(page);
+    await nav(page, '句库');
+    const search = page.getByRole('searchbox', { name: '搜索长短句' });
+    await search.fill('I');
+    await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();
+    await page.waitForFunction(() => !document.querySelector('.sentence-result-list .browser-hint'));
+    const list = page.locator('.sentence-result-list');
+    await list.evaluate(element => { element.scrollTop = 1000; });
+    await search.fill('you');
+    await page.waitForFunction(() => document.querySelector('.sentence-result-list').scrollTop === 0);
+    assert.equal(await list.locator('button[data-sentence-id]').first().getAttribute('data-sentence-id'), '1');
+
+    const more = list.locator('.library-more');
+    await more.scrollIntoViewIfNeeded();
+    const previousPosition = await list.evaluate(element => element.scrollTop);
+    await more.click();
+    await page.waitForFunction(() => document.querySelectorAll('.sentence-result-list button[data-sentence-id]').length === 60);
+    assert.equal(await list.evaluate(element => element.scrollTop), previousPosition, 'Adding sentence results must retain the existing scroll position');
+
+    const target = list.locator('button[data-sentence-id]').nth(35);
+    await target.scrollIntoViewIfNeeded();
+    const before = await page.evaluate(() => ({ top: scrollY, list: document.querySelector('.sentence-result-list').scrollTop }));
+    const id = await target.getAttribute('data-sentence-id');
+    await target.click();
+    await page.locator('.sentence-study-card').waitFor();
+    await page.getByRole('button', { name: '返回句库设置并保留进度', exact: true }).click();
+    await page.waitForFunction(({ top, list }) => Math.abs(scrollY - top) <= 2 && document.querySelector('.sentence-result-list')?.scrollTop === list, before);
+    assert.equal(await page.locator('button:focus').getAttribute('data-sentence-id'), id, 'Sentence lookup return must retain its original result');
+    assert.equal(await list.locator('button[data-sentence-id]').count(), 60);
+  });
+
+  await check('sentence-late-content-does-not-reset-the-current-search-scroll', async (page, context) => {
+    await ready(page);
+    await nav(page, '句库');
+    await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
+    let mediumRoute;
+    let mediumRequested;
+    const heldMedium = new Promise(resolve => { mediumRequested = resolve; });
+    await context.route(/tatoeba-sentences-2\.json/, route => { mediumRoute = route; mediumRequested(); });
+    await context.route(/tatoeba-sentences-3\.json/, () => {});
+    await page.getByRole('searchbox', { name: '搜索长短句' }).fill('I');
+    await heldMedium;
+    await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();
+    const list = page.locator('.sentence-result-list');
+    const beforeCount = Number((await page.locator('.sentence-browser .row-heading small').innerText()).match(/\d+/)[0]);
+    await list.evaluate(element => { element.scrollTop = 600; });
+    const response = page.waitForResponse(item => item.url().includes('tatoeba-sentences-2.json') && item.status() === 200);
+    await mediumRoute.continue();
+    await response;
+    await page.waitForFunction(count => Number(document.querySelector('.sentence-browser .row-heading small').textContent.match(/\d+/)[0]) > count, beforeCount);
+    assert.equal(await list.evaluate(element => element.scrollTop), 600, 'A late pack is additional content, not a new search');
+  });
+
   await runSentenceMaintenanceChecks(check, origin);
 
   await browser.close();

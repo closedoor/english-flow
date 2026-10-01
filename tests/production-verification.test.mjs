@@ -9,10 +9,10 @@ const contentRevision = `data-${"c".repeat(20)}`;
 
 function productionResponses(commit = expectedCommit) {
   return new Map([
-    ["/", new Response('<!doctype html><title>词流英语</title><script src="/assets/app.js"></script><link rel="stylesheet" href="/assets/app.css">', { status: 200 })],
+    ["/", new Response(`<!doctype html><title>词流英语</title><meta name="english-flow-build" content="${commit}"><script src="/assets/app.js"></script><link rel="stylesheet" href="/assets/app.css">`, { status: 200 })],
     ["/build-info.json", new Response(JSON.stringify({ app: "english-flow", title: "词流英语", commit, contentRevision, origin: OFFICIAL_SITE }), { status: 200 })],
     ["/manifest.webmanifest", new Response(JSON.stringify({ name: "词流英语", start_url: "/", scope: "/", icons: [{ src: "/icon-192.png" }, { src: "/icon-512.png" }] }), { status: 200 })],
-    ["/sw.js", new Response(`const BUILD_REVISION = "${"d".repeat(20)}";`, { status: 200 })],
+    ["/sw.js", new Response(`const BUILD_REVISION = "${"d".repeat(20)}";\nconst BUILD_COMMIT = "${commit}";`, { status: 200 })],
     ["/assets/app.js", new Response("export{}", { status: 200 })],
     ["/assets/app.css", new Response("body{}", { status: 200 })],
     ["/icon-192.png", new Response("icon", { status: 200 })],
@@ -74,6 +74,41 @@ test("production inspection rejects unstamped PWA workers", async () => {
     fetchImpl: fetchFrom(responses),
     token: "test",
   }), /not stamped/);
+});
+
+test("production inspection rejects a wrong HTML identity despite matching build info", async () => {
+  const responses = productionResponses();
+  responses.set("/", productionResponses(oldCommit).get("/"));
+  await assert.rejects(() => inspectProduction({
+    baseUrl: OFFICIAL_SITE,
+    expectedCommit,
+    fetchImpl: fetchFrom(responses),
+    token: "wrongHTMLidentity",
+  }), new RegExp(`Production HTML is still serving commit ${oldCommit}`));
+});
+
+test("production inspection rejects a wrong worker identity despite matching HTML and build info", async () => {
+  const responses = productionResponses();
+  responses.set("/sw.js", productionResponses(oldCommit).get("/sw.js"));
+  await assert.rejects(() => inspectProduction({
+    baseUrl: OFFICIAL_SITE,
+    expectedCommit,
+    fetchImpl: fetchFrom(responses),
+    token: "wrongSWidentity",
+  }), new RegExp(`Production service worker is still serving commit ${oldCommit}`));
+});
+
+test("production inspection requires full HTML and worker commit identities", async () => {
+  for (const resource of ["/", "/sw.js"]) {
+    const responses = productionResponses();
+    responses.set(resource, productionResponses(expectedCommit.slice(0, 39)).get(resource));
+    await assert.rejects(() => inspectProduction({
+      baseUrl: OFFICIAL_SITE,
+      expectedCommit,
+      fetchImpl: fetchFrom(responses),
+      token: "partialIdentity",
+    }), /build identity must be a full Git commit SHA/);
+  }
 });
 
 test("production inspection requires HTTP 200 for every verified static and PWA resource", async () => {

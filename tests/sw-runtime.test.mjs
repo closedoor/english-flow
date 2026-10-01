@@ -6,6 +6,7 @@ import vm from "node:vm";
 const ORIGIN = "https://english-flow.test";
 const workerSource = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
 const ACTIVE_CACHE = "wordflow-ngsl-v34-local";
+const appIdentity = '<title>词流英语</title><meta name="english-flow-build" content="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">';
 
 function cacheKey(request) {
   const value = request instanceof Request ? request.url : String(request);
@@ -159,7 +160,7 @@ test("a JavaScript response without a MIME type is not cached", async () => {
 test("install discovers and commits the current hashed JavaScript and CSS shell", async () => {
   const caches = new MemoryCacheStorage();
   const fetched = [];
-  const html = `<!doctype html>
+  const html = `<!doctype html>${appIdentity}
     <link rel="stylesheet" href="/assets/index-a1b2c3.css">
     <script type="module" src="/assets/index-d4e5f6.js"></script>
     <script type="module" src="/assets/page-a1b2c3.js"></script>
@@ -218,7 +219,7 @@ test("a failed same-version install preserves the active shell cache", async () 
   const caches = new MemoryCacheStorage();
   const active = await caches.open(ACTIVE_CACHE);
   await active.put("/assets/current.js", new Response("current", { headers: { "content-type": "text/javascript" } }));
-  const html = `<script type="module" src="/assets/broken.js"></script>`;
+  const html = `${appIdentity}<script type="module" src="/assets/broken.js"></script>`;
   const { listeners } = loadWorker({
     caches,
     fetch: async (request) => {
@@ -242,7 +243,7 @@ test("an activated upgrade can serve its lazy startup chunk after the old shell 
   const caches = new MemoryCacheStorage();
   const oldShell = await caches.open("wordflow-ngsl-v20");
   await oldShell.put("/assets/word-data-old.js", new Response("old"));
-  const html = `<script type="module" src="/assets/page-new.js"></script>`;
+  const html = `${appIdentity}<script type="module" src="/assets/page-new.js"></script>`;
   let offline = false;
   const { listeners } = loadWorker({
     caches,
@@ -349,8 +350,8 @@ test("a shell cache upgrade message leaves every content cache intact", async ()
 test("an interrupted online upgrade preserves the last complete offline document", async () => {
   const caches = new MemoryCacheStorage();
   const active = await caches.open(ACTIVE_CACHE);
-  const oldHtml = '<script type="module" src="/assets/old.js"></script>';
-  const newHtml = '<script type="module" src="/assets/new.js"></script>';
+  const oldHtml = `${appIdentity}<script type="module" src="/assets/old.js"></script>`;
+  const newHtml = `${appIdentity}<script type="module" src="/assets/new.js"></script>`;
   await active.put("/", new Response(oldHtml, { headers: { "content-type": "text/html" } }));
   await active.put("/assets/old.js", new Response("old-working-app", { headers: { "content-type": "text/javascript" } }));
   let offline = false;

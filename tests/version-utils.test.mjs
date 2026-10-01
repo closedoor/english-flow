@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 const source=await readFile(new URL('../app/version-utils.ts',import.meta.url),'utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-const {isPublishedVersion,versionReloadUrl,isSnapshotPersisted}=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const {isPublishedVersion,versionReloadUrl,versionPreflightUrl,isSnapshotPersisted}=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const origin='https://english-flow-mwnn.onrender.com';
 const valid={app:'english-flow',title:'词流英语',origin,commit:'a'.repeat(40)};
 test('version checks validate the application, origin and full commit identity',()=>{
@@ -15,6 +15,16 @@ test('explicit update navigation retains the origin and replaces rather than sta
  const href=versionReloadUrl(origin+'/?test=1&ef-update=old#learn',valid.commit);
  assert.equal(new URL(href).origin,origin);assert.equal(new URL(href).searchParams.get('test'),'1');assert.equal(new URL(href).searchParams.getAll('ef-update').length,1);assert.equal(new URL(href).hash,'#learn');
  assert.throws(()=>versionReloadUrl(origin,'invalid'));
+});
+test('every explicit preflight attempt has a different URL while retaining the release and same-origin navigation',()=>{
+ const first=versionPreflightUrl(origin+'/?test=1&ef-preflight=previous#learn',valid.commit,'same-clock-1');
+ const retry=versionPreflightUrl(first,valid.commit,'same-clock-2');
+ assert.notEqual(first,retry);assert.equal(new URL(retry).origin,origin);
+ assert.equal(new URL(retry).searchParams.get('ef-update'),valid.commit);
+ assert.equal(new URL(retry).searchParams.getAll('ef-preflight').length,1);
+ assert.equal(new URL(retry).searchParams.get('ef-preflight'),'same-clock-2');
+ assert.equal(new URL(retry).searchParams.get('test'),'1');assert.equal(new URL(retry).hash,'#learn');
+ for(const nonce of ['', 'invalid space', 'x'.repeat(129)])assert.throws(()=>versionPreflightUrl(origin,valid.commit,nonce));
 });
 test('reload verification accepts saved records and missing empty optional values without mutation',()=>{
  const values={words:'[1,2]',session:'{"index":3}'};

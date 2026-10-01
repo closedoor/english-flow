@@ -5,7 +5,7 @@ import VersionNotice from "./version-notice";
 import { APP_BUILD_COMMIT, isSnapshotPersisted } from "./version-utils";
 import { scenes, type SceneId, type WordItem } from "./data";
 import { corePatterns, patternCategories, type PatternCategory } from "./pattern-data";
-import { BACKUP_MAX_BYTES, createLearningBackup, isLearningBackup, restoreLearningBackupData, type LearningBackup } from "./backup-data";
+import { BACKUP_MAX_BYTES, createLearningBackup, isLearningBackup, readLearningStorage, restoreLearningBackupData, type LearningBackup } from "./backup-data";
 import { isSpeechSupported, SPEECH_ERROR_EVENT, SPEECH_PLAYBACK_EVENT, speak, startBilingualSentenceSpeech, startRepeatedSpeech, startSegmentedSpeech, stopSpeech, toggleSegmentedSpeech, type SpeechPlaybackState } from "./speech-playback";
 import { blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, takeRotatedSpread } from "./session-utils";
 
@@ -145,9 +145,9 @@ function cacheLoadedPageAssets() {
   navigator.serviceWorker.ready.then((registration) => registration.active?.postMessage({ type: "CACHE_URLS", urls })).catch(() => undefined);
 }
 
-function readJson<T>(key: string, fallback: T): T {
+function readJson<T>(key: string, fallback: T, storage?: Pick<Storage, "getItem">): T {
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = (storage ?? window.localStorage).getItem(key);
     return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
@@ -498,6 +498,8 @@ export default function Home() {
   const [backupBusy, setBackupBusy] = useState<"read" | "export" | "restore" | null>(null);
   const [networkOnline, setNetworkOnline] = useState(true);
   const [storageWriteError, setStorageWriteError] = useState(false);
+  const [storageReadError, setStorageReadError] = useState(false);
+  const [storageReadAttempt, setStorageReadAttempt] = useState(0);
   const [offlineCacheWriteError, setOfflineCacheWriteError] = useState(false);
   const [speechNotice, setSpeechNotice] = useState<string | null>(null);
   const [statusToastHeight, setStatusToastHeight] = useState(0);
@@ -548,6 +550,8 @@ export default function Home() {
   const wordHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const wordActionsRef = useRef<HTMLDivElement | null>(null);
   const wordBrowserRef = useRef<HTMLDivElement | null>(null);
+  const wordBrowserQueryRef = useRef<string | null>(null);
+  const sentenceBrowserQueryRef = useRef<string | null>(null);
   const wordBrowserOriginRef = useRef<BrowserOrigin | null>(null);
   const wordBrowserReturnRef = useRef(false);
   const sentenceBrowserRef = useRef<HTMLDivElement | null>(null);
@@ -730,31 +734,40 @@ export default function Home() {
 
   useEffect(() => {
     if (!wordData || !STUDY_WORD_IDS.size) return;
+    let persisted: Pick<Storage, "getItem">;
+    try {
+      persisted = readLearningStorage(window.localStorage, STORAGE_KEYS);
+    } catch {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setStorageReadError(true);
+      return;
+    }
+    const readStored = <T,>(key: string, fallback: T) => readJson(key, fallback, persisted);
     // Client-only local progress is hydrated after the initial static render.
     const today = new Date();
     const currentKey = localDateKey(today);
-    const storedDays = readJson<unknown>(STORAGE.days, []);
+    const storedDays = readStored<unknown>(STORAGE.days, []);
     // A time-zone or clock change can make a real study day temporarily appear
     // to be tomorrow. Preserve it in storage; only the display filters by today.
     const validDays = Array.isArray(storedDays) ? [...new Set(storedDays.filter(isValidStudyDate))].sort() : [];
-    const storedMastered = readJson<unknown>(STORAGE.mastered, []);
-    const storedDifficult = readJson<unknown>(STORAGE.difficult, []);
+    const storedMastered = readStored<unknown>(STORAGE.mastered, []);
+    const storedDifficult = readStored<unknown>(STORAGE.difficult, []);
     const validDifficult = cleanStoredWordIds(storedDifficult);
     const difficultIds = new Set(validDifficult);
     const validMastered = cleanStoredWordIds(storedMastered).filter((id) => !difficultIds.has(id));
-    const storedSchedule = readJson<unknown>(STORAGE.schedule, {});
+    const storedSchedule = readStored<unknown>(STORAGE.schedule, {});
     const validSchedule = cleanStoredSchedule(storedSchedule);
-    const storedReadingCompleted = readJson<unknown>(STORAGE.readingCompleted, []);
+    const storedReadingCompleted = readStored<unknown>(STORAGE.readingCompleted, []);
     const validReadingCompleted = cleanReadingIds(storedReadingCompleted);
-    const storedReadingLast = readJson<unknown>(STORAGE.readingLast, null);
+    const storedReadingLast = readStored<unknown>(STORAGE.readingLast, null);
     const validReadingLast = cleanReadingLast(storedReadingLast);
-    const validReadingAnswers = cleanReadingAnswers(readJson<unknown>(STORAGE.readingAnswers, {}));
-    const validSentenceSaved = cleanSentenceIds(readJson<unknown>(STORAGE.sentenceSaved, []));
-    const validSentenceSeen = cleanSentenceIds(readJson<unknown>(STORAGE.sentenceSeen, []));
-    const validSentenceDifficult = cleanSentenceIds(readJson<unknown>(STORAGE.sentenceDifficult, []));
+    const validReadingAnswers = cleanReadingAnswers(readStored<unknown>(STORAGE.readingAnswers, {}));
+    const validSentenceSaved = cleanSentenceIds(readStored<unknown>(STORAGE.sentenceSaved, []));
+    const validSentenceSeen = cleanSentenceIds(readStored<unknown>(STORAGE.sentenceSeen, []));
+    const validSentenceDifficult = cleanSentenceIds(readStored<unknown>(STORAGE.sentenceDifficult, []));
     const sentenceDifficultIds = new Set(validSentenceDifficult);
-    const validSentenceMastered = cleanSentenceIds(readJson<unknown>(STORAGE.sentenceMastered, [])).filter((id) => !sentenceDifficultIds.has(id));
-    const storedSentencePreferencesValue = readJson<unknown>(STORAGE.sentencePreferences, {});
+    const validSentenceMastered = cleanSentenceIds(readStored<unknown>(STORAGE.sentenceMastered, [])).filter((id) => !sentenceDifficultIds.has(id));
+    const storedSentencePreferencesValue = readStored<unknown>(STORAGE.sentencePreferences, {});
     const storedSentencePreferences = storedSentencePreferencesValue && typeof storedSentencePreferencesValue === "object" && !Array.isArray(storedSentencePreferencesValue) ? storedSentencePreferencesValue as { band?: unknown; category?: unknown; count?: unknown; mode?: unknown } : {};
     const normalizedSentenceBand: SentenceBand = isSentenceBand(storedSentencePreferences.band) ? storedSentencePreferences.band : "short";
     const normalizedSentenceCategory: SentenceCategory = isSentenceCategory(storedSentencePreferences.category) ? storedSentencePreferences.category : "all";
@@ -762,22 +775,21 @@ export default function Home() {
     const normalizedSentenceMode: SentenceLearningMode = isSentenceLearningMode(storedSentencePreferences.mode) ? storedSentencePreferences.mode : "bilingual";
     const normalizedSentencePreferences = { band: normalizedSentenceBand, category: normalizedSentenceCategory, count: normalizedSentenceCount, mode: normalizedSentenceMode };
     sentenceSetupPreferencesRef.current = normalizedSentencePreferences;
-    const storedSentenceActiveSession = cleanSentenceSession(readJson<unknown>(STORAGE.sentenceActiveSession, null));
-    const validPatternDifficult = cleanPatternIds(readJson<unknown>(STORAGE.patternDifficult, []));
+    const storedSentenceActiveSession = cleanSentenceSession(readStored<unknown>(STORAGE.sentenceActiveSession, null));
+    const validPatternDifficult = cleanPatternIds(readStored<unknown>(STORAGE.patternDifficult, []));
     const patternDifficultIds = new Set(validPatternDifficult);
-    const validPatternMastered = cleanPatternIds(readJson<unknown>(STORAGE.patternMastered, [])).filter((id) => !patternDifficultIds.has(id));
-    const storedPatternActiveSession = cleanPatternSession(readJson<unknown>(STORAGE.patternActiveSession, null));
-    const storedPracticeRotation = cleanPracticeRotation(readJson<unknown>(STORAGE.practiceRotation, null));
+    const validPatternMastered = cleanPatternIds(readStored<unknown>(STORAGE.patternMastered, [])).filter((id) => !patternDifficultIds.has(id));
+    const storedPatternActiveSession = cleanPatternSession(readStored<unknown>(STORAGE.patternActiveSession, null));
+    const storedPracticeRotation = cleanPracticeRotation(readStored<unknown>(STORAGE.practiceRotation, null));
     practiceRotationRef.current = storedPracticeRotation;
     const preferredSentenceSection: SentenceSection = storedPatternActiveSession && (!storedSentenceActiveSession || storedPatternActiveSession.updatedAt > storedSentenceActiveSession.updatedAt) ? "patterns" : "library";
-    const storedSessionValue = readJson<unknown>(STORAGE.session, {});
+    const storedSessionValue = readStored<unknown>(STORAGE.session, {});
     const storedSession = storedSessionValue && typeof storedSessionValue === "object" && !Array.isArray(storedSessionValue) ? storedSessionValue as Partial<SessionPreferences> : {};
     const storedPath: LearnPath = isLearnPath(storedSession.path) ? storedSession.path : "frequency";
     const storedMode = storedSession.mode === "free" ? "free" : "test";
     const storedCount = storedSession.count === 20 ? 20 : 10;
     const normalizedSession: SessionPreferences = { mode: storedMode, count: storedCount, path: storedPath };
-    const storedActiveSession = cleanActiveSession(readJson<unknown>(STORAGE.activeSession, null));
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    const storedActiveSession = cleanActiveSession(readStored<unknown>(STORAGE.activeSession, null));
     setMastered(validMastered);
     setDifficult(validDifficult);
     setSchedule(validSchedule);
@@ -860,11 +872,11 @@ export default function Home() {
     }
     if (JSON.stringify(storedSessionValue) !== JSON.stringify(normalizedSession)) writeJson(STORAGE.session, normalizedSession);
     if (JSON.stringify(storedSentencePreferencesValue) !== JSON.stringify(normalizedSentencePreferences)) writeJson(STORAGE.sentencePreferences, normalizedSentencePreferences);
-    if (JSON.stringify(readJson<unknown>(STORAGE.sentenceMastered, [])) !== JSON.stringify(validSentenceMastered)) writeJson(STORAGE.sentenceMastered, validSentenceMastered);
-    if (JSON.stringify(readJson<unknown>(STORAGE.sentenceDifficult, [])) !== JSON.stringify(validSentenceDifficult)) writeJson(STORAGE.sentenceDifficult, validSentenceDifficult);
-    if (JSON.stringify(readJson<unknown>(STORAGE.patternMastered, [])) !== JSON.stringify(validPatternMastered)) writeJson(STORAGE.patternMastered, validPatternMastered);
-    if (JSON.stringify(readJson<unknown>(STORAGE.patternDifficult, [])) !== JSON.stringify(validPatternDifficult)) writeJson(STORAGE.patternDifficult, validPatternDifficult);
-    if (JSON.stringify(readJson<unknown>(STORAGE.practiceRotation, null)) !== JSON.stringify(storedPracticeRotation)) writeJson(STORAGE.practiceRotation, storedPracticeRotation);
+    if (JSON.stringify(readStored<unknown>(STORAGE.sentenceMastered, [])) !== JSON.stringify(validSentenceMastered)) writeJson(STORAGE.sentenceMastered, validSentenceMastered);
+    if (JSON.stringify(readStored<unknown>(STORAGE.sentenceDifficult, [])) !== JSON.stringify(validSentenceDifficult)) writeJson(STORAGE.sentenceDifficult, validSentenceDifficult);
+    if (JSON.stringify(readStored<unknown>(STORAGE.patternMastered, [])) !== JSON.stringify(validPatternMastered)) writeJson(STORAGE.patternMastered, validPatternMastered);
+    if (JSON.stringify(readStored<unknown>(STORAGE.patternDifficult, [])) !== JSON.stringify(validPatternDifficult)) writeJson(STORAGE.patternDifficult, validPatternDifficult);
+    if (JSON.stringify(readStored<unknown>(STORAGE.practiceRotation, null)) !== JSON.stringify(storedPracticeRotation)) writeJson(STORAGE.practiceRotation, storedPracticeRotation);
     setStandalone(window.matchMedia("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
     setIosInstallAvailable(/iP(?:hone|ad|od)/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
     setDateText(new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" }).format(today).toUpperCase());
@@ -896,7 +908,7 @@ export default function Home() {
       window.clearInterval(reviewTimer);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [wordData, words]);
+  }, [storageReadAttempt, wordData, words]);
 
   useEffect(() => {
     if (!hydrated || externalUpdateDetected) return;
@@ -1256,6 +1268,24 @@ export default function Home() {
   const hasWordStudyHistory = mastered.length > 0 || difficult.length > 0 || Object.keys(schedule).length > 0;
   const reviewWordsForSpeech = reviewView === "due" ? dueWords : wordbookWords;
   const currentReviewWordId = tab === "review" ? reviewWordsForSpeech[Math.min(reviewIndex, Math.max(reviewWordsForSpeech.length - 1, 0))]?.id ?? null : null;
+  const wordBrowserQuery = JSON.stringify(normalized(librarySearch) ? ["search", normalized(librarySearch)] : ["band", libraryBand]);
+  const sentenceBrowserQuery = JSON.stringify(normalized(sentenceSearch) || sentenceSavedOnly || sentenceReviewOnly
+    ? [normalized(sentenceSearch), sentenceSavedOnly, sentenceReviewOnly]
+    : ["selection", sentenceBand, sentenceCategory]);
+
+  useEffect(() => {
+    const list = wordBrowserRef.current?.querySelector<HTMLDivElement>(".library-list");
+    if (!list) return;
+    if (wordBrowserQueryRef.current !== wordBrowserQuery) list.scrollTop = 0;
+    wordBrowserQueryRef.current = wordBrowserQuery;
+  }, [hydrated, learnStage, tab, wordBrowserQuery]);
+
+  useEffect(() => {
+    const list = sentenceBrowserRef.current?.querySelector<HTMLDivElement>(".sentence-result-list");
+    if (!list) return;
+    if (sentenceBrowserQueryRef.current !== sentenceBrowserQuery) list.scrollTop = 0;
+    sentenceBrowserQueryRef.current = sentenceBrowserQuery;
+  }, [hydrated, sentenceBrowserQuery, sentenceSection, sentenceStage, tab]);
   const screenAnnouncement = tab === "learn" && learnStage === "cards" && current
     ? `单词卡 ${index + 1}，${current.word}`
     : tab === "learn" && learnStage === "quiz" && quizWord
@@ -2218,10 +2248,17 @@ export default function Home() {
     setSentenceSection("patterns");
   };
 
-  const startPatternSession = (reviewOnly = false) => {
-    if (patternStage === "setup" && patternSessionIds.length && patternResumeSnapshotRef.current) {
-      setDiscardRequest({ pattern: true, patternStart: { reviewOnly } });
-      return;
+  const startPatternSession = (reviewOnly = false, forceNew = false) => {
+    const snapshot = newestSnapshot(cleanPatternSession(readJson<unknown>(STORAGE.patternActiveSession, null)), patternResumeSnapshotRef.current);
+    if (patternStage === "setup" && patternSessionIds.length && snapshot) {
+      if (!forceNew && !reviewOnly && snapshot.category === patternCategory) {
+        resumePatternSession();
+        return;
+      }
+      if (snapshot.index > 0 || snapshot.drillIndex > 0 || Object.keys(snapshot.ratings).length > 0) {
+        setDiscardRequest({ pattern: true, patternStart: { reviewOnly } });
+        return;
+      }
     }
     beginPatternSession(reviewOnly);
   };
@@ -2367,6 +2404,7 @@ export default function Home() {
       <div className="pattern-preview-list">{availablePatterns.slice(0, 6).map((pattern) => <div key={pattern.id}><span>{pattern.title}</span><b lang="en">{pattern.template}</b><small>{pattern.meaning}</small></div>)}</div>
       <p className="session-choice-summary" aria-live="polite"><span>↔</span> 当前：{patternCategories.find((category) => category.id === patternCategory)?.label} · 每组最多10个句型 · 每个3次替换</p>
       <button className="sticky-start primary-action" disabled={!availablePatterns.length} onClick={() => startPatternSession()}>开始句型替换练习</button>
+      {canResumePattern && <button className="sentence-new-group" disabled={!availablePatterns.length} onClick={() => startPatternSession(false, true)}>另开新一组</button>}
       {difficultInSelection > 0 && <button className="sentence-review-start" onClick={() => startPatternSession(true)}>复习当前范围内 {Math.min(10, difficultInSelection)} 个待加强句型</button>}
     </section>;
   };
@@ -2463,8 +2501,8 @@ export default function Home() {
       <div className="setup-block"><h2>选择词汇路线</h2><button className={`path-card ${path === "frequency" ? "selected" : ""}`} aria-pressed={path === "frequency"} onClick={() => selectPath("frequency")}><span className="path-icon">NG</span><div><b>NGSL 高频顺序</b><small>官方 1.2 版 · 共 {ngslMeta.count.toLocaleString()} 个通用词</small></div><i>{path === "frequency" ? "✓" : "›"}</i></button>
         <div className="scene-list">{scenes.map((scene) => <button key={scene.id} className={path === scene.id ? "selected" : ""} aria-pressed={path === scene.id} onClick={() => selectPath(scene.id)}><span style={{ background: scene.color }}>{scene.icon}</span><div><b>{scene.name}</b><small>{scene.subtitle}</small></div><i>{path === scene.id ? "✓" : "›"}</i></button>)}</div>
       </div>
-      <div ref={wordBrowserRef} tabIndex={-1} className="setup-block library-block"><div className="row-heading"><h2>浏览完整词库</h2><small>{librarySearch ? `全库 · ${bandWords.length} 个结果` : `${bandWords.length} 个结果`}</small></div>
-        <div className="rank-switch">{([1, 2, 3] as const).map((band) => <button key={band} className={!librarySearch && libraryBand === band ? "selected" : ""} aria-pressed={!librarySearch && libraryBand === band} onClick={() => { setLibraryBand(band); setLibrarySearch(""); setLibraryLimit(24); }}>{band === 1 ? "1–1000" : band === 2 ? "1001–2000" : "2001–2809"}</button>)}</div>
+      <div ref={wordBrowserRef} tabIndex={-1} className="setup-block library-block"><div className="row-heading"><h2>浏览完整词库</h2><small>{normalized(librarySearch) ? `全库 · ${bandWords.length} 个结果` : `${bandWords.length} 个结果`}</small></div>
+        <div className="rank-switch">{([1, 2, 3] as const).map((band) => <button key={band} className={!normalized(librarySearch) && libraryBand === band ? "selected" : ""} aria-pressed={!normalized(librarySearch) && libraryBand === band} onClick={() => { setLibraryBand(band); setLibrarySearch(""); setLibraryLimit(24); }}>{band === 1 ? "1–1000" : band === 2 ? "1001–2000" : "2001–2809"}</button>)}</div>
         <label className="library-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="搜索词库" value={librarySearch} onChange={(event) => { setLibrarySearch(event.target.value); setLibraryLimit(24); }} placeholder="搜索英文或中文释义" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="search" /></label>
         <div className="library-list">{bandWords.length ? bandWords.slice(0, libraryLimit).map((word) => <button key={word.id} data-word-id={word.id} onClick={() => startSingleWord(word)}><span>#{word.rank}</span><div><b lang="en">{word.word}</b><small>{word.meaning}</small></div><i>›</i></button>) : <p className="library-empty">没有找到相关词汇，请换一个关键词。</p>}</div>
         {bandWords.length > libraryLimit && <button className="library-more" onClick={() => setLibraryLimit((currentLimit) => currentLimit + 24)}>再显示 {Math.min(24, bandWords.length - libraryLimit)} 个</button>}
@@ -2602,7 +2640,7 @@ export default function Home() {
     </section>
   );
 
-  if (!wordData || !hydrated) return <main className="app-shell"><div className="phone-stage app-loading" role="status" aria-live="polite"><div className="loading-mark" aria-hidden="true">EN</div><b>{wordDataLoadError ? "核心词库暂时没有加载成功" : "词流英语"}</b><span>{wordDataLoadError ? (networkOnline ? "已保存成功下载的数据；可以先重试缺少部分，仍失败时再重新载入页面。" : "当前处于离线状态，联网后会自动继续载入。") : wordDataLoadedPacks ? `核心词库已加载 ${wordDataLoadedPacks}/3，正在继续…` : "正在载入核心词库并恢复学习进度…"}</span>{wordDataLoadError && <div className="app-loading-actions"><button disabled={!networkOnline} onClick={() => { setWordDataLoadError(false); setWordDataLoadedPacks(0); setWordDataLoadAttempt((value) => value + 1); }}>重试核心词库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div>}</div></main>;
+  if (!wordData || !hydrated) return <main className="app-shell"><div className="phone-stage app-loading" role={storageReadError ? "alert" : "status"} aria-live="polite"><div className="loading-mark" aria-hidden="true">EN</div><b>{storageReadError ? "学习记录暂时无法读取" : wordDataLoadError ? "核心词库暂时没有加载成功" : "词流英语"}</b><span>{storageReadError ? "已暂停恢复和保存，现有记录没有被覆盖。请确认浏览器允许本机存储后重试。" : wordDataLoadError ? (networkOnline ? "已保存成功下载的数据；可以先重试缺少部分，仍失败时再重新载入页面。" : "当前处于离线状态，联网后会自动继续载入。") : wordDataLoadedPacks ? `核心词库已加载 ${wordDataLoadedPacks}/3，正在继续…` : "正在载入核心词库并恢复学习进度…"}</span>{storageReadError ? <div className="app-loading-actions"><button onClick={() => { setStorageReadError(false); setStorageReadAttempt((value) => value + 1); }}>重试读取记录</button><button onClick={() => window.location.reload()}>重新载入页面</button></div> : wordDataLoadError && <div className="app-loading-actions"><button disabled={!networkOnline} onClick={() => { setWordDataLoadError(false); setWordDataLoadedPacks(0); setWordDataLoadAttempt((value) => value + 1); }}>重试核心词库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div>}</div></main>;
 
   return <main className="app-shell"><div className="phone-stage" style={speechNotice || offlineCacheWriteError || !networkOnline ? { paddingBottom: statusToastHeight + 64 } : undefined}>
     <div inert={hasOpenDialog}>

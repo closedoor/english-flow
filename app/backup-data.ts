@@ -4,6 +4,13 @@ const BACKUP_VALUE_MAX_LENGTH = 500_000;
 type ReadableStorage = Pick<Storage, "getItem">;
 type WritableStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
+// Finish all reads before hydration is allowed to normalize or save anything.
+// A blocked read is different from a genuinely missing learning record.
+export function readLearningStorage(storage: ReadableStorage, keys: readonly string[]): ReadableStorage {
+  const values = new Map(keys.map((key) => [key, storage.getItem(key)]));
+  return { getItem: (key) => values.get(key) ?? null };
+}
+
 export type LearningBackup<Key extends string = string> = {
   app: "english-flow";
   formatVersion: 1;

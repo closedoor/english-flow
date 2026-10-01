@@ -13,6 +13,7 @@ async function fixture(t) {
   await mkdir(path.join(output, "assets"));
   await writeFile(path.join(output, "index.html"), '<script src="/assets/page.js"></script>');
   await writeFile(path.join(output, "assets/page.js"), "export const page = 1;");
+  await writeFile(path.join(output, "build-info.json"), JSON.stringify({ commit: "0".repeat(40) }));
   return output;
 }
 
@@ -20,6 +21,7 @@ test("unchanged published files produce identical workers across repeated stampi
   const output = await fixture(t);
   const first = await buildServiceWorker(output, source);
   assert.match(first, /const BUILD_REVISION = "[0-9a-f]{20}";/);
+  assert.match(first, /const BUILD_COMMIT = "0000000000000000000000000000000000000000";/);
   await writeFile(path.join(output, "sw.js"), first);
   assert.equal(await buildServiceWorker(output, source), first);
 });
@@ -45,4 +47,13 @@ test("HTML, lazy assets, deployment metadata, public files and worker logic each
 test("a missing build marker fails instead of silently publishing a fixed cache version", async (t) => {
   const output = await fixture(t);
   await assert.rejects(buildServiceWorker(output, "// no revision marker"), /revision marker/);
+});
+
+test("a missing or invalid full build identity cannot stamp a production worker", async (t) => {
+  const output = await fixture(t);
+  await assert.rejects(buildServiceWorker(output, source.replace('const BUILD_COMMIT = "local";', '')), /commit marker/);
+  for (const commit of ["unknown", "local", "abc", null]) {
+    await writeFile(path.join(output, "build-info.json"), JSON.stringify({ commit }));
+    await assert.rejects(buildServiceWorker(output, source), /full build commit/);
+  }
 });

@@ -5,11 +5,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const revisionMarker = 'const BUILD_REVISION = "local";';
+const commitMarker = 'const BUILD_COMMIT = "local";';
 
 // Include all published files, including lazy chunks and icons. Do not hash the
 // generated worker itself: repeated builds of the same files must be stable.
 export async function buildServiceWorker(output, source) {
   assert.equal(source.split(revisionMarker).length, 2, "Missing or ambiguous worker revision marker");
+  assert.equal(source.split(commitMarker).length, 2, "Missing or ambiguous worker commit marker");
+  const { commit } = JSON.parse(await readFile(path.join(output, "build-info.json"), "utf8"));
+  assert.match(commit || "", /^[0-9a-f]{40}$/, "Worker publication requires a full build commit");
   const hash = createHash("sha256").update(source);
   async function includeDirectory(directory, prefix = "") {
     const entries = await readdir(directory, { withFileTypes: true });
@@ -26,7 +30,8 @@ export async function buildServiceWorker(output, source) {
   }
   await includeDirectory(output);
   const revision = hash.digest("hex").slice(0, 20);
-  return source.replace(revisionMarker, `const BUILD_REVISION = "${revision}";`);
+  return source.replace(revisionMarker, `const BUILD_REVISION = "${revision}";`)
+    .replace(commitMarker, `const BUILD_COMMIT = "${commit}";`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

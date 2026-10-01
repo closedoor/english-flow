@@ -15,7 +15,13 @@ const compile = (source) => ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const dateHelpers = extract("function localDateKey", "function blankSentence");
-const hydrateDays = compile(`${dateHelpers}\n${extract("const storedDays =", "const storedMastered =")}\nvalidDays;`);
+const hydrateDays = compile([
+  dateHelpers,
+  extract("function readJson", "function writeJson"),
+  extract("const readStored =", "// Client-only local progress"),
+  extract("const storedDays =", "const storedMastered ="),
+  "validDays;",
+].join("\n"));
 const displayDays = compile([
   dateHelpers,
   page.match(/const visibleStudyDays =[^\n]+/)?.[0] ?? "",
@@ -25,7 +31,10 @@ const displayDays = compile([
 ].join("\n"));
 
 function cleanDays(stored, currentKey) {
-  return [...vm.runInNewContext(hydrateDays, { currentKey, STORAGE: { days: "days" }, readJson: () => stored })];
+  return [...vm.runInNewContext(hydrateDays, {
+    currentKey, STORAGE: { days: "days" },
+    persisted: { getItem: () => JSON.stringify(stored) },
+  })];
 }
 
 function stats(studyDays, todayKey) {

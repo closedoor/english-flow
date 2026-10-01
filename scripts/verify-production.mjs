@@ -39,12 +39,28 @@ function browserAssetUrls(html, origin) {
   }))];
 }
 
+function htmlBuildCommit(html) {
+  const attribute = (tag, name) => {
+    const match = tag.match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"));
+    return match ? match[1] ?? match[2] : null;
+  };
+  const identities = [...html.replace(/<!--[\s\S]*?-->/g, "").matchAll(/<meta\b[^>]*>/gi)]
+    .map(([tag]) => ({ name: attribute(tag, "name"), content: attribute(tag, "content") }))
+    .filter((tag) => tag.name === "english-flow-build");
+  assert.equal(identities.length, 1, "Production HTML must contain one english-flow-build identity");
+  const commit = identities[0].content ?? "";
+  assert.match(commit, /^[0-9a-f]{40}$/, "Production HTML build identity must be a full Git commit SHA");
+  return commit;
+}
+
 export async function inspectProduction({ baseUrl = OFFICIAL_SITE, expectedCommit, fetchImpl = fetch, token = `${Date.now()}` } = {}) {
   assert.match(expectedCommit ?? "", /^[0-9a-f]{40}$/, "EXPECTED_COMMIT must be a full Git commit SHA");
   const base = new URL(baseUrl);
 
   const html = await (await fetchOk(fetchImpl, new URL("/", base), token)).text();
   assert.match(html, /<title>\s*词流英语\s*<\/title>/i, "Production title is not 词流英语");
+  const htmlCommit = htmlBuildCommit(html);
+  assert.equal(htmlCommit, expectedCommit, `Production HTML is still serving commit ${htmlCommit}`);
 
   const info = await (await fetchOk(fetchImpl, new URL("/build-info.json", base), token)).json();
   assert.equal(info.app, "english-flow");
@@ -61,6 +77,9 @@ export async function inspectProduction({ baseUrl = OFFICIAL_SITE, expectedCommi
   const worker = await (await fetchOk(fetchImpl, new URL("/sw.js", base), token)).text();
   assert.match(worker, /const BUILD_REVISION = "[0-9a-f]{20}";/, "Production service worker is not stamped");
   assert.doesNotMatch(worker, /const BUILD_REVISION = "local";/);
+  const workerCommit = worker.match(/^const BUILD_COMMIT = "([^"]*)";$/m)?.[1] ?? "";
+  assert.match(workerCommit, /^[0-9a-f]{40}$/, "Production service worker build identity must be a full Git commit SHA");
+  assert.equal(workerCommit, expectedCommit, `Production service worker is still serving commit ${workerCommit}`);
 
   const iconUrls = Array.isArray(manifest.icons)
     ? manifest.icons.map((icon) => new URL(icon.src, base).href)

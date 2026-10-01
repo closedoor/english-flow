@@ -1,6 +1,7 @@
 const CACHE_PREFIX = "wordflow-ngsl-";
 // The production build replaces this value with a fingerprint of its files.
 const BUILD_REVISION = "local";
+const BUILD_COMMIT = "local";
 const CACHE = `${CACHE_PREFIX}v34-${BUILD_REVISION}`;
 const STAGING_CACHE = `${CACHE}-staging`;
 const OPTIONAL_CACHE_TIMEOUT = 8000;
@@ -75,6 +76,43 @@ function responseMatchesRequest(request, response) {
   return true;
 }
 
+function htmlAttribute(tag, name) {
+  const match = tag.match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"));
+  return match ? match[1] ?? match[2] : null;
+}
+
+function isAppShellHtml(source, expectedCommit = null) {
+  const html = source.replace(/<!--[\s\S]*?-->/g, "");
+  if (html.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i)?.[1].trim() !== "词流英语") return false;
+  const identity = [...html.matchAll(/<meta\b[^>]*>/gi)]
+    .map(([tag]) => ({ name: htmlAttribute(tag, "name"), content: htmlAttribute(tag, "content") }))
+    .filter((tag) => tag.name === "english-flow-build");
+  if (identity.length !== 1 || !/^[0-9a-f]{40}$/.test(identity[0].content || "")) return false;
+  if (/^[0-9a-f]{40}$/.test(expectedCommit || "") && identity[0].content !== expectedCommit) return false;
+  const isEntry = (reference) => {
+    try {
+      const url = new URL(reference, self.location.origin);
+      return url.origin === self.location.origin && url.pathname.startsWith("/assets/") && url.pathname.endsWith(".js");
+    } catch { return false; }
+  };
+  return [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)].some(([, attributes, body]) => {
+    const type = (htmlAttribute(attributes, "type") || "").toLowerCase();
+    if (!["", "module", "text/javascript", "application/javascript"].includes(type)) return false;
+    const src = htmlAttribute(attributes, "src");
+    if (src !== null) return isEntry(src);
+    const entry = body.trim().match(/^import\s*\(\s*["']([^"']+)["']\s*\)\s*;?$/);
+    return Boolean(entry && isEntry(entry[1]));
+  });
+}
+
+async function validateAppDocument(request, response, expectedCommit = null) {
+  if (!response.ok || !responseMatchesRequest(request, response)
+    || (response.url && new URL(response.url).origin !== self.location.origin)
+    || !isAppShellHtml(await response.clone().text(), expectedCommit)) {
+    throw new Error("Unable to cache the app shell: invalid application document");
+  }
+}
+
 // Some static hosts label .webmanifest as binary/octet-stream. Do not reject
 // a whole release for that header alone, and never accept an HTML error page.
 // Only the exact application manifest gets this validated MIME repair.
@@ -107,6 +145,8 @@ async function fetchAndCache(request, timeoutMs = 0) {
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     const response = await normalizeManifestResponse(request, await fetch(request, controller ? { signal: controller.signal } : undefined));
+    const url = new URL(request instanceof Request ? request.url : String(request), self.location.origin);
+    if (url.pathname === "/") await validateAppDocument(request, response);
     // The network deadline must not abort an obtained response merely because
     // its optional disk copy is slow. Reads and writes have their own limits.
     if (timeout) clearTimeout(timeout);
@@ -168,6 +208,10 @@ async function cacheCompleteBuildGraph(cache, initialUrls, tolerateFailures = fa
       throw new Error(`Unable to cache ${url}`);
     }
     const pathname = new URL(url, self.location.origin).pathname;
+    if (pathname === "/") {
+      try { await validateAppDocument(url, response); }
+      catch (error) { if (tolerateFailures) continue; throw error; }
+    }
     if (pathname.endsWith(".js") || pathname.endsWith(".css")) {
       const source = await response.clone().text();
       for (const dependency of referencedBuildAssets(source, url)) {
@@ -182,7 +226,7 @@ async function installCompleteShell() {
   try {
     await caches.delete(STAGING_CACHE);
     const cache = await caches.open(STAGING_CACHE);
-    const pageResponse = await fetchWithTimeout("/", NAVIGATION_TIMEOUT);
+    const pageResponse = await fetchWithTimeout("/", NAVIGATION_TIMEOUT, BUILD_COMMIT);
     if (!pageResponse.ok || !responseMatchesRequest("/", pageResponse)) throw new Error("Unable to cache the app shell");
     const html = await pageResponse.clone().text();
     const discoveredAssets = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)]
@@ -192,7 +236,8 @@ async function installCompleteShell() {
       .filter((url) => url && url.origin === self.location.origin && !url.pathname.startsWith("/data/"))
       .map((url) => url.href);
     await cache.put("/", pageResponse);
-    await cacheCompleteBuildGraph(cache, [...CORE_SHELL.filter((url) => url !== "/"), ...discoveredAssets]);
+    await cacheCompleteBuildGraph(cache, [...CORE_SHELL.filter((url) => url !== "/"), ...discoveredAssets,
+      ...referencedBuildAssets(html, self.location.origin)]);
   } catch (error) {
     try { await caches.delete(STAGING_CACHE); } catch { /* A later install can overwrite staging. */ }
     throw error;
@@ -223,11 +268,16 @@ async function deleteOldShellCaches() {
   }
 }
 
-async function fetchWithTimeout(request, timeoutMs) {
+async function fetchWithTimeout(request, timeoutMs, documentCommit) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(request, { signal: controller.signal });
+    const response = await fetch(request, { signal: controller.signal });
+    if (documentCommit !== undefined
+      && new URL(request instanceof Request ? request.url : String(request), self.location.origin).pathname === "/") {
+      await validateAppDocument(request, response, documentCommit);
+    }
+    return response;
   } finally {
     clearTimeout(timeout);
   }
@@ -275,12 +325,19 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Explicit update preflights describe the live server. Never cache them or
+  // reuse a failed/stale query entry left by a previously installed worker.
+  if (url.pathname === "/" && url.searchParams.has("ef-update") && event.request.mode !== "navigate") {
+    event.respondWith(fetch(event.request, { cache: "no-store" }).catch(() => Response.error()));
+    return;
+  }
+
   if (event.request.mode === "navigate") {
     event.respondWith((async () => {
       try {
         // Only a completed install may replace the offline document. A network
         // navigation can arrive before its new hashed scripts are downloaded.
-        const response = await fetchWithTimeout(event.request, url.searchParams.has("ef-update") ? 12_000 : NAVIGATION_TIMEOUT);
+        const response = await fetchWithTimeout(event.request, url.searchParams.has("ef-update") ? 12_000 : NAVIGATION_TIMEOUT, null);
         if (response.ok && responseMatchesRequest(event.request, response)) return response;
         return (await safeCacheMatch(event.request)) || (await safeCacheMatch("/")) || response;
       } catch {

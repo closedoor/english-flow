@@ -1,7 +1,7 @@
 import { resolveBuildCommit } from "./write-build-info.mjs";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -80,6 +80,9 @@ export async function buildRender() {
     VITE_ENGLISH_FLOW_BUILD_COMMIT: await resolveBuildCommit({ env: baseEnv }),
   };
 
+  // Vinext can retain obsolete hashed chunks across local/reused builds. Only
+  // generated output is removed; source content and learner storage stay intact.
+  await rm(path.join(root, "dist"), { recursive: true, force: true });
   await runCommand(vinext, ["build"], { env, timeoutMs: BUILD_TIMEOUT_MS, shell: process.platform === "win32" });
   await runCommand(process.execPath, ["scripts/write-build-info.mjs"], { env });
   await runCommand(process.execPath, ["scripts/stamp-service-worker.mjs"], { env });

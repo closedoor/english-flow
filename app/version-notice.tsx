@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { APP_BUILD_COMMIT, isPublishedVersion, versionReloadUrl } from "./version-utils";
+import { APP_BUILD_COMMIT, isPublishedVersion, versionPreflightUrl } from "./version-utils";
 
 type Props = { showDetails: boolean; beforeReload: () => boolean };
 
@@ -11,6 +11,7 @@ export default function VersionNotice({ showDetails, beforeReload }: Props) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const reloadLock = useRef(false);
+  const preflightSequence = useRef(0);
   const guard = useRef(beforeReload);
   useEffect(() => { guard.current = beforeReload; }, [beforeReload]);
 
@@ -73,7 +74,8 @@ export default function VersionNotice({ showDetails, beforeReload }: Props) {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 12_000);
     try {
-      const href = versionReloadUrl(window.location.href, latest);
+      const nonce = `${Date.now().toString(36)}-${(++preflightSequence.current).toString(36)}`;
+      const href = versionPreflightUrl(window.location.href, latest, nonce);
       const response = await fetch(href, { cache: "no-store", signal: controller.signal });
       if (response.status !== 200) throw new Error("Unable to obtain updated page");
       const html = new DOMParser().parseFromString(await response.text(), "text/html");

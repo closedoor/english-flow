@@ -15,6 +15,15 @@ export function versionReloadUrl(href: string, commit: string) {
   return url.href;
 }
 
+// Older installed workers use cache-first for fetch() even with no-store.
+// A unique URL for each explicit attempt lets their next retry reach the server.
+export function versionPreflightUrl(href: string, commit: string, nonce: string) {
+  if (!/^[a-z0-9-]{1,128}$/i.test(nonce)) throw new Error("Invalid update attempt identity");
+  const url = new URL(versionReloadUrl(href, commit));
+  url.searchParams.set("ef-preflight", nonce);
+  return url.href;
+}
+
 // Read-only verification. A dismissed storage warning must never allow a
 // reload to discard newer in-memory work. Missing empty records are equivalent.
 export function isSnapshotPersisted(storage: Pick<Storage, "getItem">, snapshot: Record<string, unknown>) {

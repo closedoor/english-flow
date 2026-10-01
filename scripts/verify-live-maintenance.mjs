@@ -13,9 +13,13 @@ const later = expected === 'f'.repeat(40) ? 'e'.repeat(40) : 'f'.repeat(40);
 const choices = { band: 'short', category: 'food', count: 20, mode: 'speak' };
 const keys = {
   preferences: 'wordflow-sentence-preferences-v1', word: 'wordflow-active-session-v1',
-  sentence: 'wordflow-sentence-active-session-v1', rotation: 'wordflow-practice-rotation-v1',
+  sentence: 'wordflow-sentence-active-session-v1', pattern: 'wordflow-pattern-active-session-v1',
+  rotation: 'wordflow-practice-rotation-v1', mastered: 'wordflow-ngsl-mastered-v1', difficult: 'wordflow-ngsl-difficult-v1',
 };
 const stored = (page, key) => page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
+const records = page => page.evaluate(() => Object.fromEntries(
+  Object.keys(localStorage).filter(key => key.startsWith('wordflow-')).sort().map(key => [key, localStorage.getItem(key)]),
+));
 const nav = (page, label) => page.locator('.bottom-nav button').filter({ hasText: label }).click();
 const results = [];
 
@@ -31,13 +35,14 @@ async function beginWords(page) {
   await page.getByRole('button', { name: '开始这组学习', exact: true }).click();
   await page.locator('.word-card').waitFor();
 }
-async function identify(page, scripts) {
+async function identify(page, scripts, beforeReady) {
   const url = new URL('/', base);
   url.searchParams.set('ef-update', expected);
   const response = await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   assert.equal(response.status(), 200);
   assert.equal(await page.title(), '词流英语');
   assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'), expected);
+  await beforeReady?.(page);
   await page.locator('.bottom-nav').waitFor();
   await nav(page, '进度');
   assert.ok((await page.locator('.app-version-panel').innerText()).includes(`当前版本 ${expected.slice(0, 7)}`),
@@ -48,22 +53,49 @@ async function identify(page, scripts) {
 
 for (const engine of ['chromium', 'webkit']) {
   const browser = await playwright[engine].launch({ headless: true });
-  async function check(name, body, seed = {}) {
+  async function check(name, body, seed = {}, beforeReady) {
     // Fresh, disposable profiles only. Real Service Worker acceptance is separate
     // in verify-live-pwa.mjs; these UI checks must not intercept a learner's cache.
     const context = await browser.newContext({ viewport: { width: 390, height: 650 }, hasTouch: true,
       isMobile: true, serviceWorkers: 'block' });
-    await context.addInitScript(values => {
-      for (const [key, value] of Object.entries(values)) localStorage.setItem(key, JSON.stringify(value));
-      const speech = { fail: false };
+    await context.addInitScript(({ values, simulateStartupReadFault, masteredKey }) => {
+      const storage = window.localStorage;
+      const get = Storage.prototype.getItem, set = Storage.prototype.setItem, remove = Storage.prototype.removeItem;
+      for (const [key, value] of Object.entries(values)) set.call(storage, key, JSON.stringify(value));
+      if (simulateStartupReadFault) {
+        // API fault in this disposable profile only; this is not a Safari disk test.
+        const readRecords = () => Object.fromEntries(Object.keys(values).map(key => [key, get.call(storage, key)]));
+        const fault = { failures: 0, writes: [], original: readRecords(), readRecords,
+          documentId: `${Date.now()}-${Math.random()}` };
+        window.__maintenanceStorageFault = fault;
+        Storage.prototype.getItem = function (key) {
+          if (this === storage && key === masteredKey && fault.failures === 0) {
+            fault.failures++;
+            throw new DOMException('Simulated transient learning-record read failure', 'SecurityError');
+          }
+          return get.call(this, key);
+        };
+        Storage.prototype.setItem = function (key, value) {
+          if (this === storage) fault.writes.push({ operation: 'set', key, value });
+          return set.call(this, key, value);
+        };
+        Storage.prototype.removeItem = function (key) {
+          if (this === storage) fault.writes.push({ operation: 'remove', key });
+          return remove.call(this, key);
+        };
+      }
+      const speech = { fail: false, log: [] };
       window.__maintenanceSpeech = speech;
       Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true,
         value: class { constructor(text) { this.text = text; } } });
       Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
         paused: false, getVoices() { return []; }, cancel() {}, resume() {},
-        speak(utterance) { if (speech.fail) utterance.onerror?.({ error: 'not-allowed' }); else utterance.onstart?.(); },
+        speak(utterance) {
+          speech.log.push({ text: utterance.text, lang: utterance.lang });
+          if (speech.fail) utterance.onerror?.({ error: 'not-allowed' }); else utterance.onstart?.();
+        },
       } });
-    }, seed);
+    }, { values: seed, simulateStartupReadFault: Boolean(beforeReady), masteredKey: keys.mastered });
     const page = await context.newPage();
     page.setDefaultTimeout(30_000);
     const errors = [], scripts = [];
@@ -74,7 +106,7 @@ for (const engine of ['chromium', 'webkit']) {
       }
     });
     try {
-      await identify(page, scripts);
+      await identify(page, scripts, beforeReady);
       const detail = await body(page, context);
       assert.deepEqual(errors, [], 'No uncaught errors in the deployed client');
       results.push({ engine, name, status: 'PASS', commit: expected, ...detail });
@@ -117,6 +149,103 @@ for (const engine of ['chromium', 'webkit']) {
     'wordflow-sentence-difficult-v1': [1, 1001, 2001],
   });
 
+  await check('pattern-start-resumes-rated-group-and-substitution-with-hidden-answer', async page => {
+    await nav(page, '句库');
+    await page.getByRole('button', { name: '核心句型', exact: true }).click();
+    await page.locator('.pattern-category-grid button').filter({ hasText: '全部' }).click();
+    const start = () => page.getByRole('button', { name: '开始句型替换练习', exact: true }).click();
+    const reveal = () => page.getByRole('button', { name: '我说好了，查看参考答案', exact: true }).click();
+    await start();
+    await page.locator('.pattern-prompt').waitFor();
+    for (let drill = 0; drill < 3; drill++) {
+      await reveal();
+      if (drill < 2) await page.getByRole('button', { name: '下一组 ›', exact: true }).click();
+    }
+    await page.getByRole('button', { name: '掌握句型', exact: true }).click();
+    await page.waitForFunction(() => Object.keys(JSON.parse(localStorage.getItem('wordflow-pattern-active-session-v1'))?.ratings || {}).length === 1);
+    await reveal();
+    await page.getByRole('button', { name: '下一组 ›', exact: true }).click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('wordflow-pattern-active-session-v1'))?.drillIndex === 1);
+    const before = await stored(page, keys.pattern), beforeRotation = await stored(page, keys.rotation);
+    assert.equal(before.index, 1);
+    assert.equal(before.drillIndex, 1);
+    assert.equal(Object.keys(before.ratings).length, 1);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await page.getByRole('button', { name: '返回句型设置并保留进度', exact: true }).click();
+      await start();
+      assert.equal(await page.locator('#discard-title').count(), 0);
+      await page.locator('.pattern-prompt').waitFor();
+      assert.deepEqual(await stored(page, keys.pattern), before, 'Same-settings Start resumes IDs, position, ratings and timestamp');
+      assert.deepEqual(await stored(page, keys.rotation), beforeRotation);
+      assert.equal(await page.locator('.pattern-answer').count(), 0, 'Resumed recall does not reveal the reference answer');
+    }
+    assert.equal(await page.evaluate(() => window.__maintenanceSpeech.log.length), 0, 'Recall does not automatically speak the answer');
+    return { patternIndex: before.index, substitutionIndex: before.drillIndex, ratingCount: 1,
+      repeatedStartResumesWithoutDiscard: true, rotationPreserved: true, recallAnswerHidden: true, instrumentedSpeech: true };
+  });
+
+  await check('word-and-sentence-new-search-reset-results-with-more-and-lookup-return-preserved', async page => {
+    await nav(page, '学习');
+    const words = page.locator('.library-list');
+    await words.evaluate(element => { element.scrollTop = 1000; });
+    await page.locator('.rank-switch button').nth(1).click();
+    await page.waitForFunction(() => document.querySelector('.library-list').scrollTop === 0);
+    assert.equal(await words.locator('button').first().getAttribute('data-word-id'), '1001');
+    await words.evaluate(element => { element.scrollTop = 1000; });
+    const wordSearch = page.getByRole('searchbox', { name: '搜索词库' });
+    await wordSearch.fill('e');
+    await page.waitForFunction(() => document.querySelector('.library-list').scrollTop === 0);
+    assert.equal(await words.locator('button').first().getAttribute('data-word-id'), '1');
+    await words.evaluate(element => { element.scrollTop = 500; });
+    await page.locator('.library-more').click();
+    await page.waitForFunction(() => document.querySelectorAll('.library-list button').length === 48);
+    assert.equal(await words.evaluate(element => element.scrollTop), 500, 'More words retains the existing result position');
+    const word = words.locator('button').nth(10);
+    await word.scrollIntoViewIfNeeded();
+    const wordOrigin = await page.evaluate(() => ({ top: scrollY, list: document.querySelector('.library-list').scrollTop }));
+    const wordId = await word.getAttribute('data-word-id');
+    await word.click();
+    await page.locator('.word-card').waitFor();
+    await page.getByRole('button', { name: '返回词库', exact: true }).click();
+    await page.waitForFunction(({ top, list }) => Math.abs(scrollY - top) <= 2 && document.querySelector('.library-list')?.scrollTop === list, wordOrigin);
+    assert.equal(await page.locator('button:focus').getAttribute('data-word-id'), wordId);
+    assert.equal(await words.locator('button').count(), 48);
+    await wordSearch.fill('   ');
+    await page.waitForFunction(() => document.querySelector('.library-list').scrollTop === 0);
+    assert.equal(await page.locator('.rank-switch button').nth(1).getAttribute('aria-pressed'), 'true');
+    assert.equal(await words.locator('button').first().getAttribute('data-word-id'), '1001');
+    assert.ok(!(await page.locator('.library-block .row-heading small').innerText()).includes('全库'));
+
+    await nav(page, '句库');
+    const search = page.getByRole('searchbox', { name: '搜索长短句' });
+    await search.fill('I');
+    await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();
+    await page.waitForFunction(() => !document.querySelector('.sentence-result-list .browser-hint'));
+    const sentences = page.locator('.sentence-result-list');
+    await sentences.evaluate(element => { element.scrollTop = 1000; });
+    await search.fill('you');
+    await page.waitForFunction(() => document.querySelector('.sentence-result-list').scrollTop === 0);
+    assert.equal(await sentences.locator('button[data-sentence-id]').first().getAttribute('data-sentence-id'), '1');
+    const more = sentences.locator('.library-more');
+    await more.scrollIntoViewIfNeeded();
+    const position = await sentences.evaluate(element => element.scrollTop);
+    await more.click();
+    await page.waitForFunction(() => document.querySelectorAll('.sentence-result-list button[data-sentence-id]').length === 60);
+    assert.equal(await sentences.evaluate(element => element.scrollTop), position, 'More sentences retain the existing result position');
+    const sentence = sentences.locator('button[data-sentence-id]').nth(35);
+    await sentence.scrollIntoViewIfNeeded();
+    const sentenceOrigin = await page.evaluate(() => ({ top: scrollY, list: document.querySelector('.sentence-result-list').scrollTop }));
+    const sentenceId = await sentence.getAttribute('data-sentence-id');
+    await sentence.click();
+    await page.locator('.sentence-study-card').waitFor();
+    await page.getByRole('button', { name: '返回句库设置并保留进度', exact: true }).click();
+    await page.waitForFunction(({ top, list }) => Math.abs(scrollY - top) <= 2 && document.querySelector('.sentence-result-list')?.scrollTop === list, sentenceOrigin);
+    assert.equal(await page.locator('button:focus').getAttribute('data-sentence-id'), sentenceId);
+    assert.equal(await sentences.locator('button[data-sentence-id]').count(), 60);
+    return { changedQueriesStartAtFirstResult: true, rankBandStartsAtFirstResult: true,
+      wordExpandedCount: 48, sentenceExpandedCount: 60, lookupScrollAndFocusPreserved: true };
+  });
+
   await check('unrated-third-word-exit-protects-current-position', async page => {
     await beginWords(page);
     for (let index = 1; index <= 2; index++) {
@@ -131,6 +260,46 @@ for (const engine of ['chromium', 'webkit']) {
     assert.deepEqual(await stored(page, keys.word), before);
     assert.equal(await page.locator('.word-card').count(), 1);
     return { index: 2, ratingCount: 0, discardProtected: true };
+  });
+
+  const pausedWord = {
+    version: 1, kind: 'group', updatedAt: Date.now(), path: 'frequency', mode: 'free',
+    wordIds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], index: 4,
+    ratings: { 1: 'known', 2: 'known', 3: 'known', 4: 'difficult' }, stage: 'cards',
+    quizIndex: 0, quizAnswer: '', quizFeedback: null, quizResults: [],
+  };
+  await check('startup-read-failure-pauses-without-writes-and-retries-the-paused-group', async page => {
+    await nav(page, '学习');
+    await page.locator('.word-card').waitFor();
+    assert.match(await page.locator('.card-count').innerText(), /第\s*5\s*张.*4\s*\/\s*10/);
+    assert.deepEqual(await stored(page, keys.mastered), [1, 2, 3]);
+    assert.deepEqual(await stored(page, keys.difficult), [4]);
+    assert.deepEqual(await stored(page, keys.word), pausedWord);
+    const fault = await page.evaluate(() => ({ documentId: window.__maintenanceStorageFault.documentId,
+      expectedDocumentId: window.__maintenanceFaultDocument, failures: window.__maintenanceStorageFault.failures }));
+    assert.equal(fault.documentId, fault.expectedDocumentId, 'Recovery keeps the document that showed the startup fault');
+    assert.equal(fault.failures, 1);
+    assert.equal(await page.getByText('学习记录暂时无法读取', { exact: true }).count(), 0);
+    return { simulatedStorageReadFault: true, startupWrites: 0, rawRecordsPreservedDuringFault: true,
+      retryInSameDocument: true, pausedWordIndex: 4, restoredMastered: [1, 2, 3], restoredDifficult: [4] };
+  }, {
+    [keys.mastered]: [1, 2, 3], [keys.difficult]: [4], [keys.word]: pausedWord,
+    'wordflow-session-preferences-v1': { mode: 'free', count: 10, path: 'frequency' },
+    [keys.rotation]: { word: 2, sentence: 0, pattern: 0 },
+  }, async page => {
+    await page.getByText('学习记录暂时无法读取', { exact: true }).waitFor();
+    assert.equal(await page.locator('.app-loading[role="alert"]').count(), 1);
+    assert.equal(await page.locator('.bottom-nav').count(), 0, 'Failed startup cannot expose default learning navigation');
+    assert.equal(await page.locator('.word-card, .sentence-study-card, .pattern-study-card').count(), 0);
+    const fault = await page.evaluate(() => {
+      const state = window.__maintenanceStorageFault;
+      window.__maintenanceFaultDocument = state.documentId;
+      return { original: state.original, current: state.readRecords(), writes: state.writes, failures: state.failures };
+    });
+    assert.deepEqual(fault.current, fault.original, 'Every seeded raw record survives the failed read unchanged');
+    assert.deepEqual(fault.writes, [], 'No normalization, removal or autosave occurs before a successful read');
+    assert.equal(fault.failures, 1);
+    await page.getByRole('button', { name: '重试读取记录', exact: true }).click();
   });
 
   await check('reading-module-return-restores-the-current-paragraph', async page => {
@@ -210,22 +379,39 @@ for (const engine of ['chromium', 'webkit']) {
     await context.route('**/build-info.json?*', route => route.fulfill({ json: {
       app: 'english-flow', title: '词流英语', origin: base.origin, commit: later,
     } }));
-    let preflightRequests = 0;
+    const preflightUrls = [];
     await context.route(url => url.origin === base.origin && url.pathname === '/' && url.searchParams.get('ef-update') === later,
       route => {
-        preflightRequests++;
+        preflightUrls.push(route.request().url());
         return route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>词流英语</title><meta name="english-flow-build" content="${expected}">` });
       });
     await page.evaluate(commit => { window.__maintenanceDocument = commit; }, expected);
     await page.getByRole('button', { name: '检查更新', exact: true }).click();
     await page.getByRole('button', { name: '更新并保留进度', exact: true }).waitFor();
-    await page.getByRole('button', { name: '更新并保留进度', exact: true }).click();
-    await page.getByText('新页面暂未就绪，或有记录尚未保存。已保留当前页面，请稍后重试或先导出备份。', { exact: true }).waitFor();
-    assert.equal(preflightRequests, 1, 'Reset records pass the save guard and reach the HTML preflight');
-    assert.equal(await page.evaluate(() => window.__maintenanceDocument), expected);
+    const before = await records(page);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const response = page.waitForResponse(response => {
+        const url = new URL(response.url());
+        return url.origin === base.origin && url.pathname === '/' && url.searchParams.get('ef-update') === later;
+      });
+      await page.getByRole('button', { name: '更新并保留进度', exact: true }).click();
+      await response;
+      await page.waitForFunction(() => [...document.querySelectorAll('.app-version-actions button')]
+        .some(button => button.textContent === '更新并保留进度' && !button.disabled));
+      await page.getByText('新页面暂未就绪，或有记录尚未保存。已保留当前页面，请稍后重试或先导出备份。', { exact: true }).waitFor();
+      assert.equal(preflightUrls.length, attempt, 'Reset records pass the save guard on every retry');
+      assert.equal(await page.evaluate(() => window.__maintenanceDocument), expected);
+      assert.deepEqual(await records(page), before, 'Neither stale-page preflight changes learning records');
+    }
+    assert.notEqual(preflightUrls[0], preflightUrls[1], 'A retry uses a fresh URL so an old installed worker cannot pin stale HTML');
+    for (const href of preflightUrls) {
+      const url = new URL(href);
+      assert.equal(url.searchParams.get('ef-update'), later);
+      assert.ok(url.searchParams.get('ef-preflight'), 'Each preflight carries an explicit attempt nonce');
+    }
     assert.equal(await page.getByText('请先到进度页再更新。若有记录尚未保存，请先导出备份；不会强制刷新。', { exact: true }).count(), 0);
     return { persistedRotation: { word: 0, sentence: 0, pattern: 0 }, updatePreflightReached: true,
-      simulatedFutureVersionAndStaleHtml: true, releaseSwitchVerified: false };
+      preflightAttempts: 2, distinctRetryUrls: true, simulatedFutureVersionAndStaleHtml: true, releaseSwitchVerified: false };
   });
 
   await browser.close();

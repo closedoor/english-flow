@@ -48,7 +48,10 @@ test("resume affordances only show for unfinished work and handlers require a va
   assert.match(sentenceStarter, /newestSnapshot\(cleanSentenceSession/);
   assert.match(sentenceStarter, /sentenceSessionIds\.length && snapshot/);
   assert.match(sentenceStarter, /sameChoices[\s\S]*resumeSentenceSession\(\)/);
-  assert.match(patternStarter, /if \([^)]*patternSessionIds\.length[^)]*patternResumeSnapshotRef\.current[^)]*\)/);
+  assert.match(patternStarter, /newestSnapshot\(cleanPatternSession/);
+  assert.match(patternStarter, /patternSessionIds\.length && snapshot/);
+  assert.match(patternStarter, /snapshot\.category === patternCategory[\s\S]*resumePatternSession\(\)/);
+  assert.match(patternStarter, /snapshot\.index > 0 \|\| snapshot\.drillIndex > 0 \|\| Object\.keys\(snapshot\.ratings\)\.length > 0/);
 
   const sentenceResume = sourceBetween("const resumeSentenceSession", "const finishSentenceCard");
   const patternResume = sourceBetween("const resumePatternSession", "const movePatternDrill");

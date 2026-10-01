@@ -46,7 +46,8 @@ test("service worker has an offline shell and update lifecycle", async () => {
   assert.match(worker, /cacheCompleteBuildGraph\(cache, urls, true\)/);
   assert.match(worker, /responseMatchesRequest/);
   assert.match(worker, /await caches\.delete\(STAGING_CACHE\)/);
-  assert.match(worker, /fetchWithTimeout\(event\.request, url\.searchParams\.has\("ef-update"\) \? 12_000 : NAVIGATION_TIMEOUT\)/);
+  assert.match(worker, /fetchWithTimeout\(event\.request, url\.searchParams\.has\("ef-update"\) \? 12_000 : NAVIGATION_TIMEOUT, null\)/);
+  assert.match(worker, /fetchWithTimeout\("\/", NAVIGATION_TIMEOUT, BUILD_COMMIT\)/);
   assert.match(worker, /fetchAndCache\(event\.request, OPTIONAL_CACHE_TIMEOUT\)/);
   assert.match(worker, /name\.endsWith\("-staging"\)/);
   assert.match(worker, /\.slice\(0, MAX_SHELL_ASSETS\)/);

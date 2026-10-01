@@ -147,7 +147,8 @@ test("paused sentence and pattern sessions cannot be silently replaced", () => {
   assert.match(page, /if \(sentenceStage === "setup" && sentenceSessionIds\.length && snapshot\)/);
   assert.match(page, /snapshot\.index > 0 \|\| Object\.keys\(snapshot\.ratings\)\.length > 0/);
   assert.match(page, /setDiscardRequest\(\{ sentence: true, sentenceStart: \{ reviewOnly, singleSentence \} \}\)/);
-  assert.match(page, /if \(patternStage === "setup" && patternSessionIds\.length && patternResumeSnapshotRef\.current\) \{[\s\S]*?setDiscardRequest\(\{ pattern: true, patternStart: \{ reviewOnly \} \}\);[\s\S]*?return;/);
+  assert.match(page, /if \(patternStage === "setup" && patternSessionIds\.length && snapshot\) \{[\s\S]*?setDiscardRequest\(\{ pattern: true, patternStart: \{ reviewOnly \} \}\);[\s\S]*?return;/);
+  assert.match(page, /snapshot\.index > 0 \|\| snapshot\.drillIndex > 0 \|\| Object\.keys\(snapshot\.ratings\)\.length > 0/);
   assert.match(page, /if \(discardRequest\?\.sentence\) \{[\s\S]*?setSentenceSessionIds\(\[\]\)/);
   assert.match(page, /if \(discardRequest\?\.pattern\) \{[\s\S]*?setPatternSessionIds\(\[\]\)/);
 });
@@ -306,7 +307,8 @@ test("corrupt or unavailable Safari storage cannot break learning", () => {
   assert.match(page, /window\.dispatchEvent\(new Event\(STORAGE_ERROR_EVENT\)\)/);
   assert.match(page, /role="alert"/);
   assert.match(page, /学习记录暂未保存/);
-  assert.match(page, /const storedDays = readJson<unknown>/);
+  assert.match(page, /const storedDays = readStored<unknown>/);
+  assert.match(page, /const readStored = <T,>\(key: string, fallback: T\) => readJson\(key, fallback, persisted\)/);
   assert.match(page, /storedSessionValue && typeof storedSessionValue === "object" && !Array\.isArray/);
   assert.match(page, /item\.stage === "quiz" && item\.mode !== "test"/);
   assert.match(page, /item\.stage === "quiz" && hasUnfinishedRatings\(wordIds, ratings\)/);

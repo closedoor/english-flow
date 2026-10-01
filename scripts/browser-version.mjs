@@ -40,6 +40,25 @@ for(const engine of ['chromium','webkit']){
   await progress(page);await page.getByRole('button',{name:'更新并保留进度',exact:true}).click();
   await page.getByText('新页面暂未就绪，或有记录尚未保存。已保留当前页面，请稍后重试或先导出备份。',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
  });
+ await check('retrying-stale-update-html-uses-a-new-url-for-legacy-workers','new',async page=>{
+  const attempts=[];
+  await page.context().route(url=>url.origin===origin&&url.pathname==='/'&&url.searchParams.get('ef-update')===later,async route=>{
+   attempts.push(route.request().url());
+   await page.evaluate(count=>{window.__preflightAttempts=count;},attempts.length);
+   await route.fulfill({contentType:'text/html',body:`<!doctype html><title>词流英语</title><meta name="english-flow-build" content="${meta.commit}">`});
+  });
+  await progress(page);
+  const before=await page.evaluate(()=>({...localStorage}));
+  for(let attempt=1;attempt<=2;attempt++){
+   await page.getByRole('button',{name:'更新并保留进度',exact:true}).click();
+   await page.waitForFunction(count=>window.__preflightAttempts===count&&![...document.querySelectorAll('.app-version-actions button')].some(button=>button.textContent==='正在准备更新…'),attempt);
+   await page.getByText('新页面暂未就绪，或有记录尚未保存。已保留当前页面，请稍后重试或先导出备份。',{exact:true}).waitFor();
+  }
+  assert.equal(attempts.length,2);assert.notEqual(attempts[0],attempts[1]);
+  for(const href of attempts){const url=new URL(href);assert.equal(url.origin,origin);assert.equal(url.searchParams.get('ef-update'),later);assert.ok(url.searchParams.get('ef-preflight'));}
+  assert.deepEqual(await page.evaluate(()=>({...localStorage})),before);
+  assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
+ });
  await check('new-release-notice-keeps-the-active-word-group','new',async page=>{
   await page.locator('.bottom-nav button').filter({hasText:'学习'}).click();await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();
   assert.ok(await page.getByRole('button',{name:'更新并保留进度',exact:true}).isDisabled());assert.equal(await page.locator('.word-auto-controls').count(),1);assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
