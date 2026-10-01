@@ -102,3 +102,6 @@ for(const name of ['chromium','webkit']){
     process.exitCode=1;
   }finally{await context.close();await browser.close();}
 }
+
+// Verify the actual deployed sentence-card behavior, not just its assets.
+if (!process.exitCode) await import('./verify-live-sentences.mjs');

@@ -26,7 +26,9 @@ test("an ongoing session resumes instead of being silently overwritten", () => {
 });
 
 test("paused sentence and pattern sessions cannot be silently replaced", () => {
-  assert.match(page, /if \(sentenceStage === "setup" && sentenceSessionIds\.length && sentenceResumeSnapshotRef\.current\) \{[\s\S]*?setDiscardRequest\(\{ sentence: true, sentenceStart: \{ reviewOnly, singleSentence \} \}\);[\s\S]*?return;/);
+  assert.match(page, /if \(sentenceStage === "setup" && sentenceSessionIds\.length && snapshot\)/);
+  assert.match(page, /snapshot\.index > 0 \|\| Object\.keys\(snapshot\.ratings\)\.length > 0/);
+  assert.match(page, /setDiscardRequest\(\{ sentence: true, sentenceStart: \{ reviewOnly, singleSentence \} \}\)/);
   assert.match(page, /if \(patternStage === "setup" && patternSessionIds\.length && patternResumeSnapshotRef\.current\) \{[\s\S]*?setDiscardRequest\(\{ pattern: true, patternStart: \{ reviewOnly \} \}\);[\s\S]*?return;/);
   assert.match(page, /if \(discardRequest\?\.sentence\) \{[\s\S]*?setSentenceSessionIds\(\[\]\)/);
   assert.match(page, /if \(discardRequest\?\.pattern\) \{[\s\S]*?setPatternSessionIds\(\[\]\)/);
@@ -261,7 +263,10 @@ test("speech stops when the learner changes cards, screens or leaves the app", (
   assert.match(speechPlayback, /export function stopSpeech\(\)[\s\S]*activeUtterance = null[\s\S]*window\.speechSynthesis\.cancel\(\)/);
   assert.match(page, /window\.addEventListener\("pagehide", stopSpeech\)/);
   assert.match(page, /const currentReviewWordId = tab === "review" \? reviewWordsForSpeech\[Math\.min\(reviewIndex/);
-  assert.match(page, /\[autoWordExamples, current\?\.id, current\?\.example, currentPattern\?\.id, currentReviewWordId, currentSentence\?\.id, hasOpenDialog, hydrated, learnStage, patternDrillIndex, patternStage, quizWord\?\.id, readingId, reviewView, sentenceSection, sentenceStage, sessionPath, tab, wordSessionKind, current\]/);
+  const speechEffect = page.slice(page.indexOf("const automatic = hydrated && autoWordExamples"), page.indexOf('window.addEventListener("pagehide", stopSpeech)'));
+  for (const dependency of ["autoWordExamples", "autoSentenceExamples", "currentSentence", "sentenceMode", "sentenceStage", "hasOpenDialog", "tab"]) assert.ok(speechEffect.includes(dependency));
+  assert.match(speechEffect, /stopSpeech\(\)/);
+  assert.match(speechEffect, /if \(alreadyStarted\) return/);
 });
 
 test("small secondary controls meet phone touch target sizes", () => {

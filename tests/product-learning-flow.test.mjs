@@ -256,6 +256,7 @@ function speakingResult(patch = {}) {
   };
   const render = () => vm.runInNewContext(speakingCode, {
     React, ...state, resultPrimaryRef: {},
+    sentenceItemById: new Map(), playAutomaticSentenceExample() {},
     restoreSentenceSetupPreferences() { state.sentenceStage = "setup"; },
     restorePatternSetupPreferences() { state.patternStage = "setup"; },
     ...Object.fromEntries(Object.keys(state).map((key) => [`set${key[0].toUpperCase()}${key.slice(1)}`, (value) => { state[key] = value; }])),

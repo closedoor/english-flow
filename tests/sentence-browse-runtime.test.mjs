@@ -103,6 +103,7 @@ function harness(patch = {}) {
     window, sentenceBrowserRef, sentenceBrowserOriginRef, sentenceSetupPreferencesRef,
     words, wordBrowserRef, wordBrowserOriginRef, wordBrowserReturnRef,
     playAutomaticWordExample() {},
+    playAutomaticSentenceExample() {},
     saveSessionPreferences(value) { writes.push(["wordPreferences", { ...value }]); },
     selectPath(value) { state.path = value; },
     sentencePacks: { 1: items.slice(0, 50), 2: [], 3: items.slice(50) },
