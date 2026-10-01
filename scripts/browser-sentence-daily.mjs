@@ -1,5 +1,6 @@
 import { openSetupDetails, selectSentenceMethod, resumePausedSentence } from './browser-disclosures.mjs';
 import { navigate } from './browser-navigation.mjs';
+import {assertSentenceCardGeometry} from './sentence-card-geometry.mjs';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 if(!process.env.PLAYWRIGHT_MODULE)throw Error('Set PLAYWRIGHT_MODULE; see TESTING.md.');
@@ -76,6 +77,21 @@ for(const engine of ['chromium','webkit']){
  await check('reload-retains-current-records-with-a-working-gesture-replay',async page=>{await begin(page);await page.getByRole('button',{name:'下一句 ›',exact:true}).click();const before=await stored(page);await page.reload();await page.locator('.sentence-study-card').waitFor();assert.equal((await log(page)).length,0);assert.deepEqual(await stored(page),before);await page.getByRole('button',{name:/重播本句/}).click();await finishSequence(page,0);});
  await check('speaking-first-mode-never-reveals-or-auto-reads-English',async page=>{await begin(page,{mode:'看中文说英文'});assert.equal((await log(page)).length,0);assert.equal(await page.locator('.sentence-english').count(),0);await page.getByRole('button',{name:'我说好了，查看英文答案',exact:true}).click();assert.equal((await log(page)).length,0);await page.getByRole('button',{name:'我学会了',exact:true}).click();assert.equal(await page.locator('.sentence-english').count(),0);assert.equal((await log(page)).length,0);});
  await check('blocked-audio-keeps-visible-text-and-progress-usable',async page=>{await begin(page);await page.evaluate(()=>window.__sentenceSpeech.fail=true);await page.getByRole('button',{name:'下一句 ›',exact:true}).click();assert.ok(await page.locator('.sentence-translation').innerText());assert.deepEqual((await stored(page)).ratings,{});await page.evaluate(()=>window.__sentenceSpeech.fail=false);const n=(await log(page)).length;await page.getByRole('button',{name:/重播本句/}).click();await finishSequence(page,n);});
+ for(const size of [{width:320,height:568},{width:390,height:844},{width:430,height:932}])await check(`bilingual-text-stays-together-with-thumb-replay-${size.width}`,async page=>{
+  await begin(page);console.log('SENTENCE_CARD_GEOMETRY',JSON.stringify({engine,...await assertSentenceCardGeometry(page)}));
+  const before=await stored(page),n=(await log(page)).length;await tapUncovered(page,'重播本句');await finishSequence(page,n);
+  assert.deepEqual(await stored(page),before,'Replay must preserve the card, position and ratings');
+  await tapUncovered(page,'下一句 ›');await page.waitForFunction(({key,index})=>JSON.parse(localStorage.getItem(key)).index===index+1,{key,index:before.index});
+  await assertSentenceCardGeometry(page);
+ },size);
+ await check('recall-reveal-and-manual-audio-share-the-bottom-thumb-toolbar',async page=>{
+  await begin(page,{mode:'看中文说英文'});const before=await stored(page);
+  assert.equal(await page.getByRole('button',{name:'播放英文',exact:true}).isDisabled(),true);
+  await tapUncovered(page,'播放英文');assert.equal((await log(page)).length,0);assert.equal(await page.locator('.sentence-english').count(),0);assert.deepEqual(await stored(page),before);
+  await tapUncovered(page,'我说好了，查看英文答案');await page.locator('.speak-answer').waitFor();assert.equal((await log(page)).length,0);
+  await assertSentenceCardGeometry(page,{recall:true});const revealed=await stored(page);await tapUncovered(page,'播放英文');
+  assert.equal((await log(page)).length,1);assert.equal((await log(page))[0].text,await page.locator('.sentence-english').innerText());assert.deepEqual(await stored(page),revealed);
+ });
  for(const size of [{width:320,height:568},{width:390,height:844}])await check(`stacked-warnings-preserve-coordinate-sentence-navigation-${size.width}`,async page=>{
   await begin(page);await page.evaluate(()=>{window.__sentenceSpeech.fail=true;window.dispatchEvent(new CustomEvent('english-flow-speech-error',{detail:'chinese-unavailable'}));window.dispatchEvent(new Event('english-flow-offline-cache-error'));window.dispatchEvent(new Event('offline'));});
   await page.getByRole('button',{name:'关闭语音提示',exact:true}).waitFor();await page.getByRole('button',{name:'关闭离线保存提示',exact:true}).waitFor();await page.locator('.offline-status').waitFor();await sentenceToolbarClear(page);
@@ -96,7 +112,10 @@ for(const engine of ['chromium','webkit']){
   await begin(page,{mode:'看中文说英文',band:'长句'});await page.addStyleTag({content:'html{font-size:32px!important}'});
   assert.equal(await page.getByRole('button',{name:'慢速播放',exact:true}).isDisabled(),true);assert.equal((await log(page)).length,0);
   await page.getByRole('button',{name:'我说好了，查看英文答案',exact:true}).click();const answer=page.locator('.speak-answer');await answer.waitFor();assert.equal((await log(page)).length,0);assert.equal(await answer.evaluate(el=>document.activeElement===el),true);
-  const play=page.getByRole('button',{name:'播放英文',exact:true});await play.scrollIntoViewIfNeeded();assert.ok(await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop>0),'Large text must scroll within the card');const position=await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop);await play.click();
+  await page.locator('.sentence-study-card').hover();
+  await page.evaluate(()=>{window.__sentenceWheelComplete=false;document.querySelector('.sentence-study-card').addEventListener('scrollend',()=>{window.__sentenceWheelComplete=true;},{once:true});});
+  await page.mouse.wheel(0,1200);await page.waitForFunction(()=>window.__sentenceWheelComplete&&document.querySelector('.sentence-study-card').scrollTop>0);
+  assert.ok(await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop>0),'Large text must scroll within the card');const position=await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop);await tapUncovered(page,'播放英文');
   assert.equal((await log(page)).length,1);assert.equal((await log(page))[0].text,await page.locator('.sentence-english').innerText());assert.equal(await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop),position,'Replaying the same answer must not reset reading');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await tapUncovered(page,'下一句 ›');await page.locator('.speak-answer').waitFor({state:'hidden'});assert.equal(await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop),0);assert.equal((await log(page)).length,1);assert.equal(await page.getByRole('button',{name:'慢速播放',exact:true}).isDisabled(),true);
  },{width:320,height:568});
