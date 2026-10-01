@@ -6,7 +6,7 @@ import { APP_BUILD_COMMIT, isSnapshotPersisted } from "./version-utils";
 import { scenes, type SceneId, type WordItem } from "./data";
 import { corePatterns, patternCategories, type PatternCategory } from "./pattern-data";
 import { BACKUP_MAX_BYTES, createLearningBackup, isLearningBackup, restoreLearningBackupData, type LearningBackup } from "./backup-data";
-import { isSpeechSupported, SPEECH_ERROR_EVENT, SPEECH_PLAYBACK_EVENT, speak, startRepeatedSpeech, startSegmentedSpeech, stopSpeech, toggleSegmentedSpeech, type SpeechPlaybackState } from "./speech-playback";
+import { isSpeechSupported, SPEECH_ERROR_EVENT, SPEECH_PLAYBACK_EVENT, speak, startBilingualSentenceSpeech, startRepeatedSpeech, startSegmentedSpeech, stopSpeech, toggleSegmentedSpeech, type SpeechPlaybackState } from "./speech-playback";
 import { blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, takeRotatedSpread } from "./session-utils";
 
 type Tab = "home" | "learn" | "sentences" | "read" | "review" | "progress";
@@ -467,6 +467,8 @@ export default function Home() {
   const [sentenceSessionIds, setSentenceSessionIds] = useState<number[]>([]);
   const [sentenceRatings, setSentenceRatings] = useState<Record<number, SentenceRating>>({});
   const [sentenceTranslationOpen, setSentenceTranslationOpen] = useState(false);
+  const [autoSentenceExamples, setAutoSentenceExamples] = useState(true);
+  const sentenceExampleStartedRef = useRef<string | null>(null);
   const [sentenceSaved, setSentenceSaved] = useState<number[]>([]);
   const [sentenceSeen, setSentenceSeen] = useState<number[]>([]);
   const [sentenceMastered, setSentenceMastered] = useState<number[]>([]);
@@ -587,8 +589,11 @@ export default function Home() {
     const handleSpeechPlayback = (event: Event) => {
       setReadingSpeechState((event as CustomEvent<SpeechPlaybackState>).detail ?? "idle");
     };
-    const handleSpeechError = () => {
-      setSpeechNotice("系统英文语音没有成功播放，请检查设备静音设置，或改用最新版 Safari、Chrome 或 Edge。");
+    const handleSpeechError = (event: Event) => {
+      const error = (event as CustomEvent<string>).detail;
+      setSpeechNotice(error?.startsWith("chinese-")
+        ? "中文语音未能完成，译文仍可直接阅读。请检查设备的中文语音后重播。"
+        : "系统语音没有成功播放，请检查设备的语音与音量设置，或点一次重播。");
     };
     window.addEventListener(SPEECH_PLAYBACK_EVENT, handleSpeechPlayback);
     window.addEventListener(SPEECH_ERROR_EVENT, handleSpeechError);
@@ -1246,21 +1251,22 @@ export default function Home() {
   useEffect(() => {
     const automatic = hydrated && autoWordExamples && !hasOpenDialog && tab === "learn"
       && learnStage === "cards" && sessionPath === "frequency" && wordSessionKind === "group" && current;
+    const automaticSentence = hydrated && autoSentenceExamples && !hasOpenDialog && tab === "sentences"
+      && sentenceSection === "library" && sentenceStage === "cards" && sentenceMode === "bilingual" && currentSentence;
     const signature = current ? `${current.id}:${current.example}` : null;
-    // iOS needs the first utterance in a real input handler. Do not cancel the
-    // new card's already-started queue when React commits that same transition.
-    if (automatic && signature && wordExampleStartedRef.current === signature) {
-      wordExampleStartedRef.current = null;
-      return;
-    }
+    const sentenceSignature = currentSentence ? `${currentSentence.id}:${currentSentence.text}:${currentSentence.translation}` : null;
+    // Preserve speech started synchronously inside the very click that changed
+    // the card. One effect owns cancellation for both learning modules.
+    const alreadyStarted = (automatic && signature && wordExampleStartedRef.current === signature)
+      || (automaticSentence && sentenceSignature && sentenceExampleStartedRef.current === sentenceSignature);
     wordExampleStartedRef.current = null;
+    sentenceExampleStartedRef.current = null;
+    if (alreadyStarted) return;
     stopSpeech();
-    // A restored page may not have audio permission yet. Keep the explicit
-    // replay control usable instead of repeatedly prompting or faking a click.
-    if (automatic && !document.hidden && navigator.userActivation?.hasBeenActive !== false) {
-      startRepeatedSpeech(current.example, 3);
-    }
-  }, [autoWordExamples, current?.id, current?.example, currentPattern?.id, currentReviewWordId, currentSentence?.id, hasOpenDialog, hydrated, learnStage, patternDrillIndex, patternStage, quizWord?.id, readingId, reviewView, sentenceSection, sentenceStage, sessionPath, tab, wordSessionKind, current]);
+    if (document.hidden || navigator.userActivation?.hasBeenActive === false) return;
+    if (automatic) startRepeatedSpeech(current.example, 3);
+    else if (automaticSentence) startBilingualSentenceSpeech(currentSentence.text, currentSentence.translation);
+  }, [autoWordExamples, autoSentenceExamples, current?.id, current?.example, currentPattern?.id, currentReviewWordId, currentSentence, hasOpenDialog, hydrated, learnStage, patternDrillIndex, patternStage, quizWord?.id, readingId, reviewView, sentenceMode, sentenceSection, sentenceStage, sessionPath, tab, wordSessionKind, current]);
 
   useEffect(() => {
     window.addEventListener("pagehide", stopSpeech);
@@ -1973,6 +1979,31 @@ export default function Home() {
     setSentenceSeen((items) => items.includes(sentenceId) ? items : [...items, sentenceId]);
   };
 
+  const playAutomaticSentenceExample = (item: SentenceItem | null | undefined, selectedMode: SentenceLearningMode = sentenceMode, enabled = autoSentenceExamples) => {
+    if (!enabled || selectedMode !== "bilingual" || !item || document.hidden) return;
+    setSpeechNotice(null);
+    sentenceExampleStartedRef.current = `${item.id}:${item.text}:${item.translation}`;
+    if (!startBilingualSentenceSpeech(item.text, item.translation)) {
+      setSpeechNotice("句子朗读未能启动，请点一次“重播本句”，并检查设备的英文和中文语音。");
+    }
+  };
+
+  const replaySentenceExample = () => {
+    if (!currentSentence || sentenceMode !== "bilingual" || document.hidden) return;
+    sentenceExampleStartedRef.current = null;
+    setSpeechNotice(null);
+    if (!startBilingualSentenceSpeech(currentSentence.text, currentSentence.translation)) {
+      setSpeechNotice("句子朗读未能启动，请检查设备的英文和中文语音后重播。");
+    }
+  };
+
+  const toggleSentenceExamples = () => {
+    stopSpeech();
+    sentenceExampleStartedRef.current = null;
+    setAutoSentenceExamples(!autoSentenceExamples);
+    if (!autoSentenceExamples) playAutomaticSentenceExample(currentSentence, sentenceMode, true);
+  };
+
   const beginSentenceSession = (reviewOnly = false, singleSentence?: SentenceItem) => {
     const source = singleSentence ? [singleSentence] : sentencePacks[SENTENCE_PACK_BY_BAND[sentenceBand]] ?? [];
     const categoryPool = source.filter((item) => sentenceCategory === "all" || item.category === sentenceCategory);
@@ -2012,6 +2043,7 @@ export default function Home() {
       setSentenceSavedOnly(false);
       setSentenceReviewOnly(false);
     }
+    playAutomaticSentenceExample(selected[0]);
     setSentenceSessionIds(selected.map((item) => item.id));
     setSentenceIndex(0);
     setSentenceRatings({});
@@ -2020,10 +2052,21 @@ export default function Home() {
     setSentenceStage("cards");
   };
 
-  const startSentenceSession = (reviewOnly = false, singleSentence?: SentenceItem) => {
-    if (sentenceStage === "setup" && sentenceSessionIds.length && sentenceResumeSnapshotRef.current) {
-      setDiscardRequest({ sentence: true, sentenceStart: { reviewOnly, singleSentence } });
-      return;
+  const startSentenceSession = (reviewOnly = false, singleSentence?: SentenceItem, forceNew = false) => {
+    const snapshot = newestSnapshot(cleanSentenceSession(readJson<unknown>(STORAGE.sentenceActiveSession, null)), sentenceResumeSnapshotRef.current);
+    if (sentenceStage === "setup" && sentenceSessionIds.length && snapshot) {
+      const sameChoices = snapshot.band === sentenceBand && snapshot.category === sentenceCategory
+        && snapshot.count === sentenceCount && snapshot.mode === sentenceMode;
+      // Returning to the same practice means resume, not discard and restart.
+      if (!forceNew && !reviewOnly && !singleSentence && sameChoices) {
+        resumeSentenceSession();
+        return;
+      }
+      // An untouched first card has no position or ratings to discard.
+      if (snapshot.index > 0 || Object.keys(snapshot.ratings).length > 0) {
+        setDiscardRequest({ sentence: true, sentenceStart: { reviewOnly, singleSentence } });
+        return;
+      }
     }
     beginSentenceSession(reviewOnly, singleSentence);
   };
@@ -2031,6 +2074,7 @@ export default function Home() {
   const resumeSentenceSession = () => {
     const snapshot = newestSnapshot(cleanSentenceSession(readJson<unknown>(STORAGE.sentenceActiveSession, null)), sentenceResumeSnapshotRef.current);
     if (!snapshot) return;
+    playAutomaticSentenceExample(sentenceItemById.get(snapshot.sentenceIds[snapshot.index]), snapshot.mode);
     setSentenceBand(snapshot.band);
     setSentenceCategory(snapshot.category);
     setSentenceCount(snapshot.count);
@@ -2061,6 +2105,7 @@ export default function Home() {
     const nextIndex = sentenceSessionItems.findIndex((item, itemIndex) => itemIndex > safeSentenceIndex && !nextRatings[item.id]);
     const wrappedIndex = nextIndex >= 0 ? nextIndex : sentenceSessionItems.findIndex((item) => !nextRatings[item.id]);
     if (wrappedIndex >= 0) {
+      playAutomaticSentenceExample(sentenceSessionItems[wrappedIndex]);
       setSentenceIndex(wrappedIndex);
       setSentenceTranslationOpen(false);
     } else {
@@ -2071,6 +2116,8 @@ export default function Home() {
   const moveSentence = (direction: number) => {
     if (!sentenceSessionItems.length) return;
     const nextIndex = Math.min(Math.max(safeSentenceIndex + direction, 0), sentenceSessionItems.length - 1);
+    if (nextIndex === safeSentenceIndex) return;
+    playAutomaticSentenceExample(sentenceSessionItems[nextIndex]);
     setSentenceIndex(nextIndex);
     setSentenceTranslationOpen(false);
   };
@@ -2079,6 +2126,7 @@ export default function Home() {
     if (sentenceStage !== "result") return;
     const retryIds = sentenceSessionIds.filter((id) => sentenceRatings[id] === "difficult");
     if (!retryIds.length) return;
+    playAutomaticSentenceExample(sentenceItemById.get(retryIds[0]));
     setSentenceSessionIds(retryIds);
     setSentenceRatings({});
     setSentenceIndex(0);
@@ -2210,9 +2258,10 @@ export default function Home() {
       <p className="page-intro">选择直接学习英文，或者先看中文、自己说出英文。每张卡的进度都会自动保存在本机。</p>
       <div className="sentence-section-switch" role="group" aria-label="句子学习内容"><button className="selected" aria-pressed="true">日常长短句</button><button aria-pressed="false" onClick={() => setSentenceSection("patterns")}>核心句型</button></div>
       {canResumeSentence && <button className="resume-session-card" onClick={resumeSentenceSession}><span>继续上次</span><div><b>未完成的句子练习</b><small>第 {Math.min(sentenceIndex + 1, sentenceSessionIds.length)} 张 · 已标记 {ratedSentenceCount} / {sentenceSessionIds.length}</small></div><i>›</i></button>}
+      {canResumeSentence && <button className="sentence-new-group text-button" onClick={() => startSentenceSession(false, undefined, true)}>另开新一组</button>}
       {sentenceLoadError && sentencePacksIncomplete && <div className="sentence-load-error" role="alert"><span>{networkOnline ? "部分句库尚未载入，已有内容和本机记录仍保留。可以先重试；仍失败时再重新载入页面。" : "当前处于离线状态，已缓存的句子仍可使用；联网后会自动补全。"}</span><div className="sentence-load-actions"><button onClick={retrySentenceContent}>重试缺少的句库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div></div>}
       <div className="sentence-summary"><div><b>{sentenceMastered.length}</b><small>已掌握</small></div><button className={sentenceReviewOnly ? "selected" : ""} aria-pressed={sentenceReviewOnly} aria-label={`查看 ${sentenceDifficult.length} 个待加强句子`} onClick={() => openSentenceBrowser(false, true)}><b>{sentenceDifficult.length}</b><small>待加强</small></button><button className={sentenceSavedOnly ? "selected" : ""} aria-pressed={sentenceSavedOnly} onClick={() => openSentenceBrowser(true)}><b>{sentenceSaved.length}</b><small>{sentenceSavedOnly ? "正在看收藏" : "收藏句子"}</small></button></div>
-      <div className="setup-block"><h2>选择练习方式</h2><div className="sentence-mode-grid"><button className={sentenceMode === "bilingual" ? "selected" : ""} aria-pressed={sentenceMode === "bilingual"} onClick={() => setSentenceMode("bilingual")}><span>EN</span><div><b>英文卡片</b><small>先看英文，再查看中文</small></div></button><button className={sentenceMode === "speak" ? "selected" : ""} aria-pressed={sentenceMode === "speak"} onClick={() => setSentenceMode("speak")}><span>中</span><div><b>看中文说英文</b><small>先开口，再揭晓答案</small></div></button></div></div>
+      <div className="setup-block"><h2>选择练习方式</h2><div className="sentence-mode-grid"><button className={sentenceMode === "bilingual" ? "selected" : ""} aria-pressed={sentenceMode === "bilingual"} onClick={() => setSentenceMode("bilingual")}><span>EN</span><div><b>英文卡片</b><small>中英直接显示 · 英文三遍、中文一遍</small></div></button><button className={sentenceMode === "speak" ? "selected" : ""} aria-pressed={sentenceMode === "speak"} onClick={() => setSentenceMode("speak")}><span>中</span><div><b>看中文说英文</b><small>先开口，再揭晓答案</small></div></button></div></div>
       <div className="setup-block"><div className="row-heading"><h2>每组句数</h2><small>学完逐句标记</small></div><div className="count-switch"><button className={sentenceCount === 10 ? "selected" : ""} aria-pressed={sentenceCount === 10} onClick={() => setSentenceCount(10)}>10 句</button><button className={sentenceCount === 20 ? "selected" : ""} aria-pressed={sentenceCount === 20} onClick={() => setSentenceCount(20)}>20 句</button></div></div>
       <div className="setup-block"><h2>选择句子长度</h2><div className="sentence-band-switch">
         {(["short", "medium", "long"] as const).map((band) => <button key={band} className={sentenceBand === band ? "selected" : ""} aria-pressed={sentenceBand === band} onClick={() => { setSentenceBand(band); setSentenceSavedOnly(false); setSentenceReviewOnly(false); setSentenceSearch(""); setSentenceResultLimit(30); }}>{band === "short" ? "短句" : band === "medium" ? "常用句" : "长句"}<small>{band === "short" ? "2–7 词" : band === "medium" ? "8–12 词" : "13–18 词"}</small></button>)}
@@ -2235,11 +2284,18 @@ export default function Home() {
       <div className="session-progress" role="progressbar" aria-label="本组句子学习进度" aria-valuemin={0} aria-valuemax={sentenceSessionIds.length} aria-valuenow={ratedSentenceCount}><span style={{ width: `${sentenceSessionIds.length ? ratedSentenceCount / sentenceSessionIds.length * 100 : 0}%` }} /></div><p className="card-count" aria-live="polite">第 {safeSentenceIndex + 1} 张 · 已标记 {ratedSentenceCount} / {sentenceSessionIds.length}</p>
       {sentenceLoadError ? <div className="sentence-card-loading sentence-card-error" role="alert"><div><b>{networkOnline ? "这组句子暂时无法恢复" : "网络已断开，联网后会自动恢复这组句子"}</b><button onClick={() => window.location.reload()}>重新载入页面</button></div></div> : sentenceLoading || !currentSentence ? <div className="sentence-card-loading" role="status">正在恢复这组句子…</div> : <div className="sentence-card sentence-study-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => endCardSwipe(event, moveSentence)} onTouchCancel={() => { touchStart.current = null; }}>
         <div className="sentence-card-top"><span>{currentSentence.length === "short" ? "短句" : currentSentence.length === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === currentSentence.category)?.label}</span><button className={currentSentenceSaved ? "saved" : ""} aria-label={currentSentenceSaved ? "取消收藏" : "收藏句子"} onClick={() => setSentenceSaved((items) => currentSentenceSaved ? items.filter((id) => id !== currentSentence.id) : [...items, currentSentence.id])}>{currentSentenceSaved ? "★" : "☆"}</button></div>
-        {sentenceMode === "bilingual" ? <><button className="sentence-listen" onClick={() => playSpeech(currentSentence.text, .76)}><span aria-hidden="true">♪</span><b>播放英文</b><small>系统英文语音 · 慢速</small></button><p lang="en" className="sentence-english">{currentSentence.text}</p><button className="sentence-translation-toggle" aria-expanded={sentenceTranslationOpen} onClick={() => setSentenceTranslationOpen((open) => !open)}>{sentenceTranslationOpen ? currentSentence.translation : "点击显示中文翻译"}</button></> : <><div className="speak-prompt"><span>先不要看答案</span><small>看中文，自己完整说出英文</small><p>{currentSentence.translation}</p></div>{sentenceTranslationOpen ? <div id={`sentence-answer-${currentSentence.id}`} ref={sentenceAnswerRef} className="speak-answer" tabIndex={-1} role="status" aria-live="polite" aria-atomic="true"><span>英文答案</span><p lang="en" className="sentence-english">{currentSentence.text}</p><button className="sentence-listen" onClick={() => playSpeech(currentSentence.text, .76)}><span aria-hidden="true">♪</span><b>播放英文</b><small>听一遍核对表达</small></button></div> : <button className="reveal-answer" aria-expanded="false" aria-controls={`sentence-answer-${currentSentence.id}`} onClick={() => setSentenceTranslationOpen(true)}>我说好了，查看英文答案</button>}</>}
+        {sentenceMode === "bilingual" ? <><button className="sentence-listen" onClick={replaySentenceExample}><span aria-hidden="true">♪</span><b>重播本句</b><small>英文三遍 · 中文一遍</small></button><p lang="en" className="sentence-english">{currentSentence.text}</p><div className="sentence-translation" lang="zh-CN">{currentSentence.translation}</div></> : <><div className="speak-prompt"><span>先不要看答案</span><small>看中文，自己完整说出英文</small><p>{currentSentence.translation}</p></div>{sentenceTranslationOpen ? <div id={`sentence-answer-${currentSentence.id}`} ref={sentenceAnswerRef} className="speak-answer" tabIndex={-1} role="status" aria-live="polite" aria-atomic="true"><span>英文答案</span><p lang="en" className="sentence-english">{currentSentence.text}</p><button className="sentence-listen" onClick={() => playSpeech(currentSentence.text, .76)}><span aria-hidden="true">♪</span><b>播放英文</b><small>听一遍核对表达</small></button></div> : <button className="reveal-answer" aria-expanded="false" aria-controls={`sentence-answer-${currentSentence.id}`} onClick={() => setSentenceTranslationOpen(true)}>我说好了，查看英文答案</button>}</>}
         {(sentenceMode === "bilingual" || sentenceTranslationOpen) && <div className="sentence-source">{currentSentence.adapted ? "学习化整理自：" : "来源："}<a href={`https://tatoeba.org/en/sentences/show/${currentSentence.sourceId}`} target="_blank" rel="noreferrer">Tatoeba #{currentSentence.sourceId}</a>{currentSentence.adapted ? <> · 原始英/中贡献者：{currentSentence.author} / {currentSentence.translationAuthor}</> : <> · 英文 {currentSentence.author} · 中文 {currentSentence.translationAuthor}</>}</div>}
       </div>}
+      <div className="word-card-actions sentence-card-actions">
       {currentSentence && <div className="sentence-pager" role="group" aria-label="切换句子卡片"><button disabled={safeSentenceIndex === 0} onClick={() => moveSentence(-1)}>‹ 上一句</button><span>{safeSentenceIndex + 1} / {sentenceSessionItems.length}</span><button disabled={safeSentenceIndex === sentenceSessionItems.length - 1} onClick={() => moveSentence(1)}>下一句 ›</button></div>}
       {currentSentence && (sentenceMode === "bilingual" || sentenceTranslationOpen) && <div className="learn-actions"><button className={`secondary-action ${currentSentenceRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishSentenceCard(false)}>{currentSentenceRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentSentenceRating === "known" ? "is-mastered" : ""}`} onClick={() => finishSentenceCard(true)}>{currentSentenceRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>}
+      </div>
+      {currentSentence && sentenceMode === "bilingual" && <div className="sentence-auto-controls" role="group" aria-label="句库自动朗读设置">
+        <button type="button" aria-pressed={autoSentenceExamples} onClick={toggleSentenceExamples}>自动朗读：{autoSentenceExamples ? "开" : "关"}</button>
+        <button type="button" onClick={stopSpeech}>停止朗读</button>
+        <p>每次切换：英文三遍 → 中文一遍。切换卡片会停止上一句；刷新后无声时可点“重播本句”。</p>
+      </div>}
     </section>
   );
 
@@ -2498,7 +2554,7 @@ export default function Home() {
     {(speechNotice || offlineCacheWriteError || !networkOnline) && <div className="status-toast-stack" ref={statusToastRef}>{speechNotice && <div className="speech-warning" role="alert"><span>{speechNotice}</span><button aria-label="关闭语音提示" onClick={() => setSpeechNotice(null)}>×</button></div>}{offlineCacheWriteError && <div className="speech-warning offline-cache-warning" role="alert"><span>本次内容可以正常使用，但离线副本暂未确认保存。请检查 Safari 隐私模式和可用空间。</span><button aria-label="关闭离线保存提示" onClick={() => setOfflineCacheWriteError(false)}>×</button></div>}{!networkOnline && <div className="offline-status" role="status">离线模式 · 已加载内容和本机记录仍可使用</div>}</div>}
     <VersionNotice showDetails={tab === "progress"} beforeReload={canReloadForUpdate} />
     {tab === "home" ? renderHome() : tab === "learn" ? renderLearn() : tab === "sentences" ? renderSentences() : tab === "read" ? renderRead() : tab === "review" ? renderReview() : renderProgress()}
-    {!(tab === "learn" && (learnStage === "quiz" || learnStage === "result")) && <nav className="bottom-nav" aria-label="主导航">{tabItems.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => { if (item.id === "learn" && tab !== "learn" && learnStage === "cards") playAutomaticWordExample(current); setTab(item.id); }}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}</nav>}
+    {!(tab === "learn" && (learnStage === "quiz" || learnStage === "result")) && <nav className="bottom-nav" aria-label="主导航">{tabItems.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => { if (item.id === "learn" && tab !== "learn" && learnStage === "cards") playAutomaticWordExample(current); if (item.id === "sentences" && tab !== "sentences" && sentenceSection === "library" && sentenceStage === "cards") playAutomaticSentenceExample(currentSentence); setTab(item.id); }}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}</nav>}
     </div>
     {activeDialog === "install" && <div className="sheet-backdrop" onClick={() => setInstallOpen(false)}><div ref={installSheetRef} tabIndex={-1} className="install-sheet" role="dialog" aria-modal="true" aria-labelledby="install-title" onClick={(event) => event.stopPropagation()}><div className="sheet-handle" /><button ref={installCloseRef} className="sheet-close" aria-label="关闭安装说明" onClick={() => setInstallOpen(false)}>×</button><div className="app-preview"><span className="app-preview-icon" aria-hidden="true" /><div><b>词流英语</b><small>添加到主屏幕</small></div></div><h2 id="install-title">在 Safari 中安装</h2><ol><li><span>1</span><p>点击 Safari 底部的<strong>分享按钮</strong>。</p></li><li><span>2</span><p>向下找到并点击<strong>“添加到主屏幕”</strong>。</p></li><li><span>3</span><p>点击右上角<strong>“添加”</strong>即可。</p></li></ol><button className="primary-action full-button" onClick={() => setInstallOpen(false)}>我知道了</button></div></div>}
     {activeDialog === "discard" && discardRequest && <div className="sheet-backdrop discard-backdrop" onClick={() => setDiscardRequest(null)}><div ref={discardDialogRef} tabIndex={-1} className="discard-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description" onClick={(event) => event.stopPropagation()}><span className="discard-icon" aria-hidden="true">↻</span><h2 id="discard-title">结束当前学习？</h2><p id="discard-description">{discardRequest.pattern ? `本组已完成 ${ratedPatternCount} / ${patternSessionIds.length} 个句型。` : discardRequest.sentence ? `本组已标记 ${ratedSentenceCount} / ${sentenceSessionIds.length} 个句子。` : learnStage === "quiz" ? `考试已完成 ${quizResults.length} / ${sessionWords.length} 题。` : `本组已标记 ${ratedCardCount} / ${sessionWords.length} 个词。`}已有记录都会保留，但未完成位置将结束。{(discardRequest.sentenceStart || discardRequest.patternStart) && "确认后会直接开始你刚刚选择的练习。"}</p><div className="discard-actions"><button ref={discardCancelRef} className="secondary-action" onClick={() => setDiscardRequest(null)}>保留进度</button><button className="discard-confirm" onClick={confirmDiscardSession}>{discardRequest.sentenceStart || discardRequest.patternStart ? "结束并开始新练习" : "结束本组"}</button></div></div></div>}

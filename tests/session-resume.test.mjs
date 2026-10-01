@@ -18,7 +18,7 @@ function sourceBeforeMarker(region, marker, characters = 500) {
   return region.slice(Math.max(0, markerIndex - characters), markerIndex);
 }
 
-test("sentence sessions never reveal Chinese automatically", () => {
+test("speaking-first sessions keep answers hidden while bilingual cards show Chinese directly", () => {
   assert.match(page, /\[sentenceTranslationOpen, setSentenceTranslationOpen\] = useState\(false\)/);
 
   const transitions = [
@@ -30,7 +30,7 @@ test("sentence sessions never reveal Chinese automatically", () => {
 
   for (const [start, end] of transitions) {
     const transition = sourceBetween(start, end);
-    assert.match(transition, /setSentenceTranslationOpen\(false\)/, `${start} must hide Chinese before displaying a card`);
+    assert.match(transition, /setSentenceTranslationOpen\(false\)/, `${start} must reset the speaking-first answer before displaying a card`);
     assert.doesNotMatch(transition, /setSentenceTranslationOpen\([^\n;]*(?:sentenceMode|snapshot\.mode)[^\n;]*\)/);
   }
 });
@@ -45,7 +45,9 @@ test("resume affordances only show for unfinished work and handlers require a va
 
   const sentenceStarter = sourceBetween("const startSentenceSession", "const resumeSentenceSession");
   const patternStarter = sourceBetween("const startPatternSession", "const resumePatternSession");
-  assert.match(sentenceStarter, /if \([^)]*sentenceSessionIds\.length[^)]*sentenceResumeSnapshotRef\.current[^)]*\)/);
+  assert.match(sentenceStarter, /newestSnapshot\(cleanSentenceSession/);
+  assert.match(sentenceStarter, /sentenceSessionIds\.length && snapshot/);
+  assert.match(sentenceStarter, /sameChoices[\s\S]*resumeSentenceSession\(\)/);
   assert.match(patternStarter, /if \([^)]*patternSessionIds\.length[^)]*patternResumeSnapshotRef\.current[^)]*\)/);
 
   const sentenceResume = sourceBetween("const resumeSentenceSession", "const finishSentenceCard");

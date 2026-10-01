@@ -91,16 +91,17 @@ for(const engine of ['chromium','webkit']){
       release();await enabled(page);await tapStart(page);await page.locator('.sentence-study-card').waitFor();
     }finally{release();}
   });
-  await check('top-start-preserves-paused-sentence-confirmation-and-resume',async page=>{
+  await check('top-start-resumes-same-sentence-and-protects-explicit-replacement',async page=>{
     await nav(page,'句库');await enabled(page);await tapStart(page);await page.locator('.sentence-study-card').waitFor();
     await page.locator('.learn-actions .secondary-action').click();
     await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();await enabled(page);
     const before=await saved(page,sentenceKey);
-    await tapStart(page);await page.locator('[aria-modal="true"]').waitFor();
-    assert.deepEqual((await saved(page,sentenceKey)).ratings,before.ratings);
-    await page.keyboard.press('Escape');await page.locator('[aria-modal="true"]').waitFor({state:'hidden'});
-    await page.locator('.sentence-page .resume-session-card').click();await page.locator('.sentence-study-card').waitFor();
+    await tapStart(page);await page.locator('.sentence-study-card').waitFor();
+    assert.equal(await page.locator('[aria-modal="true"]').count(),0);
     const after=await saved(page,sentenceKey);assert.deepEqual(after.sentenceIds,before.sentenceIds);assert.deepEqual(after.ratings,before.ratings);assert.equal(after.index,before.index);
+    await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
+    await page.getByRole('button',{name:'另开新一组',exact:true}).click();await page.locator('[aria-modal="true"]').waitFor();
+    await page.keyboard.press('Escape');assert.deepEqual((await saved(page,sentenceKey)).ratings,before.ratings);
   });
   await browser.close();
 }

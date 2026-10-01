@@ -116,6 +116,8 @@ test("home speaking shortcut resumes the interrupted sentence and returning to s
     readJson: () => snapshot, cleanSentenceSession: (value) => value, newestSnapshot: (stored) => stored,
     sentenceSetupPreferencesRef: { current: saved }, sentenceResumeSnapshotRef: resume,
     sentenceSessionIds: snapshot.sentenceIds,
+    sentenceItemById: new Map([[2, { id: 2 }]]),
+    playAutomaticSentenceExample(item, mode) { assert.equal(item.id, snapshot.sentenceIds[snapshot.index]); assert.equal(mode, snapshot.mode); },
     setSentenceBand: (value) => { state.band = value; },
     setSentenceCategory: (value) => { state.category = value; },
     setSentenceCount: (value) => { state.count = value; },

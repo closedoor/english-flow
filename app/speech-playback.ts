@@ -7,6 +7,8 @@ let activeUtterance: SpeechSynthesisUtterance | null = null;
 let activeUtteranceStarted = false;
 let playbackRun = 0;
 let playbackSegments: string[] = [];
+let playbackLanguages: string[] = [];
+let playbackRates: number[] = [];
 let playbackIndex = 0;
 let playbackRate = 0.74;
 let playbackState: SpeechPlaybackState = "idle";
@@ -38,7 +40,7 @@ function watchSpeechStartup(run: number, utterance: SpeechSynthesisUtterance) {
   if (playbackState === "paused") return;
   startupTimer = setTimeout(() => {
     if (run !== playbackRun || activeUtterance !== utterance || activeUtteranceStarted) return;
-    emitSpeechError("start-timeout");
+    emitSpeechError(utterance.lang === "zh-CN" ? "chinese-start-timeout" : "start-timeout");
     stopSpeech();
   }, 8_000);
 }
@@ -53,11 +55,20 @@ function preferredEnglishVoice() {
   }
 }
 
-function createUtterance(text: string, rate: number) {
+function preferredChineseVoice() {
+  try {
+    const voices = window.speechSynthesis.getVoices();
+    const language = (voice: SpeechSynthesisVoice) => voice.lang.replace(/_/g, "-").toLowerCase();
+    return voices.find((voice) => language(voice) === "zh-cn")
+      ?? voices.find((voice) => /^(zh-hans|zh-sg|cmn)(-|$)/.test(language(voice)));
+  } catch { return undefined; }
+}
+
+function createUtterance(text: string, rate: number, language = "en-US") {
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "en-US";
+  utterance.lang = language;
   utterance.rate = rate;
-  const voice = preferredEnglishVoice();
+  const voice = language === "zh-CN" ? preferredChineseVoice() : preferredEnglishVoice();
   if (voice) utterance.voice = voice;
   return utterance;
 }
@@ -107,6 +118,8 @@ export function stopSpeech() {
   clearStartupTimer();
   pendingPlaybackStart = undefined;
   playbackSegments = [];
+  playbackLanguages = [];
+  playbackRates = [];
   playbackIndex = 0;
   activeUtterance = null;
   activeUtteranceStarted = false;
@@ -180,7 +193,7 @@ function playCurrentSegment(run: number) {
   }
   let utterance: SpeechSynthesisUtterance;
   try {
-    utterance = createUtterance(text, playbackRate);
+    utterance = createUtterance(text, playbackRates[playbackIndex] ?? playbackRate, playbackLanguages[playbackIndex] ?? "en-US");
   } catch {
     emitSpeechError("unavailable");
     stopSpeech();
@@ -207,7 +220,7 @@ function playCurrentSegment(run: number) {
   };
   utterance.onerror = (event) => {
     if (run === playbackRun && activeUtterance === utterance) {
-      emitSpeechError(event.error || "unavailable");
+      emitSpeechError(utterance.lang === "zh-CN" ? "chinese-unavailable" : event.error || "unavailable");
       stopSpeech();
     }
   };
@@ -246,6 +259,19 @@ export function startRepeatedSpeech(text: string, repetitions = 3, rate = 0.82) 
   playbackSegments = Array.from({ length: repetitions }, () => text.trim());
   playbackIndex = 0;
   playbackRate = rate;
+  emitPlaybackState("loading");
+  return playCurrentSegment(playbackRun);
+}
+
+// One shared cancellation token owns all four utterances. Never estimate
+// duration or route Chinese through the selected English voice.
+export function startBilingualSentenceSpeech(english: string, chinese: string) {
+  if (!isSpeechSupported() || !english.trim() || !chinese.trim()) return false;
+  if (!stopSpeech()) return false;
+  playbackSegments = [english.trim(), english.trim(), english.trim(), chinese.trim()];
+  playbackLanguages = ["en-US", "en-US", "en-US", "zh-CN"];
+  playbackRates = [0.76, 0.76, 0.76, 0.88];
+  playbackIndex = 0;
   emitPlaybackState("loading");
   return playCurrentSegment(playbackRun);
 }
