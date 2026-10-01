@@ -29,8 +29,8 @@ async function saved(page) {
   return page.evaluate((key) => JSON.parse(localStorage.getItem(key) || 'null'), wordKey);
 }
 
-async function geometry(page) {
-  return page.evaluate(() => {
+async function geometry(page, stableFeedback = false) {
+  return page.evaluate(async (stableFeedback) => {
     const rectangle = (selector) => {
       const element = document.querySelector(selector);
       if (!element) return null;
@@ -38,12 +38,31 @@ async function geometry(page) {
       const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
       return { x: box.x, y: box.y, width: box.width, height: box.height, bottom: box.bottom, hit: hit === element || element.contains(hit) };
     };
-    return {
+    const measure = () => ({
       scrollY, viewport: innerHeight, overflow: document.documentElement.scrollWidth > innerWidth + 1,
       primary: rectangle('.quiz-page .sticky-start'), skip: rectangle('.quiz-skip'), feedback: rectangle('.feedback-box'), answer: rectangle('.feedback-box p'),
-      field: rectangle('.answer-field'), active: document.activeElement?.tagName,
-    };
-  });
+      notices: rectangle('.status-toast-stack'), field: rectangle('.answer-field'), active: document.activeElement?.tagName,
+    });
+    if (!stableFeedback) return measure();
+    const started = performance.now();
+    let previous = null;
+    let stableSince = 0;
+    let latest;
+    while (performance.now() - started < 12_000) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      latest = measure();
+      const { feedback, answer, primary, viewport } = latest;
+      const visible = !latest.overflow && feedback && primary
+        && feedback.y >= 0 && feedback.bottom <= viewport && feedback.bottom <= primary.y - 3 && feedback.hit
+        && (!answer || (answer.y >= 0 && answer.bottom <= primary.y - 3 && answer.hit))
+        && primary.y >= 0 && primary.bottom <= viewport && primary.width >= 44 && primary.height >= 44 && primary.hit;
+      const signature = visible ? JSON.stringify(latest) : null;
+      if (!signature || signature !== previous) stableSince = performance.now();
+      if (signature && signature === previous && performance.now() - stableSince >= 100) return latest;
+      previous = signature;
+    }
+    throw new Error(`Quiz feedback and hit targets did not stabilize: ${JSON.stringify(latest)}`);
+  }, stableFeedback);
 }
 
 async function assertPrimary(page) {
@@ -56,20 +75,10 @@ async function assertPrimary(page) {
 }
 
 async function assertFeedback(page) {
-  await page.waitForFunction(() => {
-    const feedback = document.querySelector('.feedback-box');
-    const button = document.querySelector('.quiz-page .sticky-start');
-    if (!feedback || !button) return false;
-    const bounds = feedback.getBoundingClientRect();
-    const action = button.getBoundingClientRect();
-    const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
-    const answer = feedback.querySelector('p');
-    const answerBounds = answer?.getBoundingClientRect();
-    const answerHit = answerBounds ? document.elementFromPoint(answerBounds.left + answerBounds.width / 2, answerBounds.top + answerBounds.height / 2) : null;
-    return bounds.top >= -1 && bounds.bottom <= innerHeight + 1 && bounds.bottom <= action.top - 3
-      && feedback.contains(hit) && (!answer || answer.contains(answerHit));
-  });
-  const measured = await geometry(page);
+  // Notice measurements and WebKit hit testing can settle in different frames.
+  // Keep the full geometry and hit checks true across paints, then assert that
+  // same atomic sample rather than racing a second measurement after waiting.
+  const measured = await geometry(page, true);
   assert.ok(measured.feedback.y >= -1 && measured.feedback.bottom <= measured.primary.y - 3, `Feedback must remain above the action: ${JSON.stringify(measured)}`);
   assert.equal(measured.feedback.hit, true, `Feedback must not be hidden by notices: ${JSON.stringify(measured)}`);
   if (measured.answer) {
