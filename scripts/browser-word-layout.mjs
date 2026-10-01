@@ -16,19 +16,38 @@ async function assertActions(page){const m=await geometry(page);assert.equal(m.o
  for(const b of m.buttons){assert.ok(b.y>=0&&b.y+b.height<=m.navTop+1,JSON.stringify(m));assert.ok(b.width>=44&&b.height>=44,JSON.stringify(b));assert.equal(b.hit,true,JSON.stringify(m));}return m;}
 async function tap(page,selector){const r=await page.locator('.learn-page '+selector).boundingBox();await page.touchscreen.tap(r.x+r.width/2,r.y+r.height/2);}
 async function finishThree(page,from){for(let i=0;i<3;i++)await page.evaluate(()=>window.__layoutSpeech.end());const text=await page.locator('.example-box p').innerText();assert.deepEqual(await page.evaluate(from=>window.__layoutSpeech.log.slice(from),from),[text,text,text]);}
+async function assertToastActions(page){
+ await page.waitForFunction(selectors=>selectors.every(selector=>{const button=document.querySelector('.learn-page '+selector),r=button.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===button||button.contains(hit);}),selectors);
+ await assertActions(page);
+ const placement=await page.evaluate(()=>{const toast=document.querySelector('.status-toast-stack').getBoundingClientRect(),actions=document.querySelector('.word-card-actions').getBoundingClientRect();return {toastBottom:toast.bottom,actionsTop:actions.top};});
+ assert.ok(placement.toastBottom<=placement.actionsTop-4,JSON.stringify(placement));
+}
+async function tapVisibleButton(page,name){const button=page.getByRole('button',{name,exact:true}),r=await button.boundingBox();assert.ok(r&&r.y>=0&&r.y+r.height<=page.viewportSize().height);assert.equal(await button.evaluate(el=>{const r=el.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===el||el.contains(hit);}),true,`${name} must receive a direct tap`);await page.touchscreen.tap(r.x+r.width/2,r.y+r.height/2);}
+async function checkStackedWarnings(page){
+ await page.evaluate(()=>{window.__layoutSpeech.fail=true;window.dispatchEvent(new CustomEvent('english-flow-speech-error',{detail:'not-allowed'}));window.dispatchEvent(new Event('english-flow-offline-cache-error'));window.dispatchEvent(new Event('offline'));});
+ await page.getByRole('button',{name:'关闭语音提示',exact:true}).waitFor();await page.getByRole('button',{name:'关闭离线保存提示',exact:true}).waitFor();await page.locator('.offline-status').waitFor();
+ await assertToastActions(page);
+ const index=await page.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-active-session-v1')).index);
+ await tap(page,selectors[1]);await page.waitForFunction(index=>JSON.parse(localStorage.getItem('wordflow-active-session-v1')).index===index+1,index);await assertToastActions(page);
+ await tap(page,selectors[0]);await page.waitForFunction(index=>JSON.parse(localStorage.getItem('wordflow-active-session-v1')).index===index,index);await assertToastActions(page);
+ await tapVisibleButton(page,'关闭语音提示');await page.getByRole('button',{name:'关闭语音提示',exact:true}).waitFor({state:'hidden'});await assertToastActions(page);
+ await tapVisibleButton(page,'关闭离线保存提示');await page.getByRole('button',{name:'关闭离线保存提示',exact:true}).waitFor({state:'hidden'});await assertToastActions(page);
+ await page.evaluate(()=>{window.__layoutSpeech.fail=false;window.dispatchEvent(new Event('online'));});await page.locator('.status-toast-stack').waitFor({state:'hidden'});await assertActions(page);
+}
 for(const engine of baseline?['chromium']:['chromium','webkit']){
  const browser=await pw[engine].launch({headless:true});
  const cases=baseline?[{name:'reported-phone-before-fix',width:390,height:844}]:[
-  {name:'small-phone',width:320,height:568},{name:'compact-phone',width:375,height:667},
+  {name:'small-phone',width:320,height:568,warnings:true},{name:'compact-phone',width:375,height:667},
   {name:'browser-bars',width:390,height:650},{name:'reported-phone-ten-cards',width:390,height:844,ten:true},
-  {name:'large-phone',width:430,height:932},{name:'large-text-and-safe-area',width:390,height:844,stress:true},
+  {name:'large-phone',width:430,height:932},{name:'large-text-and-safe-area',width:390,height:844,stress:true,warnings:true},
+  {name:'small-phone-large-text-and-safe-area',width:320,height:568,stress:true,warnings:true},
   {name:'landscape-normal-flow',width:844,height:390,flow:true},{name:'desktop-normal-flow',width:1280,height:900,flow:true}];
  for(const item of cases){
   const context=await browser.newContext({viewport:{width:item.width,height:item.height},hasTouch:true,serviceWorkers:'block'});
   await context.addInitScript(()=>{
    const s={log:[],active:null,end(){const u=this.active;this.active=null;u?.onend?.();}};window.__layoutSpeech=s;
    Object.defineProperty(window,'SpeechSynthesisUtterance',{configurable:true,value:class{constructor(text){this.text=text;}}});
-   Object.defineProperty(window,'speechSynthesis',{configurable:true,value:{paused:false,getVoices(){return[];},cancel(){s.active=null;},resume(){this.paused=false;},speak(u){s.log.push(u.text);s.active=u;u.onstart?.();}}});
+   Object.defineProperty(window,'speechSynthesis',{configurable:true,value:{paused:false,getVoices(){return[];},cancel(){s.active=null;},resume(){this.paused=false;},speak(u){s.log.push(u.text);s.active=u;if(s.fail)u.onerror?.({error:'not-allowed'});else u.onstart?.();}}});
   });
   const page=await context.newPage();page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
   try{
@@ -39,7 +58,7 @@ for(const engine of baseline?['chromium']:['chromium','webkit']){
    await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();
    if(baseline){console.log('LAYOUT_BASELINE',JSON.stringify(await geometry(page)));continue;}
    await page.waitForTimeout(200);
-   if(item.stress)await page.addStyleTag({content:'html{font-size:24px}.learn-page{padding-top:83px}.bottom-nav{height:108px;padding-bottom:34px}.learn-page>.word-card-actions{bottom:108px}'});
+   if(item.stress)await page.addStyleTag({content:'html{font-size:24px}.learn-page{padding-top:83px}.bottom-nav{height:108px;padding-bottom:34px}.learn-page>.word-card-actions{bottom:108px}.speech-warning{font-size:18px}'});
    if(item.flow){assert.notEqual(await page.locator('.word-card-actions').evaluate(el=>getComputedStyle(el).position),'sticky');assert.equal((await geometry(page)).settingsAfterActions,true);}
    else{
     for(let i=0;i<(item.ten?10:3);i++){
@@ -48,6 +67,7 @@ for(const engine of baseline?['chromium']:['chromium','webkit']){
      const from=await page.evaluate(()=>window.__layoutSpeech.log.length-1);await finishThree(page,from);
      if(i<(item.ten?10:3)-1){const before=await page.locator('.word-heading h2').innerText();await tap(page,selectors[i%3===0?1:i%3===1?3:2]);await page.waitForFunction(before=>document.querySelector('.word-heading h2')?.textContent!==before,before);}
     }
+    if(item.warnings)await checkStackedWarnings(page);
     // Long content must remain readable, while the actions still work at the top.
     await page.locator('.example-box p').evaluate(el=>{el.textContent=('A deliberately long example remains readable without truncation. ').repeat(12);});
     await page.evaluate(()=>scrollTo(0,0));await assertActions(page);

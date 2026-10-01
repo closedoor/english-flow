@@ -397,7 +397,7 @@ test("a hung uncached script times out and a later request can recover", async (
   });
   const request = new Request(`${ORIGIN}/assets/slow.js`);
   assert.equal((await dispatchFetch(listeners.get("fetch"), request)).type, "error");
-  assert.deepEqual(deadlines, [8000]);
+  assert.deepEqual(deadlines, [2000, 8000]);
   online = true;
   assert.equal(await (await dispatchFetch(listeners.get("fetch"), request)).text(), "recovered");
   assert.equal(await (await (await caches.open(ACTIVE_CACHE)).match(request)).text(), "recovered");

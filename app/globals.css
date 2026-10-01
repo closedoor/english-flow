@@ -318,6 +318,28 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .percent{color:var(--green-dark)}
 @media(max-width:340px){.app-loading-actions{width:100%;flex-direction:column}.app-loading-actions button{width:100%}}
 
+/* Learning screens need the same AA text contrast as their setup screens. */
+.word-heading>p,
+.section-label,
+.example-box small,
+.sentence-pager span,
+.speak-prompt span,
+.speak-prompt small,
+.pattern-prompt span,
+.pattern-answer small,
+.reading-speed-control button:not(.selected),
+.reading-translation p,
+.text-button,
+.quiz-type,
+.quiz-translation,
+.answer-field span,
+.big-listen small,
+.result-page>p:not(.eyebrow),
+.result-stats small,
+.result-mistakes>p,
+.discard-dialog p,
+.app-preview small{color:#526071}
+
 
 /* NGSL playback controls retain readable labels and touch targets at 320px. */
 .word-auto-controls { margin: 12px 0; }

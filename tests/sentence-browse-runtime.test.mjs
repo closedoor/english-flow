@@ -49,7 +49,7 @@ function harness(patch = {}) {
     sentenceMastered: [], sentenceDifficult: [], sentenceSaved: items.map((item) => item.id),
     sentenceIndex: 0, sentenceSessionIds: [], sentenceRatings: {}, sentenceTranslationOpen: false,
     index: 0, learnStage: "setup", patternDrillIndex: 0, patternIndex: 0, patternStage: "setup",
-    quizIndex: 0, readingId: null, readingLevel: "A1", reviewIndex: 0, reviewView: "due",
+    quizIndex: 0, readingId: null, readingLevel: "A1", readingNavigation: 0, reviewIndex: 0, reviewView: "due",
     librarySearch: "word", libraryBand: 1, libraryLimit: 72, sessionWords: [], sessionMode: "test", sessionPath: "frequency",
     cardRatings: {}, quizAnswer: "", quizFeedback: null, quizResults: [], path: "frequency", mode: "test", count: 10, wordSessionKind: "group",
     mastered: [], difficult: [],
@@ -100,7 +100,7 @@ function harness(patch = {}) {
     band: state.sentenceBand, category: state.sentenceCategory, count: state.sentenceCount, mode: state.sentenceMode,
   } };
   const context = vm.createContext({
-    window, sentenceBrowserRef, sentenceBrowserOriginRef, sentenceSetupPreferencesRef,
+    window, sentenceBrowserRef, sentenceBrowserOriginRef, sentenceSetupPreferencesRef, readingPositionRef: { current: new Map() }, readingPositionReadyRef: { current: false },
     words, wordBrowserRef, wordBrowserOriginRef, wordBrowserReturnRef,
     playAutomaticWordExample() {},
     playAutomaticSentenceExample() {},
@@ -294,7 +294,7 @@ test("favorites and the return-to-search action focus their content and reset ob
 test("the difficult-sentence browser includes other bands and returns correctly after mastering an item", () => {
   const app = harness({ sentenceBand: "short", sentenceCategory: "daily", sentenceDifficult: [5, 75] });
   app.invoke("openSentenceBrowser", false, true);
-  assert.equal(app.state.sentenceCategory, "all");
+  assert.equal(app.state.sentenceCategory, "daily", "browsing reinforcement must preserve the selected practice scene");
   assert.equal(app.state.sentenceReviewOnly, true);
   assert.deepEqual(app.visibleSentenceIds, [5, 75], "the long sentence cannot be hidden by the setup's short band");
   assert.deepEqual(app.requiredPacks, [1, 2, 3]);
@@ -308,6 +308,55 @@ test("the difficult-sentence browser includes other bands and returns correctly 
   assert.deepEqual(app.visibleSentenceIds, [5]);
   assert.equal(app.window.scrollY, 1800);
   assert.deepEqual(app.focusCalls.at(-1), { target: "browser", preventScroll: true });
+});
+
+test("favorites and reinforcement browse the full library without changing practice choices", () => {
+  for (const [savedOnly, reviewOnly] of [[true, false], [false, true]]) {
+    const app = harness({
+      sentenceBand: "short", sentenceCategory: "food", sentenceCount: 20, sentenceMode: "speak",
+      sentenceSearch: "coffee", sentenceSaved: [5, 75], sentenceDifficult: [5, 75],
+    });
+    const choices = () => ({
+      band: app.state.sentenceBand, category: app.state.sentenceCategory,
+      count: app.state.sentenceCount, mode: app.state.sentenceMode,
+    });
+    const before = choices();
+    app.invoke("openSentenceBrowser", savedOnly, reviewOnly);
+    assert.deepEqual(choices(), before, "opening a list cannot change the next practice group");
+    assert.deepEqual(app.visibleSentenceIds, [5, 75], "saved/difficult sentences from other scenes and bands remain visible");
+    assert.deepEqual(app.requiredPacks, [1, 2, 3]);
+    assert.deepEqual(app.requestedPacks, [1, 2, 3]);
+    app.invoke("beginSentenceSession", false, app.items[74]);
+    app.invoke("restoreSentenceSetupPreferences");
+    assert.deepEqual(choices(), before, "returning from an individual result retains the chosen practice settings");
+    assert.deepEqual(app.visibleSentenceIds, [5, 75]);
+    app.invoke("openSentenceBrowser", false);
+    assert.deepEqual(choices(), before, "returning to search cannot reset the selected scene");
+    assert.equal(app.state.sentenceSavedOnly, false);
+    assert.equal(app.state.sentenceReviewOnly, false);
+    assert.deepEqual(app.writes, [], "browsing does not explicitly overwrite saved practice preferences");
+  }
+});
+
+test("full-library English and Chinese searches do not inherit or overwrite the practice scene", () => {
+  const app = harness({ sentenceCategory: "food", sentenceSearch: "", sentenceCount: 20, sentenceMode: "speak" });
+  assert.deepEqual(app.visibleSentenceIds, [], "an empty search retains the selected practice scene");
+  app.render({ sentenceSearch: "   " });
+  assert.deepEqual(app.visibleSentenceIds, [], "whitespace cannot turn the practice selection into a global search");
+  for (const query of [" TRAIN ", "火车"]) {
+    app.render({ sentenceSearch: query });
+    assert.equal(app.visibleSentenceIds.length, 90, "search includes results from other scenes");
+    assert.ok(app.visibleSentenceIds.includes(75), "search also includes another sentence length");
+    assert.equal(app.state.sentenceCategory, "food");
+    assert.equal(app.state.sentenceBand, "short");
+    assert.equal(app.state.sentenceCount, 20);
+    assert.equal(app.state.sentenceMode, "speak");
+    assert.deepEqual(app.requiredPacks, [1, 2, 3]);
+  }
+  app.render({ sentenceSearch: "" });
+  assert.deepEqual(app.visibleSentenceIds, [], "clearing search restores the practice scene's own selection");
+  app.render({ sentenceCategory: "travel" });
+  assert.equal(app.visibleSentenceIds.length, 50, "without a query the selected length still applies");
 });
 
 test("switching between difficult, saved and search views cannot leave intersecting filters", () => {

@@ -1,10 +1,128 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
+import ts from "typescript";
 
 const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const speechPlayback = await readFile(new URL("../app/speech-playback.ts", import.meta.url), "utf8");
+
+const compile = (source) => ts.transpileModule(source, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+}).outputText;
+const region = (start, end) => page.slice(page.indexOf(start), page.indexOf(end, page.indexOf(start)));
+const setupHandlers = compile([
+  region("  const finishOpeningLearningSetup =", "  const returnToWordLibrary ="),
+  region("  const confirmDiscardSession =", "  const noteStudyDay ="),
+  "({ openLearningSetup, confirmDiscardSession });",
+].join("\n"));
+const tree = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+let wordSessionEffect, cancelDiscardAction;
+function findSessionActions(node) {
+  if (ts.isCallExpression(node) && node.expression.getText(tree) === "useEffect"
+    && node.arguments[0]?.getText(tree).includes("kind: wordSessionKind")) {
+    wordSessionEffect = node.arguments[0].getText(tree);
+  }
+  if (ts.isJsxOpeningElement(node)) {
+    const attributes = node.attributes.properties.filter(ts.isJsxAttribute);
+    const ref = attributes.find((attribute) => attribute.name.getText(tree) === "ref");
+    if (ref?.initializer && ts.isJsxExpression(ref.initializer)
+      && ref.initializer.expression?.getText(tree) === "discardCancelRef") {
+      const click = attributes.find((attribute) => attribute.name.getText(tree) === "onClick");
+      cancelDiscardAction = click.initializer.expression.getText(tree);
+    }
+  }
+  ts.forEachChild(node, findSessionActions);
+}
+findSessionActions(tree);
+assert.ok(wordSessionEffect, "the actual word-session persistence effect must be available");
+assert.ok(cancelDiscardAction, "the actual keep-progress button action must be available");
+
+function learningSetup(patch = {}) {
+  const state = {
+    tab: "learn", learnStage: "cards", index: 0, cardRatings: {},
+    sessionWords: [{ id: 1 }, { id: 2 }, { id: 3 }], sessionPath: "frequency",
+    sessionMode: "free", wordSessionKind: "group", quizIndex: 0, quizAnswer: "",
+    quizFeedback: null, quizResults: [], discardRequest: null,
+    mastered: [500], difficult: [501], schedule: { 500: { due: 123456, stage: 1 } },
+    studyDays: ["2026-09-30"], preferences: { path: "frequency", mode: "free", count: 10 },
+    ...patch,
+  };
+  const saved = new Map();
+  const resume = { current: null };
+  const context = () => vm.createContext({
+    ...state, hydrated: true, externalUpdateDetected: false,
+    hasOngoingSession: state.learnStage === "cards" || state.learnStage === "quiz",
+    ratedCardCount: Object.keys(state.cardRatings).length,
+    wordBrowserOriginRef: { current: null }, wordBrowserReturnRef: { current: false },
+    activeSessionResumeSnapshotRef: resume, STORAGE: { activeSession: "active" },
+    selectPath: (path) => { state.preferences = { ...state.preferences, path }; },
+    writeJson: (key, value) => saved.set(key, JSON.stringify(value)),
+    removeStoredValue: (key) => saved.delete(key),
+    sessionPayloadMatches: (previous, payload) => {
+      if (!previous) return false;
+      const previousPayload = { ...previous };
+      delete previousPayload.updatedAt;
+      return JSON.stringify(previousPayload) === JSON.stringify(payload);
+    },
+    ...Object.fromEntries(Object.keys(state).map((key) => [`set${key[0].toUpperCase()}${key.slice(1)}`, (value) => { state[key] = value; }])),
+  });
+  const persist = () => vm.runInContext(compile(`(${wordSessionEffect})();`), context());
+  persist();
+  return {
+    state, saved,
+    open: (path) => { vm.runInContext(setupHandlers, context()).openLearningSetup(path); persist(); },
+    cancel: () => { vm.runInContext(compile(`(${cancelDiscardAction})();`), context()); persist(); },
+    confirm: () => { vm.runInContext(setupHandlers, context()).confirmDiscardSession(); persist(); },
+  };
+}
+
+test("browsing later unrated word cards requires confirmation before discarding the position", () => {
+  const app = learningSetup({ index: 2 });
+  const before = app.saved.get("active");
+  app.open();
+  assert.deepEqual(JSON.parse(JSON.stringify(app.state.discardRequest)), {});
+  assert.equal(app.state.learnStage, "cards");
+  assert.equal(app.state.index, 2);
+  assert.equal(app.saved.get("active"), before);
+});
+
+test("an untouched first word card can return to setup without a discard dialog", () => {
+  const app = learningSetup();
+  app.open();
+  assert.equal(app.state.discardRequest, null);
+  assert.equal(app.state.learnStage, "setup");
+  assert.equal(app.saved.has("active"), false);
+  assert.deepEqual(app.state.mastered, [500]);
+  assert.deepEqual(app.state.difficult, [501]);
+});
+
+test("keeping a browsed word group preserves the saved position and all existing progress", () => {
+  const app = learningSetup({ index: 2 });
+  const before = app.saved.get("active");
+  app.open("airport");
+  app.cancel();
+  assert.equal(app.state.discardRequest, null);
+  assert.equal(app.state.learnStage, "cards");
+  assert.equal(app.state.index, 2);
+  assert.equal(app.saved.get("active"), before);
+  assert.equal(app.state.preferences.path, "frequency");
+  assert.deepEqual(app.state.mastered, [500]);
+  assert.deepEqual(app.state.difficult, [501]);
+  assert.deepEqual(app.state.studyDays, ["2026-09-30"]);
+});
+
+test("confirming the end of a word group removes only its unfinished-session snapshot", () => {
+  const app = learningSetup({ index: 1, cardRatings: { 1: "known" }, mastered: [1, 500] });
+  const progress = JSON.stringify({ mastered: app.state.mastered, difficult: app.state.difficult, schedule: app.state.schedule, days: app.state.studyDays });
+  app.open();
+  app.confirm();
+  assert.equal(app.state.discardRequest, null);
+  assert.equal(app.state.learnStage, "setup");
+  assert.equal(app.saved.has("active"), false);
+  assert.equal(JSON.stringify({ mastered: app.state.mastered, difficult: app.state.difficult, schedule: app.state.schedule, days: app.state.studyDays }), progress);
+});
 
 test("home session uses the learner's current choices", () => {
   assert.doesNotMatch(page, /startSession\("frequency",\s*"test",\s*10\)/);
@@ -72,7 +190,7 @@ test("fast repeated taps cannot rate multiple cards or quiz answers", () => {
 test("major screen transitions return to the top", () => {
   // The browsing-return branch restores its previous position; ordinary views still start at the top.
   assert.match(page, /else \{\s+window\.scrollTo\(\{ top: 0, left: 0, behavior: "auto" \}\)/);
-  assert.match(page, /\[hydrated, index, learnStage, patternDrillIndex, patternIndex, patternStage, quizIndex, readingId, readingLevel, reviewIndex, reviewView, sentenceIndex, sentenceSection, sentenceStage, tab\]/);
+  assert.match(page, /\[hydrated, index, learnStage, patternDrillIndex, patternIndex, patternStage, quizIndex, readingId, readingLevel, readingNavigation, reviewIndex, reviewView, sentenceIndex, sentenceSection, sentenceStage, tab\]/);
 });
 
 test("iPhone repaints changing home summary text without overlapping glyphs", () => {
@@ -313,7 +431,8 @@ test("learning progress can be reset without deleting sentence bookmarks or pref
   }
   assert.match(reset, /STORAGE\.practiceRotation/);
   assert.match(reset, /setReadingAnswers\(\{\}\)/);
-  assert.match(reset, /practiceRotationRef\.current = \{ word: 0, sentence: 0, pattern: 0 \}/);
+  assert.match(reset, /const resetRotation: PracticeRotation = \{ word: 0, sentence: 0, pattern: 0 \}/);
+  assert.match(reset, /practiceRotationRef\.current = resetRotation/);
   assert.doesNotMatch(reset, /STORAGE\.sentenceSaved/);
   assert.doesNotMatch(reset, /STORAGE\.session/);
   assert.doesNotMatch(reset, /STORAGE\.sentencePreferences/);

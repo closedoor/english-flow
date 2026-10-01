@@ -62,6 +62,8 @@ The browser command injects a transient failure into one NGSL data pack in Chrom
 
 The cache-stall runtime tests bound current-cache lookup, legacy lookup, offline write and old-copy cleanup separately. Successful ordinary writes remain awaited; a stalled write allows validated content for the current visit with an unconfirmed-offline-save warning. A housekeeping timeout never reports a saved pack as lost. Cache deadlines touch only public learning content, not localStorage records, backup formats or learning IDs. An older copy remains fallback-only.
 
+`tests/sw-cache-stall-runtime.test.mjs` separately exercises the actual Service Worker fetch handler with stalled cache open, match, enumeration and write callbacks. Runtime reads and writes have independent two-second limits; a healthy network response remains usable, late completions do not repeat downloads, and late rejections remain handled. Once the network response is obtained, its network timer no longer aborts the stream while an optional cache write waits. Complete staged-shell installation and activation requirements remain unchanged. These VM callback scenarios simulate disk stalls; they do not claim that a real Safari disk fault or installed iPhone was reproduced.
+
 IME and held-key cases inject browser keyboard events; they do not claim that a physical iPhone or OS input method was exercised. The new request/storage tests block Service Workers for isolation; the separate existing real-worker offline checks still run. Production dependency versions and Render configuration remain unchanged.
 
 
@@ -107,3 +109,15 @@ The word setup and daily-sentence setup each render exactly one start button imm
 Returning from sentence cards to unchanged setup and pressing Start resumes the saved IDs, ratings and position without a discard dialog or new practice rotation. Deliberate replacement of a progressed session still requires confirmation; an untouched first card does not. A separate new-group action remains explicit. Storage keys, snapshot formats, English word playback and the currency-converter files are unchanged.
 
 Bilingual sentence cards show their Chinese translation directly. Every actual card transition starts three full English utterances and one Mandarin utterance, in order, using the shared cancellation token and end callbacks. Chinese gets zh-CN and a matching voice or the platform language default, never the English voice. Speaking-first mode still hides the English answer and never auto-reads it. Settings are visit-local and below navigation/rating controls. Native speech is instrumented in tests, not a claim of physical iPhone/headset listening.
+
+## Daily-use maintenance across modules
+
+`browser-maintenance.mjs` checks reading position when leaving and returning to the same article during a visit, intentional top-of-page navigation for a new or reopened article, and reading-list focus. This position is visit-local; reload still restores the existing article record without adding a storage key or changing backups.
+
+Sentence favorites, reinforcement lists and nonempty full-library searches span all loaded bands and scenes without changing the next practice group's choices. Empty searches return to the selected practice range. Runtime and isolated Chromium/WebKit checks cover preference persistence, single-card return, search and starting the original group.
+
+Word groups with a visited later card retain their position when exit confirmation is canceled; an untouched first card can still exit directly. `browser-word-layout.mjs` and `browser-sentence-daily.mjs` check direct coordinate taps with speech, cache and offline notices, including large text and safe-area layouts. Notice positioning follows the actual sticky toolbar bounds during scrolling for both word and sentence cards. Accessibility checks now include active cards, recalled answers, quiz feedback/results, reading details and confirmation dialogs in addition to the six primary screens.
+
+Reset stores zero practice rotation in the same rollback-protected transaction as clearing progress. The version regression checks that a completed reset passes the saved-record guard while still rejecting stale update HTML. Its new-version response is simulated; it is not a claim that the test deployed a release.
+
+The live PWA verifier also calls `verify-live-maintenance.mjs` against the official Render site. Fresh disposable profiles verify full HTML/client commit identity and the repaired sentence, word-exit, reading, notice and reset interactions. The future-version/stale-HTML safety check and speech error are explicitly simulated; the current site identity and UI actions are real. Physical audio and real-worker installation retain their separate acceptance boundaries.

@@ -539,10 +539,14 @@ export default function Home() {
   const readingHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const readingListRef = useRef<HTMLDivElement | null>(null);
   const readingReturnIdRef = useRef<string | null>(null);
+  const readingPositionRef = useRef(new Map<string, number>());
+  const readingPositionReadyRef = useRef(false);
+  const [readingNavigation, setReadingNavigation] = useState(0);
   const readingFeedbackStateRef = useRef<{ id: string | null; answer: number | undefined }>({ id: null, answer: undefined });
   const reviewAnswerRef = useRef<HTMLDivElement | null>(null);
   const reviewHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const wordHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const wordActionsRef = useRef<HTMLDivElement | null>(null);
   const wordBrowserRef = useRef<HTMLDivElement | null>(null);
   const wordBrowserOriginRef = useRef<BrowserOrigin | null>(null);
   const wordBrowserReturnRef = useRef(false);
@@ -586,6 +590,36 @@ export default function Home() {
   }, [hydrated, networkOnline, offlineCacheWriteError, speechNotice]);
 
   useEffect(() => {
+    const stack = statusToastRef.current;
+    const actions = wordActionsRef.current;
+    const visibleCards = (tab === "learn" && learnStage === "cards")
+      || (tab === "sentences" && sentenceSection === "library" && sentenceStage === "cards");
+    if (!stack || !actions || !visibleCards) return;
+    const alignNotice = () => {
+      const style = window.getComputedStyle(actions);
+      if (style.position === "sticky") {
+        const bottom = Number.parseFloat(style.bottom) || 0;
+        const bounds = actions.getBoundingClientRect();
+        const toolbarVisible = bounds.bottom > 0 && bounds.top < window.innerHeight;
+        stack.style.bottom = `${toolbarVisible ? Math.max(bottom + bounds.height + 8, window.innerHeight - bounds.top + 8) : bottom + 8}px`;
+      } else {
+        stack.style.removeProperty("bottom");
+      }
+    };
+    alignNotice();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(alignNotice) : null;
+    observer?.observe(actions);
+    window.addEventListener("resize", alignNotice);
+    window.addEventListener("scroll", alignNotice, { passive: true });
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", alignNotice);
+      window.removeEventListener("scroll", alignNotice);
+      stack.style.removeProperty("bottom");
+    };
+  }, [hydrated, index, learnStage, networkOnline, offlineCacheWriteError, sentenceIndex, sentenceSection, sentenceStage, speechNotice, statusToastHeight, tab]);
+
+  useEffect(() => {
     const handleSpeechPlayback = (event: Event) => {
       setReadingSpeechState((event as CustomEvent<SpeechPlaybackState>).detail ?? "idle");
     };
@@ -602,6 +636,21 @@ export default function Home() {
       window.removeEventListener(SPEECH_ERROR_EVENT, handleSpeechError);
     };
   }, []);
+
+  useEffect(() => {
+    readingPositionRef.current.clear();
+    readingPositionReadyRef.current = false;
+  }, [readingNavigation]);
+
+  useEffect(() => {
+    if (tab !== "read" || !readingId) return;
+    const rememberPosition = () => {
+      if (!readingPositionReadyRef.current) return;
+      readingPositionRef.current.set(readingId, window.scrollY);
+    };
+    window.addEventListener("scroll", rememberPosition, { passive: true });
+    return () => window.removeEventListener("scroll", rememberPosition);
+  }, [readingId, tab]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1070,6 +1119,9 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
+    // A shorter new article can clamp scroll before this frame. Do not save
+    // that layout movement as the learner's position in the new article.
+    readingPositionReadyRef.current = false;
     const frame = window.requestAnimationFrame(() => {
       const origin = sentenceBrowserOriginRef.current;
       if (tab === "learn" && learnStage === "setup" && wordBrowserReturnRef.current) {
@@ -1089,12 +1141,15 @@ export default function Home() {
         window.scrollTo({ top: origin.scrollY, left: 0, behavior: "auto" });
         const previousSentence = sentenceBrowserRef.current?.querySelector<HTMLButtonElement>(`button[data-sentence-id="${origin.id}"]`);
         (previousSentence ?? sentenceBrowserRef.current)?.focus({ preventScroll: true });
+      } else if (tab === "read" && readingId && readingPositionRef.current.has(readingId)) {
+        window.scrollTo({ top: readingPositionRef.current.get(readingId) ?? 0, left: 0, behavior: "auto" });
       } else {
         window.scrollTo({ top: 0, left: 0, behavior: "auto" });
       }
+      readingPositionReadyRef.current = tab === "read" && Boolean(readingId);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [hydrated, index, learnStage, patternDrillIndex, patternIndex, patternStage, quizIndex, readingId, readingLevel, reviewIndex, reviewView, sentenceIndex, sentenceSection, sentenceStage, tab]);
+  }, [hydrated, index, learnStage, patternDrillIndex, patternIndex, patternStage, quizIndex, readingId, readingLevel, readingNavigation, reviewIndex, reviewView, sentenceIndex, sentenceSection, sentenceStage, tab]);
 
   const masteredSet = useMemo(() => new Set(mastered), [mastered]);
   const difficultSet = useMemo(() => new Set(difficult), [difficult]);
@@ -1160,7 +1215,7 @@ export default function Home() {
       if (!search && !sentenceSavedOnly && !sentenceReviewOnly && item.length !== sentenceBand) return false;
       if (sentenceSavedOnly && !sentenceSaved.includes(item.id)) return false;
       if (sentenceReviewOnly && !sentenceDifficult.includes(item.id)) return false;
-      if (!sentenceReviewOnly && sentenceCategory !== "all" && item.category !== sentenceCategory) return false;
+      if (!search && !sentenceSavedOnly && !sentenceReviewOnly && sentenceCategory !== "all" && item.category !== sentenceCategory) return false;
       return !search || normalized(`${item.text} ${item.translation}`).includes(search);
     });
   }, [sentenceBand, sentenceCategory, sentenceDifficult, sentencePacks, sentenceReviewOnly, sentenceSaved, sentenceSavedOnly, sentenceSearch]);
@@ -1318,7 +1373,7 @@ export default function Home() {
   };
 
   const openLearningSetup = (nextPath?: LearnPath) => {
-    if (hasOngoingSession && !(learnStage === "cards" && ratedCardCount === 0)) {
+    if (hasOngoingSession && !(learnStage === "cards" && index === 0 && ratedCardCount === 0)) {
       setDiscardRequest(nextPath ? { path: nextPath } : {});
       return;
     }
@@ -1345,7 +1400,6 @@ export default function Home() {
     sentenceBrowserOriginRef.current = null;
     setSentenceSavedOnly(savedOnly);
     setSentenceReviewOnly(!savedOnly && reviewOnly);
-    setSentenceCategory("all");
     setSentenceSearch("");
     setSentenceResultLimit(30);
     window.requestAnimationFrame(() => {
@@ -1414,6 +1468,7 @@ export default function Home() {
 
   const openReading = (reading: ReadingItem) => {
     stopSpeech();
+    setReadingNavigation((visit) => visit + 1);
     setReadingId(reading.id);
     setReadingLevel(reading.level);
     setShowTranslation(false);
@@ -1640,6 +1695,7 @@ export default function Home() {
   };
 
   const resetLearningProgress = () => {
+    const resetRotation: PracticeRotation = { word: 0, sentence: 0, pattern: 0 };
     const resetKeys = [
       STORAGE.mastered,
       STORAGE.difficult,
@@ -1660,7 +1716,7 @@ export default function Home() {
     ];
     let reset = false;
     try {
-      const emptyProgress = createLearningBackup({ getItem: () => null }, resetKeys);
+      const emptyProgress = createLearningBackup({ getItem: (key) => key === STORAGE.practiceRotation ? JSON.stringify(resetRotation) : null }, resetKeys);
       reset = restoreLearningBackupData(window.localStorage, resetKeys, emptyProgress);
     } catch {
       // Accessing localStorage itself may be blocked, before any removal runs.
@@ -1691,6 +1747,7 @@ export default function Home() {
     setReadingCompleted([]);
     setReadingLast(null);
     setReadingId(null);
+    readingPositionRef.current.clear();
     setShowTranslation(false);
     setSentenceSeen([]);
     setSentenceMastered([]);
@@ -1709,7 +1766,7 @@ export default function Home() {
     setPatternDrillIndex(0);
     setPatternAnswerOpen(false);
     patternResumeSnapshotRef.current = null;
-    practiceRotationRef.current = { word: 0, sentence: 0, pattern: 0 };
+    practiceRotationRef.current = resetRotation;
     setReviewView("due");
     setReviewIndex(0);
     setReviewRevealedWordId(null);
@@ -2287,7 +2344,7 @@ export default function Home() {
         {sentenceMode === "bilingual" ? <><button className="sentence-listen" onClick={replaySentenceExample}><span aria-hidden="true">♪</span><b>重播本句</b><small>英文三遍 · 中文一遍</small></button><p lang="en" className="sentence-english">{currentSentence.text}</p><div className="sentence-translation" lang="zh-CN">{currentSentence.translation}</div></> : <><div className="speak-prompt"><span>先不要看答案</span><small>看中文，自己完整说出英文</small><p>{currentSentence.translation}</p></div>{sentenceTranslationOpen ? <div id={`sentence-answer-${currentSentence.id}`} ref={sentenceAnswerRef} className="speak-answer" tabIndex={-1} role="status" aria-live="polite" aria-atomic="true"><span>英文答案</span><p lang="en" className="sentence-english">{currentSentence.text}</p><button className="sentence-listen" onClick={() => playSpeech(currentSentence.text, .76)}><span aria-hidden="true">♪</span><b>播放英文</b><small>听一遍核对表达</small></button></div> : <button className="reveal-answer" aria-expanded="false" aria-controls={`sentence-answer-${currentSentence.id}`} onClick={() => setSentenceTranslationOpen(true)}>我说好了，查看英文答案</button>}</>}
         {(sentenceMode === "bilingual" || sentenceTranslationOpen) && <div className="sentence-source">{currentSentence.adapted ? "学习化整理自：" : "来源："}<a href={`https://tatoeba.org/en/sentences/show/${currentSentence.sourceId}`} target="_blank" rel="noreferrer">Tatoeba #{currentSentence.sourceId}</a>{currentSentence.adapted ? <> · 原始英/中贡献者：{currentSentence.author} / {currentSentence.translationAuthor}</> : <> · 英文 {currentSentence.author} · 中文 {currentSentence.translationAuthor}</>}</div>}
       </div>}
-      <div className="word-card-actions sentence-card-actions">
+      <div className="word-card-actions sentence-card-actions" ref={wordActionsRef}>
       {currentSentence && <div className="sentence-pager" role="group" aria-label="切换句子卡片"><button disabled={safeSentenceIndex === 0} onClick={() => moveSentence(-1)}>‹ 上一句</button><span>{safeSentenceIndex + 1} / {sentenceSessionItems.length}</span><button disabled={safeSentenceIndex === sentenceSessionItems.length - 1} onClick={() => moveSentence(1)}>下一句 ›</button></div>}
       {currentSentence && (sentenceMode === "bilingual" || sentenceTranslationOpen) && <div className="learn-actions"><button className={`secondary-action ${currentSentenceRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishSentenceCard(false)}>{currentSentenceRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentSentenceRating === "known" ? "is-mastered" : ""}`} onClick={() => finishSentenceCard(true)}>{currentSentenceRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>}
       </div>
@@ -2428,7 +2485,7 @@ export default function Home() {
         <div className="card-section"><span className="section-label">句中搭配</span><div className="chips" lang="en">{current.collocations.map((item) => <span key={item}>{item}</span>)}</div></div>
         <div className="example-box"><div><span className="section-label">场景句子</span><button onClick={() => playSpeech(current.example)} aria-label="播放场景句子">♪</button></div><p lang="en">{highlightedExample(current)}</p><small>{current.translation}</small></div>
       </div>
-      <div className="word-card-actions">
+      <div className="word-card-actions" ref={wordActionsRef}>
       <div className="sentence-pager" role="group" aria-label="切换词卡"><button disabled={index === 0} onClick={() => moveCard(-1)}>‹ 上一张</button><span>{index + 1} / {sessionWords.length}</span><button disabled={index === sessionWords.length - 1} onClick={() => moveCard(1)}>下一张 ›</button></div>
       <div className="learn-actions"><button className={`secondary-action ${currentCardRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishCard(false)}>{currentCardRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentCardRating === "known" ? "is-mastered" : ""}`} onClick={() => finishCard(true)}>{currentCardRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>
       </div>

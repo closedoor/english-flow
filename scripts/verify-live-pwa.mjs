@@ -105,3 +105,4 @@ for(const name of ['chromium','webkit']){
 
 // Verify the actual deployed sentence-card behavior, not just its assets.
 if (!process.exitCode) await import('./verify-live-sentences.mjs');
+if (!process.exitCode) await import('./verify-live-maintenance.mjs');

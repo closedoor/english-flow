@@ -47,7 +47,7 @@ for (const effect of [persistenceEffect, navigationEffect, feedbackEffect]) asse
 
 function app(patch = {}) {
   const state = { hydrated: true, externalUpdateDetected: false, hasOpenDialog: false, tab: "read",
-    readingId: "r1", readingLevel: 1, readingFilter: "all", readingRetryId: null, readingAnswers: {},
+    readingId: "r1", readingLevel: 1, readingNavigation: 0, readingFilter: "all", readingRetryId: null, readingAnswers: {},
     readingCompleted: [], readingLast: null, showTranslation: false, readingSpeechState: "idle", readingSpeechRate: 0.8,
     ...patch,
   };
@@ -59,7 +59,7 @@ function app(patch = {}) {
   const context = {
     React, readings, readingQuestions, STORAGE, READING_TOTAL: 15, useMemo: (compute) => compute(),
     READING_SPEECH_RATES: [{ value: 0.8, label: "标准", detail: "0.8×" }], readingLoadError: false, networkOnline: true,
-    allStudyWords: [], difficult: [], readingReturnIdRef, readingFeedbackStateRef,
+    allStudyWords: [], difficult: [], readingReturnIdRef, readingFeedbackStateRef, readingPositionRef: { current: new Map() }, readingPositionReadyRef: { current: false },
     readingHeadingRef: { current: heading }, readingFeedbackRef: { current: { focus: () => calls.push("feedback") } },
     readingListRef: { current: {
       querySelector(selector) { const id = selector.match(/data-reading-id="([^"]+)"/)?.[1]; return state.visibleReadings?.some((item) => item.id === id) ? { scrollIntoView: () => calls.push(`scroll ${id}`), focus: () => calls.push(`focus ${id}`) } : null; },

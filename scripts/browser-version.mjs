@@ -44,6 +44,19 @@ for(const engine of ['chromium','webkit']){
   await page.locator('.bottom-nav button').filter({hasText:'学习'}).click();await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();
   assert.ok(await page.getByRole('button',{name:'更新并保留进度',exact:true}).isDisabled());assert.equal(await page.locator('.word-auto-controls').count(),1);assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
  });
+ await check('reset-progress-keeps-version-update-snapshot-consistent','new',async page=>{
+  await page.locator('.bottom-nav button').filter({hasText:'学习'}).click();
+  await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
+  await page.locator('.word-card').waitFor();
+  await progress(page);
+  await page.getByRole('button',{name:'重置',exact:true}).click();
+  await page.getByRole('button',{name:'确认重置',exact:true}).click();
+  await page.waitForFunction(()=>localStorage.getItem('wordflow-practice-rotation-v1')==='{"word":0,"sentence":0,"pattern":0}');
+  await page.getByRole('button',{name:'更新并保留进度',exact:true}).click();
+  await page.getByText('新页面暂未就绪，或有记录尚未保存。已保留当前页面，请稍后重试或先导出备份。',{exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged','Stale HTML still cannot replace the current page');
+  assert.equal(await page.getByText('请先到进度页再更新。若有记录尚未保存，请先导出备份；不会强制刷新。',{exact:true}).count(),0,'Reset must not invent an unsaved record');
+ });
  await browser.close();
 }
 const failed=results.filter(x=>x.status==='FAIL').length;console.log('VERSION_BROWSER_SUMMARY',JSON.stringify({passed:results.length-failed,failed,total:results.length}));if(failed)process.exitCode=1;

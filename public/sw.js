@@ -5,6 +5,7 @@ const CACHE = `${CACHE_PREFIX}v34-${BUILD_REVISION}`;
 const STAGING_CACHE = `${CACHE}-staging`;
 const OPTIONAL_CACHE_TIMEOUT = 8000;
 const NAVIGATION_TIMEOUT = 3000;
+const RUNTIME_CACHE_TIMEOUT = 2000;
 const MAX_SHELL_ASSETS = 128;
 const CORE_SHELL = [
   "/",
@@ -15,19 +16,39 @@ const CORE_SHELL = [
   "/apple-touch-icon.png",
 ];
 
+// Cache Storage has no AbortSignal. Bound runtime reads and writes separately
+// so a stalled disk operation cannot hold a usable network response forever.
+// Promise.race observes late rejections; an expired read is never served later.
+// Installation still requires the complete staged shell before activation.
+async function withinRuntimeCacheDeadline(operation) {
+  let timeout;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("Runtime cache operation timed out")), RUNTIME_CACHE_TIMEOUT);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 async function safeCacheMatch(request) {
   try {
-    const active = await caches.open(CACHE);
-    const current = await active.match(request);
-    if (current) return current;
-    // Staging is deliberately incomplete until installation succeeds. Never
-    // serve its document as an offline fallback while an update is downloading.
-    for (const name of await caches.keys()) {
-      if (name === CACHE || name.endsWith("-staging")) continue;
-      const cached = await (await caches.open(name)).match(request);
-      if (cached) return cached;
-    }
-    return undefined;
+    return await withinRuntimeCacheDeadline((async () => {
+      const active = await caches.open(CACHE);
+      const current = await active.match(request);
+      if (current) return current;
+      // Staging is deliberately incomplete until installation succeeds. Never
+      // serve its document as an offline fallback while an update is downloading.
+      for (const name of await caches.keys()) {
+        if (name === CACHE || name.endsWith("-staging")) continue;
+        const cached = await (await caches.open(name)).match(request);
+        if (cached) return cached;
+      }
+      return undefined;
+    })());
   } catch {
     return undefined;
   }
@@ -86,10 +107,16 @@ async function fetchAndCache(request, timeoutMs = 0) {
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     const response = await normalizeManifestResponse(request, await fetch(request, controller ? { signal: controller.signal } : undefined));
+    // The network deadline must not abort an obtained response merely because
+    // its optional disk copy is slow. Reads and writes have their own limits.
+    if (timeout) clearTimeout(timeout);
     if (response.ok && responseMatchesRequest(request, response)) {
       try {
-        const cache = await caches.open(CACHE);
-        await cache.put(request, response.clone());
+        const cacheCopy = response.clone();
+        await withinRuntimeCacheDeadline((async () => {
+          const cache = await caches.open(CACHE);
+          await cache.put(request, cacheCopy);
+        })());
       } catch {
         // A usable network response must not be discarded when Cache Storage
         // is blocked, corrupt or out of space.

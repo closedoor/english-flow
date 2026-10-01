@@ -18,6 +18,17 @@ async function finishSequence(page,from){
  const items=(await log(page)).slice(from);assert.deepEqual(items.map(u=>u.text),[english,english,english,chinese]);assert.deepEqual(items.map(u=>u.lang),['en-US','en-US','en-US','zh-CN']);
  assert.equal(items[0].gesture,true);return items;
 }
+async function tapUncovered(page,name){
+ const button=page.getByRole('button',{name,exact:true});
+ const rect=await button.boundingBox();assert.ok(rect&&rect.y>=0&&rect.y+rect.height<=page.viewportSize().height,`${name} must be on screen`);
+ assert.equal(await button.evaluate(el=>{const r=el.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===el||el.contains(hit);}),true,`${name} must receive a direct coordinate tap`);
+ await page.touchscreen.tap(rect.x+rect.width/2,rect.y+rect.height/2);
+}
+async function sentenceToolbarClear(page){
+ await page.waitForFunction(()=>[...document.querySelectorAll('.sentence-card-actions button')].every(button=>{const r=button.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===button||button.contains(hit);}));
+ const geometry=await page.evaluate(()=>{const actions=document.querySelector('.sentence-card-actions').getBoundingClientRect(),stack=document.querySelector('.status-toast-stack').getBoundingClientRect();return {actionsTop:actions.top,stackBottom:stack.bottom,overflow:document.documentElement.scrollWidth>innerWidth+1};});
+ assert.equal(geometry.overflow,false);assert.ok(geometry.stackBottom<=geometry.actionsTop-4,JSON.stringify(geometry));
+}
 for(const engine of ['chromium','webkit']){
  const browser=await pw[engine].launch({headless:true});
  async function check(name,body,{seed=null,width=390,height=844}={}){
@@ -57,6 +68,15 @@ for(const engine of ['chromium','webkit']){
  await check('reload-retains-current-records-with-a-working-gesture-replay',async page=>{await begin(page);await page.getByRole('button',{name:'下一句 ›',exact:true}).click();const before=await stored(page);await page.reload();await page.locator('.sentence-study-card').waitFor();assert.equal((await log(page)).length,0);assert.deepEqual(await stored(page),before);await page.getByRole('button',{name:/重播本句/}).click();await finishSequence(page,0);});
  await check('speaking-first-mode-never-reveals-or-auto-reads-English',async page=>{await begin(page,{mode:'看中文说英文'});assert.equal((await log(page)).length,0);assert.equal(await page.locator('.sentence-english').count(),0);await page.getByRole('button',{name:'我说好了，查看英文答案',exact:true}).click();assert.equal((await log(page)).length,0);await page.getByRole('button',{name:'我学会了',exact:true}).click();assert.equal(await page.locator('.sentence-english').count(),0);assert.equal((await log(page)).length,0);});
  await check('blocked-audio-keeps-visible-text-and-progress-usable',async page=>{await begin(page);await page.evaluate(()=>window.__sentenceSpeech.fail=true);await page.getByRole('button',{name:'下一句 ›',exact:true}).click();assert.ok(await page.locator('.sentence-translation').innerText());assert.deepEqual((await stored(page)).ratings,{});await page.evaluate(()=>window.__sentenceSpeech.fail=false);const n=(await log(page)).length;await page.getByRole('button',{name:/重播本句/}).click();await finishSequence(page,n);});
+ for(const size of [{width:320,height:568},{width:390,height:844}])await check(`stacked-warnings-preserve-coordinate-sentence-navigation-${size.width}`,async page=>{
+  await begin(page);await page.evaluate(()=>{window.__sentenceSpeech.fail=true;window.dispatchEvent(new CustomEvent('english-flow-speech-error',{detail:'chinese-unavailable'}));window.dispatchEvent(new Event('english-flow-offline-cache-error'));window.dispatchEvent(new Event('offline'));});
+  await page.getByRole('button',{name:'关闭语音提示',exact:true}).waitFor();await page.getByRole('button',{name:'关闭离线保存提示',exact:true}).waitFor();await page.locator('.offline-status').waitFor();await sentenceToolbarClear(page);
+  const before=await stored(page);await tapUncovered(page,'下一句 ›');await page.waitForFunction(({key,index})=>JSON.parse(localStorage.getItem(key)).index===index+1,{key,index:before.index});await sentenceToolbarClear(page);
+  await tapUncovered(page,'‹ 上一句');await page.waitForFunction(({key,index})=>JSON.parse(localStorage.getItem(key)).index===index,{key,index:before.index});await sentenceToolbarClear(page);assert.deepEqual((await stored(page)).ratings,before.ratings);
+  await tapUncovered(page,'关闭语音提示');await page.getByRole('button',{name:'关闭语音提示',exact:true}).waitFor({state:'hidden'});await sentenceToolbarClear(page);
+  await tapUncovered(page,'关闭离线保存提示');await page.getByRole('button',{name:'关闭离线保存提示',exact:true}).waitFor({state:'hidden'});await sentenceToolbarClear(page);
+  await page.evaluate(()=>{window.__sentenceSpeech.fail=false;window.dispatchEvent(new Event('online'));});await page.locator('.status-toast-stack').waitFor({state:'hidden'});
+ },size);
  await check('narrow-phone-actions-and-full-Chinese-remain-reachable',async page=>{await begin(page,{band:'长句'});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.locator('.sentence-translation').scrollIntoViewIfNeeded();assert.ok(await page.locator('.sentence-translation').innerText());for(const b of await page.locator('.sentence-auto-controls button').all())assert.ok((await b.boundingBox()).height>=44);},{width:320,height:640});
  await browser.close();
 }
