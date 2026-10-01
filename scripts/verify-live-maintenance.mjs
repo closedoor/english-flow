@@ -36,15 +36,51 @@ async function beginWords(page) {
   await page.getByRole('button', { name: '开始这组学习', exact: true }).click();
   await page.locator('.word-card').waitFor();
 }
-async function tapVisible(page, locator) {
-  const box = await locator.evaluate(button => {
-    const r = button.getBoundingClientRect();
-    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-    return { x: r.x, y: r.y, width: r.width, height: r.height, disabled: button.disabled,
-      hit: button === hit || button.contains(hit), label: button.textContent,
-      limit: document.querySelector('.bottom-nav')?.getBoundingClientRect().top ?? innerHeight,
-      viewportWidth: innerWidth };
-  });
+async function tapVisible(page, locator, quizMode = null) {
+  const box = await locator.evaluate(async (button, quizMode) => {
+    const rectangle = (element) => {
+      if (!element) return null;
+      const r = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom,
+        hit: element === hit || element.contains(hit) };
+    };
+    const measure = () => ({ ...rectangle(button), disabled: button.disabled, label: button.textContent,
+      limit: document.querySelector('.bottom-nav')?.getBoundingClientRect().top ?? innerHeight, viewportWidth: innerWidth,
+      ...(quizMode ? { quiz: {
+        scrollY, overflow: document.documentElement.scrollWidth > innerWidth + 1,
+        field: rectangle(document.querySelector('.answer-field')), actions: rectangle(document.querySelector('.quiz-actions')),
+        primary: rectangle(document.querySelector('.quiz-page .sticky-start')), skip: rectangle(document.querySelector('.quiz-skip')),
+        feedback: rectangle(document.querySelector('.feedback-box')), answer: rectangle(document.querySelector('.feedback-box p')),
+        inputFocused: document.activeElement === document.querySelector('.quiz-page input'),
+        primaryFocused: document.activeElement === document.querySelector('.quiz-page .sticky-start'),
+      } } : {}),
+    });
+    if (!quizMode) return measure();
+    // The quiz focus and navigation effects schedule scrolling on later paints.
+    // Wait for the complete state, then use this same sample for one direct tap.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const started = performance.now();
+    let previous = null, stableSince = 0, latest;
+    while (performance.now() - started < 12_000) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      latest = measure();
+      const complete = (r, touchTarget = true) => Boolean(r && r.x >= -1 && r.x + r.width <= innerWidth + 1
+        && r.y >= -1 && r.bottom <= innerHeight + 1 && r.hit && (!touchTarget || (r.width >= 44 && r.height >= 44)));
+      const q = latest.quiz;
+      const questionReady = !q.feedback && complete(q.field, false) && q.field.bottom <= q.actions?.y - 3
+        && complete(q.skip) && q.inputFocused;
+      const feedbackReady = complete(q.feedback, false) && q.feedback.bottom <= q.primary?.y - 3
+        && (!q.answer || (complete(q.answer, false) && q.answer.bottom <= q.primary?.y - 3)) && q.primaryFocused;
+      const ready = !latest.disabled && complete(latest) && complete(q.primary) && !q.overflow
+        && (quizMode === 'feedback' ? feedbackReady : questionReady);
+      const signature = ready ? JSON.stringify(latest) : null;
+      if (!signature || signature !== previous) stableSince = performance.now();
+      if (signature && signature === previous && performance.now() - stableSince >= 100) return latest;
+      previous = signature;
+    }
+    throw new Error(`Live quiz ${quizMode} geometry, focus and hit targets did not stabilize: ${JSON.stringify(latest)}`);
+  }, quizMode);
   assert.equal(box.disabled, false, JSON.stringify(box));
   assert.ok(box.x >= -1 && box.x + box.width <= box.viewportWidth + 1 && box.y >= -1
     && box.y + box.height <= box.limit + 1 && box.width >= 44 && box.height >= 44 && box.hit,
@@ -115,6 +151,16 @@ for (const engine of ['chromium', 'webkit']) {
       }
       const speech = { fail: false, log: [] };
       window.__maintenanceSpeech = speech;
+      window.__maintenanceQuizTaps = [];
+      for (const type of ['touchstart', 'touchend', 'click']) document.addEventListener(type, event => {
+        if (!document.querySelector('.quiz-page')) return;
+        const target = event.target instanceof Element ? event.target.closest('button,input') ?? event.target : null;
+        const point = event.changedTouches?.[0] ?? event;
+        window.__maintenanceQuizTaps.push({ type, x: point.clientX, y: point.clientY, scrollY,
+          label: target?.textContent?.trim().slice(0, 80), top: target?.getBoundingClientRect().top,
+          feedback: Boolean(document.querySelector('.feedback-box')), active: document.activeElement?.tagName });
+        if (window.__maintenanceQuizTaps.length > 24) window.__maintenanceQuizTaps.shift();
+      }, { capture: true });
       Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true,
         value: class { constructor(text) { this.text = text; } } });
       Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
@@ -141,7 +187,11 @@ for (const engine of ['chromium', 'webkit']) {
       results.push({ engine, name, status: 'PASS', commit: expected, ...detail });
       console.log('LIVE_MAINTENANCE_PASS', JSON.stringify(results.at(-1)));
     } catch (error) {
-      results.push({ engine, name, status: 'FAIL', commit: expected, error: String(error), errors });
+      const quiz = await page.evaluate(() => document.querySelector('.quiz-page') ? {
+        session: JSON.parse(localStorage.getItem('wordflow-active-session-v1') || 'null'),
+        scrollY, active: document.activeElement?.tagName, taps: window.__maintenanceQuizTaps ?? [],
+      } : null).catch(() => null);
+      results.push({ engine, name, status: 'FAIL', commit: expected, error: String(error), errors, quiz });
       console.error('LIVE_MAINTENANCE_FAIL', JSON.stringify(results.at(-1)));
       process.exitCode = 1;
     } finally {
@@ -268,25 +318,25 @@ for (const engine of ['chromium', 'webkit']) {
     await page.locator('.quiz-page input').waitFor();
     assert.equal(await page.locator('.feedback-box').count(), 0);
     await page.locator('.quiz-page input').fill('unrecognized');
-    await tapVisible(page, page.locator('.quiz-page .sticky-start'));
+    await tapVisible(page, page.locator('.quiz-page .sticky-start'), 'question');
     await page.locator('.feedback-box.wrong').waitFor();
     await quizFeedbackVisible(page, 'The');
     let session = await stored(page, keys.word);
     assert.equal(session.quizIndex, 0);
     assert.deepEqual(session.quizResults, [false]);
-    await tapVisible(page, page.getByRole('button', { name: '下一题', exact: true }));
+    await tapVisible(page, page.getByRole('button', { name: '下一题', exact: true }), 'feedback');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('wordflow-active-session-v1'))?.quizIndex === 1);
     assert.equal(await page.locator('.feedback-box').count(), 0);
     assert.equal(await page.locator('.quiz-page input').inputValue(), '');
     assert.equal(await page.locator('.quiz-page .sticky-start').isDisabled(), true);
-    await tapVisible(page, page.locator('.quiz-skip'));
+    await tapVisible(page, page.locator('.quiz-skip'), 'question');
     await page.locator('.feedback-box.wrong').waitFor();
     await quizFeedbackVisible(page, 'Be');
     session = await stored(page, keys.word);
     assert.equal(session.quizIndex, 1);
     assert.equal(session.quizAnswer, '');
     assert.deepEqual(session.quizResults, [false, false]);
-    await tapVisible(page, page.getByRole('button', { name: '下一题', exact: true }));
+    await tapVisible(page, page.getByRole('button', { name: '下一题', exact: true }), 'feedback');
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('wordflow-active-session-v1'))?.quizIndex === 2);
     assert.deepEqual((await stored(page, keys.word)).quizResults, [false, false], 'Next does not submit a second result');
     assert.equal(await page.locator('.feedback-box').count(), 0);
