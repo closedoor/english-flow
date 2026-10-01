@@ -510,8 +510,10 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .immersive-learning .chips span{padding:7px 10px;font-size:.875rem;line-height:1.5}
 .immersive-learning .example-box{padding:15px;border-radius:18px}
 .immersive-learning .example-box p{margin:11px 0 8px;font-size:1rem;line-height:1.65}
-.immersive-learning .example-box small{display:block;font-size:.875rem;line-height:1.65}
-.immersive-learning .example-box button{min-width:44px;min-height:44px;border-radius:12px}
+/* Native scroll-to-visible also needs room for the sticky toolbar; otherwise
+   a translation can be inside the viewport while hidden beneath the actions. */
+.immersive-learning .example-box small{display:block;font-size:.875rem;line-height:1.65;scroll-margin-bottom:calc(9rem + env(safe-area-inset-bottom) + var(--status-notice-space, 0px))}
+.immersive-learning .example-box button{min-width:44px;min-height:44px;border-radius:12px;scroll-margin-top:12px}
 .immersive-learning>.word-card-actions{position:sticky;bottom:0;z-index:10;margin:0;padding:9px 0 calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:rgba(255,255,255,.97);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .immersive-learning .word-card-actions>.sentence-pager{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0 0 8px}
 .immersive-learning .word-card-actions button{min-width:0;min-height:48px;padding:10px 8px;font-size:.875rem;line-height:1.5;white-space:normal}
