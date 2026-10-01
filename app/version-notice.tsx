@@ -95,7 +95,7 @@ export default function VersionNotice({ showDetails, beforeReload }: Props) {
   if (!showDetails && !latest) return null;
   return <section className="app-version-panel" aria-label="应用版本">
     <div><b>当前版本 {APP_BUILD_COMMIT.slice(0, 7)}</b><p role="status">{message || "NGSL 词卡支持例句自动播放三遍"}</p></div>
-    {latest && !showDetails && <small>可先继续学习，稍后到“进度”页更新。</small>}
+    {latest && !showDetails && <small>可先继续学习，稍后到首页的“记录与设置”更新。</small>}
     <div className="app-version-actions">
       <button disabled={busy} onClick={() => { setMessage("正在检查更新…"); setAttempt((value) => value + 1); }}>检查更新</button>
       {latest && <button disabled={busy || !showDetails} onClick={update}>{busy ? "正在准备更新…" : "更新并保留进度"}</button>}

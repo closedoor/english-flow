@@ -83,6 +83,15 @@ for(const engine of baseline?['chromium']:['chromium','webkit']){
    assert.equal(await page.evaluate(from=>window.__layoutSpeech.log[from],from),manualExample);
    await page.evaluate(()=>window.__layoutSpeech.end());
    await page.waitForTimeout(120);assert.equal(await page.evaluate(()=>window.__layoutSpeech.log.length),from+1);
+   if(!item.flow){
+    await page.locator('.example-box small').scrollIntoViewIfNeeded();
+    assert.ok(await page.locator('.word-card').evaluate(el=>el.scrollTop>0),'Long content must scroll within the card');
+    const before=await page.locator('.word-heading h2').innerText();
+    await tap(page,selectors[1]);
+    await page.waitForFunction(before=>document.querySelector('.word-heading h2')?.textContent!==before,before);
+    assert.equal(await page.locator('.word-card').evaluate(el=>el.scrollTop),0,'A different word must start at the top of its card');
+    await assertActions(page);
+   }
    const saved=await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1'));
    await page.getByRole('button',{name:'退出学习并保留进度',exact:true}).scrollIntoViewIfNeeded();
    await tapVisibleButton(page,'退出学习并保留进度');
