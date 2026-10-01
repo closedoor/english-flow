@@ -10,7 +10,7 @@ const snapshot=()=>({version:1,kind:'group',updatedAt:Date.now(),path:'frequency
 async function ready(page){await page.goto(origin,{waitUntil:'domcontentloaded'});await page.locator('.bottom-nav').waitFor({timeout:30000});}
 async function nav(page,label){await page.locator('.bottom-nav button').filter({hasText:label}).click();}
 async function begin(page,count=10,mode='自由学习'){
-  await ready(page);await nav(page,'学习');
+  await ready(page);await nav(page,'单词');
   await page.getByRole('button',{name:mode,exact:false}).click();
   await page.getByRole('button',{name:`${count} 个`,exact:true}).click();
   await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
@@ -106,10 +106,10 @@ for(const engine of ['chromium','webkit']){
     await finish(page);await finish(page);await finish(page);assert.equal((await logs(page)).length,7);
   });
   await check('leaving-module-stops-queue-and-does-not-speak-in-other-tabs',async page=>{
-    await begin(page);await count(page,1);await nav(page,'句库');
+    await begin(page);await count(page,1);await nav(page,'句子');
     assert.equal(await page.evaluate(()=>window.__speech.active),null);
     await page.evaluate(()=>window.__speech.utterances[0].onend());assert.equal((await logs(page)).length,1);
-    await nav(page,'学习');await count(page,2);
+    await nav(page,'单词');await count(page,2);
   });
   await check('entering-quiz-cancels-repeat-without-reading-answer',async page=>{
     await ready(page);await page.getByRole('button',{name:'重播三遍',exact:true}).click();
@@ -148,17 +148,17 @@ for(const engine of ['chromium','webkit']){
     assert.equal((await logs(page))[0].gesture,true);
   },snapshot());
   await check('resuming-restored-group-from-navigation-starts-in-click-not-effect',async page=>{
-    await ready(page);await nav(page,'进度');await nav(page,'学习');await count(page,1);
+    await ready(page);await nav(page,'进度');await nav(page,'单词');await count(page,1);
     assert.equal((await logs(page))[0].gesture,true);
   },snapshot());
   await check('scene-groups-and-single-word-lookups-keep-manual-audio',async page=>{
-    await ready(page);await nav(page,'学习');await page.locator('.scene-list button').first().click();
+    await ready(page);await nav(page,'单词');await page.locator('.scene-list button').first().click();
     await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();assert.equal((await logs(page)).length,0);
     await page.getByRole('button',{name:'退出本组',exact:true}).click();await page.locator('.library-list button').first().click();
     await page.locator('.word-card').waitFor();assert.equal((await logs(page)).length,0);assert.equal(await page.locator('.word-auto-controls').count(),0);
   });
   await check('blocked-autoplay-does-not-rate-words-and-manual-retry-works',async page=>{
-    await ready(page);await page.evaluate(()=>{window.__speech.fail=true;});await nav(page,'学习');
+    await ready(page);await page.evaluate(()=>{window.__speech.fail=true;});await nav(page,'单词');
     await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();
     assert.equal((await logs(page)).length,1);
     assert.deepEqual(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).ratings,key),{});

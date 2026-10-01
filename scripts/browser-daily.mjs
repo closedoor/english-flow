@@ -104,7 +104,7 @@ for (const engine of ['chromium','webkit']) {
       await ready(page);
       assert.deepEqual(await stored(page,keys.mastered),[1,2]);
       assert.deepEqual(await stored(page,keys.difficult),[3]);
-      await nav(page,'学习');
+      await nav(page,'单词');
       await page.getByRole('button',{name:'自由学习',exact:false}).click();
       await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
       await page.locator('.word-heading h2').waitFor();
@@ -121,7 +121,7 @@ for (const engine of ['chromium','webkit']) {
       });
       await ready(page);
       await page.locator('.offline-cache-warning').waitFor();
-      await nav(page,'学习');
+      await nav(page,'单词');
       await page.getByRole('button',{name:'自由学习',exact:false}).click();
       await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
       await page.locator('.learn-actions .primary-action').click();
@@ -137,16 +137,16 @@ for (const engine of ['chromium','webkit']) {
       await ready(page);
       const before=await page.evaluate(()=>({...localStorage}));
       for(let cycle=0;cycle<6;cycle++){
-        for(const label of ['句库','阅读','今天','学习','复习','进度'])await nav(page,label);
+        for(const label of ['句子','阅读','今天','单词','复习','进度'])await nav(page,label);
       }
-      await nav(page,'句库');
+      await nav(page,'句子');
       await page.waitForFunction(()=>{const button=document.querySelector('.sentence-page .sticky-start');return button && !button.disabled;});
       assert.deepEqual(await page.evaluate(()=>({...localStorage})),before,'Browsing must not create learning activity or overwrite progress');
       assert.equal(await page.locator('.sync-dialog').count(),0);
     },{[keys.mastered]:[1,2],[keys.difficult]:[3]});
 
     await check('complete-ten-word-session-pause-resume-and-retry-only-mistakes',async page=>{
-      await ready(page);await nav(page,'学习');
+      await ready(page);await nav(page,'单词');
       await page.locator('.mode-grid button').last().click();
       await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
       const expected=[];

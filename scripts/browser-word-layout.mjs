@@ -52,7 +52,7 @@ for(const engine of baseline?['chromium']:['chromium','webkit']){
   const page=await context.newPage();page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
   try{
    await page.goto(origin);await page.locator('.bottom-nav').waitFor({timeout:30000});
-   await page.locator('.bottom-nav button').filter({hasText:'学习'}).click();
+   await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();
    await page.getByRole('button',{name:'自由学习',exact:false}).click();
    await page.getByRole('button',{name:'10 个',exact:true}).click();
    await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();

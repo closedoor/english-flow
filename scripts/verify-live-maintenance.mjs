@@ -30,7 +30,7 @@ async function retainChoices(page) {
   for (const label of ['看中文说英文', '短句', '餐饮', '20 句']) assert.ok(summary.includes(label), summary);
 }
 async function beginWords(page) {
-  await nav(page, '学习');
+  await nav(page, '单词');
   await page.getByRole('button', { name: '自由学习', exact: false }).click();
   await page.getByRole('button', { name: '10 个', exact: true }).click();
   await page.getByRole('button', { name: '开始这组学习', exact: true }).click();
@@ -150,7 +150,7 @@ for (const engine of ['chromium', 'webkit']) {
   }
 
   await check('cross-range-sentence-lists-search-and-practice-preferences', async page => {
-    await nav(page, '句库');
+    await nav(page, '句子');
     await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
     for (const label of ['收藏句子', '待加强']) {
       await page.locator('.sentence-summary button').filter({ hasText: label }).click();
@@ -179,7 +179,7 @@ for (const engine of ['chromium', 'webkit']) {
   });
 
   await check('pattern-start-resumes-rated-group-and-substitution-with-hidden-answer', async page => {
-    await nav(page, '句库');
+    await nav(page, '句子');
     await page.getByRole('button', { name: '核心句型', exact: true }).click();
     await page.locator('.pattern-category-grid button').filter({ hasText: '全部' }).click();
     const start = () => page.getByRole('button', { name: '开始句型替换练习', exact: true }).click();
@@ -215,7 +215,7 @@ for (const engine of ['chromium', 'webkit']) {
 
   await check('small-phone-pattern-top-start-substitutions-and-final-rating-receive-direct-taps', async page => {
     await page.setViewportSize({ width: 320, height: 568 });
-    await nav(page, '句库');
+    await nav(page, '句子');
     await page.getByRole('button', { name: '核心句型', exact: true }).click();
     await page.waitForFunction(() => scrollY <= 1);
     const start = page.getByRole('button', { name: '开始句型替换练习', exact: true });
@@ -263,7 +263,7 @@ for (const engine of ['chromium', 'webkit']) {
   };
   await check('small-phone-quiz-wrong-answer-and-empty-skip-keep-feedback-and-actions-visible', async page => {
     await page.setViewportSize({ width: 320, height: 568 });
-    await nav(page, '学习');
+    await nav(page, '单词');
     await page.locator('.learn-actions .primary-action').click();
     await page.locator('.quiz-page input').waitFor();
     assert.equal(await page.locator('.feedback-box').count(), 0);
@@ -342,7 +342,7 @@ for (const engine of ['chromium', 'webkit']) {
       if (response.request().resourceType() === 'script' && new URL(response.url()).origin === base.origin) scripts.push(response.text().catch(() => ''));
     });
     await identify(newer, scripts);
-    await nav(newer, '学习');
+    await nav(newer, '单词');
     await newer.locator('.learn-actions .primary-action').click();
     await newer.waitForFunction(() => localStorage.getItem('wordflow-ngsl-mastered-v1') === '[1,2]');
     await page.locator('.sync-dialog').waitFor();
@@ -374,7 +374,7 @@ for (const engine of ['chromium', 'webkit']) {
   });
 
   await check('word-and-sentence-new-search-reset-results-with-more-and-lookup-return-preserved', async page => {
-    await nav(page, '学习');
+    await nav(page, '单词');
     const words = page.locator('.library-list');
     await words.evaluate(element => { element.scrollTop = 1000; });
     await page.locator('.rank-switch button').nth(1).click();
@@ -405,7 +405,7 @@ for (const engine of ['chromium', 'webkit']) {
     assert.equal(await words.locator('button').first().getAttribute('data-word-id'), '1001');
     assert.ok(!(await page.locator('.library-block .row-heading small').innerText()).includes('全库'));
 
-    await nav(page, '句库');
+    await nav(page, '句子');
     const search = page.getByRole('searchbox', { name: '搜索长短句' });
     await search.fill('I');
     await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();
@@ -458,7 +458,7 @@ for (const engine of ['chromium', 'webkit']) {
     quizIndex: 0, quizAnswer: '', quizFeedback: null, quizResults: [],
   };
   await check('startup-read-failure-pauses-without-writes-and-retries-the-paused-group', async page => {
-    await nav(page, '学习');
+    await nav(page, '单词');
     await page.locator('.word-card').waitFor();
     assert.match(await page.locator('.card-count').innerText(), /第\s*5\s*张.*4\s*\/\s*10/);
     assert.deepEqual(await stored(page, keys.mastered), [1, 2, 3]);
@@ -532,7 +532,7 @@ for (const engine of ['chromium', 'webkit']) {
   });
 
   await check('speech-warning-keeps-the-next-sentence-directly-tappable', async page => {
-    await nav(page, '句库');
+    await nav(page, '句子');
     await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
     await page.getByRole('button', { name: '开始这组学习', exact: true }).click();
     await page.locator('.sentence-study-card').waitFor();

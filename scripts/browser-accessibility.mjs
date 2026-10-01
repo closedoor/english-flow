@@ -93,12 +93,12 @@ await runCheck("chromium", "serious-accessibility-rules-pass-on-primary-screens"
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
   await page.addScriptTag({ content: axeSource });
-  const screens = ["今天", "学习", "句库", "阅读", "复习", "进度"];
+  const screens = ["今天", "单词", "句子", "阅读", "复习", "进度"];
   const violations = [];
   for (const label of screens) {
     await page.locator(".bottom-nav button").filter({ hasText: label }).click();
     await page.locator(".page").first().waitFor();
-    if (label === "句库") await page.waitForFunction(() => { const button = document.querySelector(".sentence-page .sticky-start"); return button && !button.disabled; });
+    if (label === "句子") await page.waitForFunction(() => { const button = document.querySelector(".sentence-page .sticky-start"); return button && !button.disabled; });
     if (label === "阅读") await page.locator(".reading-card").first().waitFor({ timeout: 30_000 });
     const current = await page.evaluate(async () => {
       const report = await window.axe.run(document, {
@@ -121,7 +121,7 @@ await runCheck("chromium", "serious-accessibility-rules-pass-on-primary-screens"
 await runCheck("chromium", "word-cards-and-progress-dialogs-remain-readable", async (page) => {
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
-  await page.locator(".bottom-nav button").filter({ hasText: "学习" }).click();
+  await page.locator(".bottom-nav button").filter({ hasText: "单词" }).click();
   await page.getByRole("button", { name: "开始这组学习", exact: true }).click();
   await page.locator(".word-card").waitFor();
   await checkAccessibility(page, "单词词卡");

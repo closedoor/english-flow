@@ -20,7 +20,7 @@ for(const engine of ['chromium','webkit']) {
     try {
       await page.goto(origin,{waitUntil:'domcontentloaded'});
       await page.locator('.bottom-nav').waitFor();
-      await page.locator('.bottom-nav button').filter({hasText:'句库'}).click();
+      await page.locator('.bottom-nav button').filter({hasText:'句子'}).click();
       await page.waitForFunction(()=>{const start=document.querySelector('.sentence-page .sticky-start');return start && !start.disabled;});
       await body(page,context);
       assert.deepEqual(errors,[],'Uncaught page errors');

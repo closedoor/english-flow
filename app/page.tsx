@@ -105,8 +105,8 @@ const STORAGE_KEYS = Object.values(STORAGE);
 const BACKUP_OPTIONAL_KEYS: StorageKey[] = [STORAGE.readingCompleted, STORAGE.readingLast, STORAGE.practiceRotation, STORAGE.readingAnswers];
 const tabItems: { id: Tab; label: string; icon: string }[] = [
   { id: "home", label: "今天", icon: "⌂" },
-  { id: "learn", label: "学习", icon: "▤" },
-  { id: "sentences", label: "句库", icon: "“”" },
+  { id: "learn", label: "单词", icon: "▤" },
+  { id: "sentences", label: "句子", icon: "“”" },
   { id: "read", label: "阅读", icon: "◫" },
   { id: "review", label: "复习", icon: "↻" },
   { id: "progress", label: "进度", icon: "◌" },

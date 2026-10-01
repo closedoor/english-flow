@@ -49,7 +49,7 @@ for(const engine of ['chromium','webkit']){
   }
   if(process.env.SETUP_START_BASELINE==='1'){
     await check('before-change-positions',async page=>{
-      for(const tabLabel of ['学习','句库']){await nav(page,tabLabel);await enabled(page);console.log('SETUP_START_BASELINE',JSON.stringify({engine,tabLabel,...await topStart(page)}));}
+      for(const tabLabel of ['单词','句子']){await nav(page,tabLabel);await enabled(page);console.log('SETUP_START_BASELINE',JSON.stringify({engine,tabLabel,...await topStart(page)}));}
       await page.getByRole('button',{name:'核心句型',exact:true}).click();await enabled(page,patternStartLabel);
       console.log('SETUP_START_BASELINE',JSON.stringify({engine,tabLabel:'核心句型',...await topStart(page,patternStartLabel)}));
     });
@@ -57,9 +57,9 @@ for(const engine of ['chromium','webkit']){
   }
   for(const [label,width,height,largeText] of [['small-phone',320,568,false],['compact-phone',375,667,false],['browser-bars',390,700,false],['reported-phone',390,844,false],['large-text',430,932,true],['desktop',1280,900,false]]){
     await check(`${label}-all-three-module-starts-directly-tappable`,async page=>{
-      await nav(page,'学习');await tapStart(page);await page.locator('.word-card').waitFor();
+      await nav(page,'单词');await tapStart(page);await page.locator('.word-card').waitFor();
       assert.equal((await saved(page,wordKey)).wordIds.length,10);
-      await nav(page,'句库');await enabled(page);await tapStart(page);await page.locator('.sentence-study-card').waitFor();
+      await nav(page,'句子');await enabled(page);await tapStart(page);await page.locator('.sentence-study-card').waitFor();
       assert.equal((await saved(page,sentenceKey)).sentenceIds.length,10);
       await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
       await page.getByRole('button',{name:'核心句型',exact:true}).click();await enabled(page,patternStartLabel);
@@ -69,15 +69,15 @@ for(const engine of ['chromium','webkit']){
     },{width,height},largeText);
   }
   await check('top-word-start-uses-restored-twenty-word-free-choices',async page=>{
-    await nav(page,'学习');await page.getByRole('button',{name:'自由学习',exact:false}).click();
+    await nav(page,'单词');await page.getByRole('button',{name:'自由学习',exact:false}).click();
     await page.getByRole('button',{name:'20 个',exact:true}).click();
-    await page.reload();await page.locator('.bottom-nav').waitFor();await nav(page,'学习');
+    await page.reload();await page.locator('.bottom-nav').waitFor();await nav(page,'单词');
     assert.match(await page.locator('#word-session-choice').innerText(),/20 个/);
     await tapStart(page);await page.locator('.word-card').waitFor();
     const session=await saved(page,wordKey);assert.equal(session.mode,'free');assert.equal(session.path,'frequency');assert.equal(session.wordIds.length,20);
   });
   await check('top-sentence-start-uses-selected-mode-length-and-count',async page=>{
-    await nav(page,'句库');await enabled(page);
+    await nav(page,'句子');await enabled(page);
     await page.locator('.sentence-mode-grid button').last().click();
     await page.getByRole('button',{name:'20 句',exact:true}).click();
     await page.locator('.sentence-band-switch button').nth(1).click();await enabled(page);
@@ -87,7 +87,7 @@ for(const engine of ['chromium','webkit']){
     const session=await saved(page,sentenceKey);assert.equal(session.sentenceIds.length,20);assert.ok(session.sentenceIds.every(id=>id>1000&&id<=2000));
   });
   await check('top-sentence-start-stays-disabled-until-selected-pack-arrives',async(page,context)=>{
-    await nav(page,'句库');await enabled(page);
+    await nav(page,'句子');await enabled(page);
     let release;const gate=new Promise(resolve=>{release=resolve;});
     await context.route(/tatoeba-sentences-2\.json/,async route=>{await gate;await route.continue().catch(()=>{});});
     try{
@@ -100,7 +100,7 @@ for(const engine of ['chromium','webkit']){
     }finally{release();}
   });
   await check('top-start-resumes-same-sentence-and-protects-explicit-replacement',async page=>{
-    await nav(page,'句库');await enabled(page);await tapStart(page);await page.locator('.sentence-study-card').waitFor();
+    await nav(page,'句子');await enabled(page);await tapStart(page);await page.locator('.sentence-study-card').waitFor();
     await page.locator('.learn-actions .secondary-action').click();
     await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();await enabled(page);
     const before=await saved(page,sentenceKey);
@@ -112,7 +112,7 @@ for(const engine of ['chromium','webkit']){
     await page.keyboard.press('Escape');assert.deepEqual((await saved(page,sentenceKey)).ratings,before.ratings);
   });
   await check('top-pattern-start-uses-selected-scene-with-hidden-recall-answer',async page=>{
-    await nav(page,'句库');await page.getByRole('button',{name:'核心句型',exact:true}).click();
+    await nav(page,'句子');await page.getByRole('button',{name:'核心句型',exact:true}).click();
     await page.locator('.pattern-category-grid button').filter({hasText:'购物'}).click();
     await page.evaluate(()=>window.scrollTo(0,0));await enabled(page,patternStartLabel);
     assert.match(await page.locator('#pattern-session-choice').innerText(),/购物/);
@@ -123,7 +123,7 @@ for(const engine of ['chromium','webkit']){
     assert.equal(await page.getByRole('button',{name:'慢速播放',exact:true}).isDisabled(),true);
   });
   await check('top-pattern-start-retains-substitution-and-protects-changed-scene',async page=>{
-    await nav(page,'句库');await page.getByRole('button',{name:'核心句型',exact:true}).click();
+    await nav(page,'句子');await page.getByRole('button',{name:'核心句型',exact:true}).click();
     await tapStart(page,patternStartLabel);await page.locator('.pattern-prompt').waitFor();
     await page.getByRole('button',{name:'我说好了，查看参考答案',exact:true}).click();
     await page.getByRole('button',{name:'下一组 ›',exact:true}).click();

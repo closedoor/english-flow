@@ -20,7 +20,7 @@ const reveal = page => page.getByRole("button", { name: "我说好了，查看�
 async function setup(page, category = "全部") {
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
-  await nav(page, "句库");
+  await nav(page, "句子");
   await page.getByRole("button", { name: "核心句型", exact: true }).click();
   await page.locator(".pattern-category-grid button").filter({ hasText: category }).click();
 }

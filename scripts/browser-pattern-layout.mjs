@@ -131,7 +131,7 @@ for (const engine of ["chromium", "webkit"]) {
     const errors = []; page.on("pageerror", error => errors.push(error.message));
     try {
       await page.goto(origin); await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
-      await page.locator(".bottom-nav button").filter({ hasText: "句库" }).click();
+      await page.locator(".bottom-nav button").filter({ hasText: "句子" }).click();
       await page.getByRole("button", { name: "核心句型", exact: true }).click();
       await page.getByRole("button", { name: "开始句型替换练习", exact: true }).click();
       await page.locator(".pattern-prompt").waitFor();

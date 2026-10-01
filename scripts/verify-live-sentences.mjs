@@ -18,7 +18,7 @@ for(const engine of ['chromium','webkit']){
  const page=await context.newPage();page.setDefaultTimeout(25000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
  try{
   const url=new URL('/',base);url.searchParams.set('ef-update',expected);const response=await page.goto(url.href,{waitUntil:'domcontentloaded'});assert.equal(response.status(),200);assert.equal(await page.title(),'词流英语');assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'),expected);
-  await page.locator('.bottom-nav').waitFor();await page.locator('.bottom-nav button').filter({hasText:'句库'}).click();await page.waitForFunction(()=>{const b=document.querySelector('.sentence-page .setup-start');return b&&!b.disabled;});await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.sentence-translation').waitFor();
+  await page.locator('.bottom-nav').waitFor();await page.locator('.bottom-nav button').filter({hasText:'句子'}).click();await page.waitForFunction(()=>{const b=document.querySelector('.sentence-page .setup-start');return b&&!b.disabled;});await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.sentence-translation').waitFor();
   let offset=0;const checks=[];
   for(const action of ['first','next','known','difficult']){
    if(action==='next')await page.getByRole('button',{name:'下一句 ›',exact:true}).click();

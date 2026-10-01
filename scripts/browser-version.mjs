@@ -28,7 +28,7 @@ for(const engine of ['chromium','webkit']){
  });
  await check('failed-version-check-leaves-learning-usable','error',async page=>{
   await progress(page);await page.getByText('暂时无法检查更新；当前学习和记录不受影响。',{exact:true}).waitFor();
-  await page.locator('.bottom-nav button').filter({hasText:'学习'}).click();await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();
+  await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();
  });
  await check('unsaved-or-concurrently-changed-records-block-update','new',async page=>{
   await progress(page);await page.getByRole('button',{name:'更新并保留进度',exact:true}).waitFor();
@@ -60,11 +60,11 @@ for(const engine of ['chromium','webkit']){
   assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
  });
  await check('new-release-notice-keeps-the-active-word-group','new',async page=>{
-  await page.locator('.bottom-nav button').filter({hasText:'学习'}).click();await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();
+  await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();
   assert.ok(await page.getByRole('button',{name:'更新并保留进度',exact:true}).isDisabled());assert.equal(await page.locator('.word-auto-controls').count(),1);assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
  });
  await check('reset-progress-keeps-version-update-snapshot-consistent','new',async page=>{
-  await page.locator('.bottom-nav button').filter({hasText:'学习'}).click();
+  await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();
   await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
   await page.locator('.word-card').waitFor();
   await progress(page);

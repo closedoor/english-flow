@@ -59,9 +59,10 @@ for (const engine of ['chromium', 'webkit']) {
   await check('all-modules-and-widths', async page => {
     await ready(page);
     assert.equal(await page.title(),'词流英语');
+    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(), ['今天','单词','句子','阅读','复习','进度']);
     for (const width of [320,375,390,480,1280]) {
       await page.setViewportSize({width,height:800});
-      for (const label of ['今天','学习','句库','阅读','复习','进度']) {
+      for (const label of ['今天','单词','句子','阅读','复习','进度']) {
         await nav(page,label);
         await page.locator('.page h1').first().waitFor();
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1), `${label} overflows at ${width}px`);
@@ -69,7 +70,7 @@ for (const engine of ['chromium', 'webkit']) {
     }
   });
   await check('word-progress-reload', async page => {
-    await ready(page); await nav(page,'学习');
+    await ready(page); await nav(page,'单词');
     await page.getByRole('button',{name:'自由学习',exact:false}).click();
     await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
     await page.locator('.word-heading h2').waitFor();
@@ -178,7 +179,7 @@ for (const engine of ['chromium', 'webkit']) {
   });
   await check('blocked-storage-usable', async (page,context) => {
     await context.addInitScript(()=>{Storage.prototype.setItem=function(){throw new DOMException('Blocked','QuotaExceededError');};});
-    await ready(page); await nav(page,'学习');
+    await ready(page); await nav(page,'单词');
     await page.locator('.storage-warning').waitFor();
     await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
     await page.locator('.word-heading h2').waitFor();
@@ -188,7 +189,7 @@ for (const engine of ['chromium', 'webkit']) {
   await check('two-windows-preserve-latest', async (page,context) => {
     await ready(page);
     const other=await context.newPage(); other.setDefaultTimeout(12000); await ready(other);
-    await nav(page,'学习');
+    await nav(page,'单词');
     await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
     await page.locator('.learn-actions .secondary-action').click();
     await other.locator('.sync-dialog').waitFor();
@@ -198,7 +199,7 @@ for (const engine of ['chromium', 'webkit']) {
   });
   await check(engine === 'chromium' ? 'offline-reload-all-modules' : 'offline-loaded-content-navigation', async (page,context) => {
     await ready(page);
-    await nav(page,'句库');
+    await nav(page,'句子');
     await page.waitForFunction(()=>performance.getEntriesByType('resource').some(x=>x.name.includes('tatoeba-sentences-1')));
     await nav(page,'阅读'); await page.locator('.reading-card').first().waitFor();
     await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistration())?.active?.state === 'activated', null, {timeout:30000});
@@ -212,7 +213,7 @@ for (const engine of ['chromium', 'webkit']) {
       assert.notEqual(await page.evaluate(() => window.__auditDocumentId), documentId, 'Offline test must create a new document');
     }
     await page.locator('.offline-status').waitFor();
-    for (const label of ['学习','句库','阅读','复习','进度']) {
+    for (const label of ['单词','句子','阅读','复习','进度']) {
       await nav(page,label); await page.locator('.page h1').first().waitFor();
     }
     await nav(page,'阅读'); await page.locator('.reading-card').first().click();
@@ -221,8 +222,8 @@ for (const engine of ['chromium', 'webkit']) {
   for (const kind of ['word', 'sentence']) {
     await check(`${kind}-pinch-and-swipe`, async page => {
       await ready(page);
-      if (kind === 'word') await nav(page, '学习');
-      else await nav(page, '句库');
+      if (kind === 'word') await nav(page, '单词');
+      else await nav(page, '句子');
       await page.getByRole('button', {name:'开始这组学习', exact:true}).click();
       const card = page.locator(kind === 'word' ? '.word-card' : '.sentence-study-card');
       const key = kind === 'word' ? keys.word : keys.sentence;

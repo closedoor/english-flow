@@ -48,7 +48,7 @@ async function runSentenceMaintenanceChecks(check, origin) {
     }, { key: preferencesKey, choices: seedChoices, extra });
     await page.goto(origin, { waitUntil: 'domcontentloaded' });
     await page.locator('.bottom-nav').waitFor();
-    await page.locator('.bottom-nav button').filter({ hasText: '句库' }).click();
+    await page.locator('.bottom-nav button').filter({ hasText: '句子' }).click();
     await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
   }
   async function retainedChoices(page) {
@@ -185,7 +185,7 @@ for (const engine of ['chromium', 'webkit']) {
 
   await check('word-new-search-and-band-start-at-first-result-without-losing-lookup-return', async page => {
     await ready(page);
-    await nav(page, '学习');
+    await nav(page, '单词');
     const list = page.locator('.library-list');
     await list.evaluate(element => { element.scrollTop = 1000; });
     await page.locator('.rank-switch button').nth(1).click();
@@ -220,7 +220,7 @@ for (const engine of ['chromium', 'webkit']) {
 
   await check('sentence-new-query-starts-at-first-result-without-resetting-more-or-return', async page => {
     await ready(page);
-    await nav(page, '句库');
+    await nav(page, '句子');
     const search = page.getByRole('searchbox', { name: '搜索长短句' });
     await search.fill('I');
     await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();
@@ -252,7 +252,7 @@ for (const engine of ['chromium', 'webkit']) {
 
   await check('sentence-late-content-does-not-reset-the-current-search-scroll', async (page, context) => {
     await ready(page);
-    await nav(page, '句库');
+    await nav(page, '句子');
     await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
     let mediumRoute;
     let mediumRequested;

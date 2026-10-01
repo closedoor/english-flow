@@ -42,6 +42,7 @@ for(const name of ['chromium','webkit']){
     assert.equal(response.status(),200);assert.equal(await page.title(),'词流英语');
     assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'),expected);
     await page.locator('.bottom-nav').waitFor();
+    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(), ['今天','单词','句子','阅读','复习','进度']);
     // Resolve the asynchronous registration lookup in Node, rather than
     // allowing a truthy Promise or an installing worker to satisfy a poll.
     const deadline=Date.now()+30000;
@@ -62,7 +63,7 @@ for(const name of ['chromium','webkit']){
     });
     assert.ok(cached,'The real worker must complete its app-shell cache, not merely register');
     assert.match(cached.type,/json|manifest/);assert.equal(cached.manifest.name,'词流英语');
-    await page.locator('.bottom-nav button').filter({hasText:'学习'}).click();
+    await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();
     await verifyTopStart(page, 'learn');
     await page.getByRole('button',{name:'自由学习',exact:false}).click();
     await page.getByRole('button',{name:'10 个',exact:true}).click();
@@ -88,7 +89,7 @@ for(const name of ['chromium','webkit']){
     await page.reload();await page.locator('.word-card').waitFor();
     assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1')),snapshot);
     assert.ok((await page.locator('.word-auto-build').innerText()).includes(expected.slice(0,7)));
-    await page.locator('.bottom-nav button').filter({hasText:'句库'}).click();
+    await page.locator('.bottom-nav button').filter({hasText:'句子'}).click();
     await page.waitForFunction(() => { const button=document.querySelector('.sentence-page .setup-start'); return button && !button.disabled; });
     await verifyTopStart(page, 'sentences');
     const startBox = await page.locator('.setup-start').boundingBox();
