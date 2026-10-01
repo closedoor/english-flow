@@ -229,6 +229,9 @@ for (const engine of ['chromium', 'webkit']) {
       assert.equal(await page.locator('.pattern-answer').count(), 0, 'Each substitution starts with recall');
       assert.equal(await page.locator('.pattern-card-actions .learn-actions').count(), 0, 'Rating waits for the final revealed substitution');
       const reveal = page.getByRole('button', { name: '我说好了，查看参考答案', exact: true });
+      // A committed storage snapshot can precede the navigation animation frame.
+      // Let the rendered question settle before scrolling its recall control.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await reveal.evaluate(button => button.scrollIntoView({ block: 'center', behavior: 'auto' }));
       await tapVisible(page, reveal);
       await page.locator('.pattern-answer').waitFor();

@@ -10,6 +10,12 @@ const results = [];
 const stored = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), sessionKey);
 const buttons = page => page.locator(".pattern-card-actions .pattern-drill-pager button, .pattern-card-actions .learn-actions button");
 
+async function navigationPaint(page) {
+  // Persisted state and scrollY=0 can be observable before the navigation effect's
+  // queued frame runs. Let that frame paint before a subsequent user content scroll.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+
 async function geometry(page) {
   return page.evaluate(() => {
     const actions = document.querySelector(".pattern-card-actions");
@@ -49,6 +55,7 @@ async function tap(page, locator) {
 async function reveal(page) {
   assert.equal(await page.locator(".pattern-answer").count(), 0, "Recall keeps the complete English answer hidden");
   assert.equal(await page.getByRole("button", { name: "慢速播放", exact: true }).isDisabled(), true);
+  await navigationPaint(page);
   // Reading/revealing is content interaction; repeated navigation below must work without scrolling.
   await page.locator(".reveal-answer").evaluate(button => button.scrollIntoView({ block: "center" }));
   await tap(page, page.getByRole("button", { name: "我说好了，查看参考答案", exact: true }));
@@ -62,6 +69,7 @@ async function move(page, direction, drillIndex) {
   await tap(page, page.getByRole("button", { name: direction > 0 ? "下一组 ›" : "‹ 上一组", exact: true }));
   await page.waitForFunction(({ key, drillIndex }) => JSON.parse(localStorage.getItem(key))?.drillIndex === drillIndex, { key: sessionKey, drillIndex });
   assert.equal(await page.locator(".pattern-answer").count(), 0);
+  await navigationPaint(page);
   await page.waitForFunction(() => scrollY <= 1);
   assert.ok(await page.evaluate(() => scrollY <= 1), "Changing substitution starts at the top with navigation still reachable");
 }
@@ -127,6 +135,7 @@ for (const engine of ["chromium", "webkit"]) {
       await page.getByRole("button", { name: "核心句型", exact: true }).click();
       await page.getByRole("button", { name: "开始句型替换练习", exact: true }).click();
       await page.locator(".pattern-prompt").waitFor();
+      await navigationPaint(page);
       if (item.stress) await page.addStyleTag({ content: "html{font-size:24px}.learn-page{padding-top:83px}.bottom-nav{height:108px;padding-bottom:34px}.learn-page>.word-card-actions{bottom:108px}.speech-warning{font-size:18px}" });
       assert.equal(await page.evaluate(() => window.__patternLayoutSpeech.log.length), 0);
       assert.equal(await page.locator(".pattern-answer").count(), 0);
@@ -165,6 +174,7 @@ for (const engine of ["chromium", "webkit"]) {
         await page.waitForTimeout(380); // The product guards accidental double ratings for 350 ms.
         await tap(page, page.getByRole("button", { name: "掌握句型", exact: true }));
         await page.waitForFunction(key => JSON.parse(localStorage.getItem(key))?.index === 1, sessionKey);
+        await navigationPaint(page);
         assert.equal((await stored(page)).drillIndex, 0);
         assert.equal(await page.locator(".pattern-answer").count(), 0);
         assert.equal(await page.evaluate(() => window.__patternLayoutSpeech.active), null, "Advancing cancels the prior manual answer audio");
