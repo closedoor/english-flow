@@ -14,7 +14,7 @@ const session = await import(`data:text/javascript;base64,${Buffer.from(compile(
 const extract = (start, end) => page.slice(page.indexOf(start), page.indexOf(end, page.indexOf(start)));
 const dates = extract("function localDateKey", "function isValidStudyDate");
 const renderCode = compile(`${dates}\n${extract("const renderReview =", "const renderProgress =")}\nrenderReview();`);
-const ratingCode = compile(`${extract("const rateReview =", "const markWordbookMastered =")}\nrateReview;`);
+const ratingCode = compile(`${extract("const releaseReviewActionLock =", "const rememberReviewAction =")}\n${extract("const rateReview =", "const markWordbookMastered =")}\nrateReview;`);
 const day = 86_400_000;
 const now = new Date(2026, 8, 5, 12, 0).getTime();
 const textOf = (node) => node == null || typeof node === "boolean" ? "" : typeof node !== "object" ? String(node) : (Array.isArray(node) ? node : node.children).map(textOf).join("");
@@ -35,10 +35,10 @@ function render({ schedule = {}, stage, history = true } = {}) {
     reviewIndex: 0, reviewRevealedWordId: 1, reviewUndo: null, hasWordStudyHistory: history,
     nextReviewDue: session.nextScheduledReview(schedule, now), todayKey: "2026-09-05",
     reviewHeadingRef: {}, reviewAnswerRef: {}, commonHeader: () => null,
-    highlightedExample: () => "An example sentence.", reviewActionLock: { current: false },
+    highlightedExample: () => "An example sentence.", reviewActionLock: { current: false }, reviewActionReleaseRef: { current: null },
     noteStudyDay() {}, rememberReviewAction() {}, saveMastered() {}, saveDifficult() {}, setReviewIndex() {}, setReviewRevealedWordId() {},
     saveSchedule(update) { writes.push(update(schedule)); },
-    DAY: day, REVIEW_AGAIN_DELAY: 600_000, window: { setTimeout() {} },
+    DAY: day, REVIEW_AGAIN_DELAY: 600_000, window: { setTimeout() { return 1; }, clearTimeout() {} },
     Date: class extends Date { static now() { return now; } },
     React: { createElement: (tag, props, ...children) => ({ tag, props: props ?? {}, children }) },
   });

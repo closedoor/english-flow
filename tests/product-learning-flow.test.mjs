@@ -33,7 +33,7 @@ function quiz() {
   const lock = { current: { submitted: -1, advanced: -1 } };
   const render = () => {
     const setters = Object.fromEntries(Object.keys(state).map((key) => [`set${key[0].toUpperCase()}${key.slice(1)}`, (value) => { state[key] = value; }]));
-    const context = vm.createContext({ ...helpers, ...state, ...setters, React, quizActionLock: lock, quizWord: state.sessionWords[state.quizIndex], quizInputRef: {}, quizNextRef: {}, resultPrimaryRef: {}, mastered: [], difficultSet: new Set([2, 3]),
+    const context = vm.createContext({ ...helpers, ...state, ...setters, React, quizActionLock: lock, quizWord: state.sessionWords[state.quizIndex], quizInputRef: {}, quizNextRef: {}, quizActionsRef: {}, quizFeedbackRef: {}, resultPrimaryRef: {}, mastered: [], difficultSet: new Set([2, 3]),
       noteStudyDay() {}, markMastered(id) { marks.correct.push(id); }, addDifficult(id) { marks.wrong.push(id); }, blankSentence: () => "____", playSpeech() {},
     });
     const handlers = vm.runInContext(quizCode, context);
@@ -143,7 +143,7 @@ test("single-word group and lookup sessions retain their navigation identity thr
 
 const reviewCode = compile([
   extract("const markMastered =", "const startSession ="),
-  extract("const rememberReviewAction =", "const markWordbookMastered ="),
+  extract("const releaseReviewActionLock =", "const markWordbookMastered ="),
   extract("const markWordbookMastered =", "const commonHeader ="),
   "({ rateReview, markWordbookMastered, undoReviewAction });",
 ].join("\n"));
@@ -151,9 +151,10 @@ function review({ scheduled = true, known = false } = {}) {
   const original = { due: Date.now() - 60_000, stage: 3 };
   const state = { mastered: known ? [1, 3] : [3], difficult: known ? [2] : [1, 2], schedule: { ...(scheduled ? { 1: original } : {}), 2: { due: 1, stage: 1 } }, reviewIndex: 1, reviewRevealedWordId: 1, reviewUndo: null };
   const lock = { current: false };
+  const release = { current: null };
   const render = () => vm.runInNewContext(reviewCode, {
     ...helpers, ...state, dueWords: [words[1], words[0]], wordbookWords: words.filter((word) => state.difficult.includes(word.id)),
-    reviewActionLock: lock, window: { setTimeout() {} }, DAY: 86_400_000, REVIEW_AGAIN_DELAY: 600_000, noteStudyDay() {},
+    reviewActionLock: lock, reviewActionReleaseRef: release, window: { setTimeout() { return 1; }, clearTimeout() {} }, DAY: 86_400_000, REVIEW_AGAIN_DELAY: 600_000, noteStudyDay() {},
     saveMastered: (update) => { state.mastered = update(state.mastered); }, saveDifficult: (update) => { state.difficult = update(state.difficult); }, saveSchedule: (update) => { state.schedule = update(state.schedule); },
     setReviewIndex: (value) => { state.reviewIndex = value; }, setReviewRevealedWordId: (value) => { state.reviewRevealedWordId = value; }, setReviewUndo: (value) => { state.reviewUndo = value; },
   });

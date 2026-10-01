@@ -5,15 +5,16 @@ const pw=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
 const origin=process.env.BROWSER_TEST_URL||'http://127.0.0.1:4173';
 if(!['localhost','127.0.0.1','[::1]'].includes(new URL(origin).hostname)) throw Error('Synthetic setup records must stay on a local origin.');
 const results=[];
-const wordKey='wordflow-active-session-v1',sentenceKey='wordflow-sentence-active-session-v1';
-const start=page=>page.getByRole('button',{name:'开始这组学习',exact:true});
+const wordKey='wordflow-active-session-v1',sentenceKey='wordflow-sentence-active-session-v1',patternKey='wordflow-pattern-active-session-v1';
+const patternStartLabel='开始句型替换练习';
+const start=(page,label='开始这组学习')=>page.getByRole('button',{name:label,exact:true});
 const nav=(page,text)=>page.locator('.bottom-nav button').filter({hasText:text}).click();
 const saved=(page,key)=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)||'null'),key);
 async function ready(page){await page.goto(origin,{waitUntil:'domcontentloaded'});await page.locator('.bottom-nav').waitFor();}
-async function enabled(page){await page.waitForFunction(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='开始这组学习');return b&&!b.disabled;});}
-async function topStart(page){
-  assert.equal(await start(page).count(),1);
-  const m=await start(page).evaluate(button=>{
+async function enabled(page,label='开始这组学习'){await page.waitForFunction(label=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent===label);return b&&!b.disabled;},label);}
+async function topStart(page,label='开始这组学习'){
+  assert.equal(await start(page,label).count(),1);
+  const m=await start(page,label).evaluate(button=>{
     const r=button.getBoundingClientRect(),section=button.closest('section');
     const h=section.querySelector('header').getBoundingClientRect(),options=section.querySelector('.setup-block').getBoundingClientRect();
     return {x:r.x,y:r.y,width:r.width,height:r.height,bottom:r.bottom,headerBottom:h.bottom,optionsTop:options.top,navTop:document.querySelector('.bottom-nav').getBoundingClientRect().top,scrollY,viewport:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,hit:button.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),position:getComputedStyle(button).position};
@@ -26,7 +27,7 @@ async function topStart(page){
   assert.equal(m.overflow,false);assert.equal(m.position,'static');
   return m;
 }
-async function tapStart(page){const m=await topStart(page);await page.mouse.click(m.x+m.width/2,m.y+m.height/2);}
+async function tapStart(page,label='开始这组学习'){const m=await topStart(page,label);await page.mouse.click(m.x+m.width/2,m.y+m.height/2);}
 for(const engine of ['chromium','webkit']){
   const browser=await pw[engine].launch({headless:true});
   async function check(name,fn,viewport={width:390,height:844},largeText=false){
@@ -49,15 +50,22 @@ for(const engine of ['chromium','webkit']){
   if(process.env.SETUP_START_BASELINE==='1'){
     await check('before-change-positions',async page=>{
       for(const tabLabel of ['学习','句库']){await nav(page,tabLabel);await enabled(page);console.log('SETUP_START_BASELINE',JSON.stringify({engine,tabLabel,...await topStart(page)}));}
+      await page.getByRole('button',{name:'核心句型',exact:true}).click();await enabled(page,patternStartLabel);
+      console.log('SETUP_START_BASELINE',JSON.stringify({engine,tabLabel:'核心句型',...await topStart(page,patternStartLabel)}));
     });
     await browser.close();continue;
   }
   for(const [label,width,height,largeText] of [['small-phone',320,568,false],['compact-phone',375,667,false],['browser-bars',390,700,false],['reported-phone',390,844,false],['large-text',430,932,true],['desktop',1280,900,false]]){
-    await check(`${label}-both-module-starts-directly-tappable`,async page=>{
+    await check(`${label}-all-three-module-starts-directly-tappable`,async page=>{
       await nav(page,'学习');await tapStart(page);await page.locator('.word-card').waitFor();
       assert.equal((await saved(page,wordKey)).wordIds.length,10);
       await nav(page,'句库');await enabled(page);await tapStart(page);await page.locator('.sentence-study-card').waitFor();
       assert.equal((await saved(page,sentenceKey)).sentenceIds.length,10);
+      await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
+      await page.getByRole('button',{name:'核心句型',exact:true}).click();await enabled(page,patternStartLabel);
+      await tapStart(page,patternStartLabel);await page.locator('.pattern-prompt').waitFor();
+      assert.equal((await saved(page,patternKey)).patternIds.length,10);
+      assert.equal(await page.locator('.pattern-answer').count(),0);
     },{width,height},largeText);
   }
   await check('top-word-start-uses-restored-twenty-word-free-choices',async page=>{
@@ -102,6 +110,41 @@ for(const engine of ['chromium','webkit']){
     await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
     await page.getByRole('button',{name:'另开新一组',exact:true}).click();await page.locator('[aria-modal="true"]').waitFor();
     await page.keyboard.press('Escape');assert.deepEqual((await saved(page,sentenceKey)).ratings,before.ratings);
+  });
+  await check('top-pattern-start-uses-selected-scene-with-hidden-recall-answer',async page=>{
+    await nav(page,'句库');await page.getByRole('button',{name:'核心句型',exact:true}).click();
+    await page.locator('.pattern-category-grid button').filter({hasText:'购物'}).click();
+    await page.evaluate(()=>window.scrollTo(0,0));await enabled(page,patternStartLabel);
+    assert.match(await page.locator('#pattern-session-choice').innerText(),/购物/);
+    await tapStart(page,patternStartLabel);await page.locator('.pattern-prompt').waitFor();
+    const session=await saved(page,patternKey);assert.equal(session.category,'shopping');
+    assert.equal(session.index,0);assert.equal(session.drillIndex,0);assert.deepEqual(session.ratings,{});
+    assert.equal(await page.locator('.pattern-answer').count(),0);
+    assert.equal(await page.getByRole('button',{name:'慢速播放',exact:true}).isDisabled(),true);
+  });
+  await check('top-pattern-start-retains-substitution-and-protects-changed-scene',async page=>{
+    await nav(page,'句库');await page.getByRole('button',{name:'核心句型',exact:true}).click();
+    await tapStart(page,patternStartLabel);await page.locator('.pattern-prompt').waitFor();
+    await page.getByRole('button',{name:'我说好了，查看参考答案',exact:true}).click();
+    await page.getByRole('button',{name:'下一组 ›',exact:true}).click();
+    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key))?.drillIndex===1,patternKey);
+    const before=await saved(page,patternKey),rotation=await page.evaluate(()=>localStorage.getItem('wordflow-practice-rotation-v1'));
+    await page.getByRole('button',{name:'返回句型设置并保留进度',exact:true}).click();
+    await tapStart(page,patternStartLabel);await page.locator('.pattern-prompt').waitFor();
+    assert.equal(await page.locator('[aria-modal="true"]').count(),0);
+    assert.deepEqual(await saved(page,patternKey),before);
+    assert.equal(await page.locator('.pattern-answer').count(),0);
+    assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-practice-rotation-v1')),rotation);
+    await page.getByRole('button',{name:'返回句型设置并保留进度',exact:true}).click();
+    await page.locator('.pattern-category-grid button').filter({hasText:'出行'}).click();
+    await page.evaluate(()=>window.scrollTo(0,0));
+    await tapStart(page,patternStartLabel);await page.locator('[aria-modal="true"]').waitFor();
+    await page.getByRole('button',{name:'保留进度',exact:true}).click();
+    assert.deepEqual(await saved(page,patternKey),before);
+    await tapStart(page,patternStartLabel);
+    await page.getByRole('button',{name:'结束并开始新练习',exact:true}).click();await page.locator('.pattern-prompt').waitFor();
+    assert.equal((await saved(page,patternKey)).category,'travel');
+    assert.equal(await page.locator('.pattern-answer').count(),0);
   });
   await browser.close();
 }

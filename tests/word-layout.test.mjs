@@ -12,7 +12,7 @@ test('word-card reading and both action rows precede secondary autoplay settings
 });
 test('primary mobile actions respect the bottom navigation and retain scrollable long content',()=>{
  assert.match(css,/\.learn-page>\.word-card-actions\{position:sticky;bottom:calc\(74px \+ env\(safe-area-inset-bottom\)\)/);
- assert.match(css,/\.phone-stage:has\(\.learn-page\)\{overflow-x:clip;overflow-y:visible\}/);
+ assert.match(css,/\.phone-stage:has\(\.learn-page\),\.phone-stage:has\(\.quiz-page\)\{overflow-x:clip;overflow-y:visible\}/);
  assert.doesNotMatch(cards,/overflow:\s*hidden|line-clamp|height:\s*100/);
  for(const handler of ['moveCard(-1)','moveCard(1)','finishCard(false)','finishCard(true)','toggleWordExamples','replayWordExample'])assert.ok(cards.includes(handler));
 });

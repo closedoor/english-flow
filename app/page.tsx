@@ -522,8 +522,11 @@ export default function Home() {
   const patternActionLock = useRef(false);
   const quizActionLock = useRef({ submitted: -1, advanced: -1 });
   const reviewActionLock = useRef(false);
+  const reviewActionReleaseRef = useRef<number | null>(null);
   const quizInputRef = useRef<HTMLInputElement | null>(null);
   const quizNextRef = useRef<HTMLButtonElement | null>(null);
+  const quizFeedbackRef = useRef<HTMLDivElement | null>(null);
+  const quizActionsRef = useRef<HTMLDivElement | null>(null);
   const installCloseRef = useRef<HTMLButtonElement | null>(null);
   const installSheetRef = useRef<HTMLDivElement | null>(null);
   const discardCancelRef = useRef<HTMLButtonElement | null>(null);
@@ -568,6 +571,10 @@ export default function Home() {
   const patternSetupCategoryRef = useRef<"all" | PatternCategory>("all");
   const practiceRotationRef = useRef<PracticeRotation>({ word: 0, sentence: 0, pattern: 0 });
 
+  useEffect(() => () => {
+    if (reviewActionReleaseRef.current !== null) window.clearTimeout(reviewActionReleaseRef.current);
+  }, []);
+
   useEffect(() => {
     const showStorageError = () => setStorageWriteError(true);
     window.addEventListener(STORAGE_ERROR_EVENT, showStorageError);
@@ -595,9 +602,11 @@ export default function Home() {
 
   useEffect(() => {
     const stack = statusToastRef.current;
-    const actions = wordActionsRef.current;
+    const actions = tab === "learn" && learnStage === "quiz" ? quizActionsRef.current : wordActionsRef.current;
     const visibleCards = (tab === "learn" && learnStage === "cards")
-      || (tab === "sentences" && sentenceSection === "library" && sentenceStage === "cards");
+      || (tab === "learn" && learnStage === "quiz")
+      || (tab === "sentences" && sentenceSection === "library" && sentenceStage === "cards")
+      || (tab === "sentences" && sentenceSection === "patterns" && patternStage === "cards");
     if (!stack || !actions || !visibleCards) return;
     const alignNotice = () => {
       const style = window.getComputedStyle(actions);
@@ -621,7 +630,7 @@ export default function Home() {
       window.removeEventListener("scroll", alignNotice);
       stack.style.removeProperty("bottom");
     };
-  }, [hydrated, index, learnStage, networkOnline, offlineCacheWriteError, sentenceIndex, sentenceSection, sentenceStage, speechNotice, statusToastHeight, tab]);
+  }, [hydrated, index, learnStage, networkOnline, offlineCacheWriteError, patternAnswerOpen, patternDrillIndex, patternIndex, patternStage, quizFeedback, quizIndex, sentenceIndex, sentenceSection, sentenceStage, speechNotice, statusToastHeight, tab]);
 
   useEffect(() => {
     const handleSpeechPlayback = (event: Event) => {
@@ -662,11 +671,12 @@ export default function Home() {
       if (event.storageArea && event.storageArea !== window.localStorage) return;
       if (event.key !== null && !STORAGE_KEYS.includes(event.key as StorageKey)) return;
       stopSpeech();
+      if (!externalUpdateDetected) setBackupNotice(null);
       setExternalUpdateDetected(true);
     };
     window.addEventListener("storage", handleExternalStorageUpdate);
     return () => window.removeEventListener("storage", handleExternalStorageUpdate);
-  }, [hydrated]);
+  }, [externalUpdateDetected, hydrated]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -1096,15 +1106,6 @@ export default function Home() {
   }, [activeDialog]);
 
   useEffect(() => {
-    if (hasOpenDialog || tab !== "learn" || learnStage !== "quiz") return;
-    const frame = window.requestAnimationFrame(() => {
-      if (quizFeedback) quizNextRef.current?.focus({ preventScroll: true });
-      else quizInputRef.current?.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [hasOpenDialog, learnStage, quizFeedback, quizIndex, tab]);
-
-  useEffect(() => {
     const visibleResult = (tab === "learn" && learnStage === "result")
       || (tab === "sentences" && sentenceSection === "library" && sentenceStage === "result")
       || (tab === "sentences" && sentenceSection === "patterns" && patternStage === "result");
@@ -1124,10 +1125,6 @@ export default function Home() {
       sentenceAnswerRef.current?.focus({ preventScroll: true });
     }
   }, [hasOpenDialog, sentenceMode, sentenceStage, sentenceTranslationOpen]);
-
-  useEffect(() => {
-    if (!hasOpenDialog && patternStage === "cards" && patternAnswerOpen) patternAnswerRef.current?.focus({ preventScroll: true });
-  }, [hasOpenDialog, patternAnswerOpen, patternStage]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1162,6 +1159,47 @@ export default function Home() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [hydrated, index, learnStage, patternDrillIndex, patternIndex, patternStage, quizIndex, readingId, readingLevel, readingNavigation, reviewIndex, reviewView, sentenceIndex, sentenceSection, sentenceStage, tab]);
+
+  useEffect(() => {
+    if (hasOpenDialog || tab !== "learn" || learnStage !== "quiz") return;
+    const keepQuestionVisible = () => {
+      const target = quizFeedback ? quizFeedbackRef.current : quizInputRef.current?.parentElement;
+      if (target) {
+        const bounds = target.getBoundingClientRect();
+        const actions = quizActionsRef.current?.getBoundingClientRect();
+        const notice = statusToastRef.current?.getBoundingClientRect();
+        const bottom = Math.min(window.innerHeight - 12, actions?.top ?? window.innerHeight,
+          notice && notice.bottom > 0 && notice.top < window.innerHeight ? notice.top : window.innerHeight);
+        if (bounds.top < 12 || bounds.bottom > bottom - 12) {
+          target.scrollIntoView({ block: "center", behavior: "auto" });
+          const remaining = target.getBoundingClientRect().bottom - (bottom - 12);
+          if (remaining > 0) window.scrollBy({ top: remaining, left: 0, behavior: "auto" });
+        }
+      }
+      if (quizFeedback) quizNextRef.current?.focus({ preventScroll: true });
+      else quizInputRef.current?.focus({ preventScroll: true });
+    };
+    // Run after navigation restores the page position, including resumed tests.
+    const frame = window.requestAnimationFrame(keepQuestionVisible);
+    window.addEventListener("resize", keepQuestionVisible);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", keepQuestionVisible);
+    };
+  }, [hasOpenDialog, learnStage, networkOnline, offlineCacheWriteError, quizFeedback, quizIndex, speechNotice, statusToastHeight, tab]);
+
+  useEffect(() => {
+    if (hasOpenDialog || tab !== "sentences" || sentenceSection !== "patterns" || patternStage !== "cards" || !patternAnswerOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      const answer = patternAnswerRef.current;
+      if (!answer) return;
+      const bounds = answer.getBoundingClientRect();
+      const bottom = Math.min(window.innerHeight - 12, wordActionsRef.current?.getBoundingClientRect().top ?? window.innerHeight);
+      if (bounds.top < 12 || bounds.bottom > bottom - 12) answer.scrollIntoView({ block: "center", behavior: "auto" });
+      patternAnswerRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [hasOpenDialog, patternAnswerOpen, patternDrillIndex, patternIndex, patternStage, sentenceSection, tab]);
 
   const masteredSet = useMemo(() => new Set(mastered), [mastered]);
   const difficultSet = useMemo(() => new Set(difficult), [difficult]);
@@ -1603,6 +1641,7 @@ export default function Home() {
   const exportLearningBackup = async () => {
     if (backupActionLock.current) return;
     backupActionLock.current = true;
+    setBackupNotice(null);
     setBackupBusy("export");
     try {
       // Export the current session even when Safari cannot persist its latest
@@ -1996,12 +2035,26 @@ export default function Home() {
     setTab("learn");
   };
 
+  const releaseReviewActionLock = () => {
+    if (reviewActionReleaseRef.current !== null) window.clearTimeout(reviewActionReleaseRef.current);
+    reviewActionReleaseRef.current = null;
+    reviewActionLock.current = false;
+  };
+
+  const lockReviewAction = () => {
+    if (reviewActionLock.current) return false;
+    reviewActionLock.current = true;
+    reviewActionReleaseRef.current = window.setTimeout(releaseReviewActionLock, 350);
+    return true;
+  };
+
   const rememberReviewAction = (item: WordItem, index: number, label: string) => {
     setReviewUndo({ id: item.id, word: item.word, schedule: schedule[item.id], mastered: mastered.includes(item.id), difficult: difficult.includes(item.id), index, label });
   };
 
   const undoReviewAction = () => {
     if (!reviewUndo) return;
+    releaseReviewActionLock();
     const previous = reviewUndo;
     saveSchedule((currentSchedule) => {
       const restored = { ...currentSchedule };
@@ -2017,18 +2070,17 @@ export default function Home() {
   };
 
   const rateReview = (rating: "again" | "hard" | "good" | "easy") => {
-    if (reviewActionLock.current) return;
-    reviewActionLock.current = true;
-    window.setTimeout(() => { reviewActionLock.current = false; }, 350);
     const safeIndex = Math.min(reviewIndex, Math.max(dueWords.length - 1, 0));
     const item = dueWords[safeIndex] ?? null;
     if (!item) return;
     if (reviewRevealedWordId !== item.id) return;
+    if (!lockReviewAction()) return;
     noteStudyDay();
     const currentStage = schedule[item.id]?.stage ?? 0;
     const days = reviewIntervalDays(currentStage, rating);
     const stage = nextReviewStage(currentStage, rating);
     // Review scheduling intentionally starts from the current wall clock.
+    // eslint-disable-next-line react-hooks/purity
     const now = Date.now();
     const due = rating === "again" ? now + REVIEW_AGAIN_DELAY : now + days * DAY;
     rememberReviewAction(item, safeIndex, `已标记“${{ again: "忘了", hard: "困难", good: "记得", easy: "简单" }[rating]}” · ${rating === "again" ? "10 分钟" : `${days} 天`}后复习`);
@@ -2045,12 +2097,10 @@ export default function Home() {
   };
 
   const markWordbookMastered = (wordId: number) => {
-    if (reviewActionLock.current) return;
     if (reviewRevealedWordId !== wordId) return;
-    reviewActionLock.current = true;
-    window.setTimeout(() => { reviewActionLock.current = false; }, 350);
     const item = wordbookWords.find((word) => word.id === wordId);
     if (!item) return;
+    if (!lockReviewAction()) return;
     rememberReviewAction(item, wordbookWords.findIndex((word) => word.id === wordId), "已标记掌握，移出生词本");
     markMastered(wordId);
     noteStudyDay();
@@ -2396,14 +2446,13 @@ export default function Home() {
   const renderPatternSetup = () => {
     const difficultInSelection = availablePatterns.filter((pattern) => patternDifficult.includes(pattern.id)).length;
     return <section className="page sentence-page pattern-page">{commonHeader("核心句型替换", "30 CORE SPEAKING PATTERNS")}
+      <div className="setup-start-panel"><button className="sticky-start primary-action setup-start" aria-describedby="pattern-session-choice" disabled={!availablePatterns.length} onClick={() => startPatternSession()}>开始句型替换练习</button><p id="pattern-session-choice" className="session-choice-summary" aria-live="polite"><span>↔</span> 当前：{patternCategories.find((category) => category.id === patternCategory)?.label} · 每组最多10个句型 · 每个3次替换</p></div>
       <p className="page-intro">每个句型包含3组替换练习。先看中文自己说英文，再揭晓答案，练会同一个骨架的不同用法。</p>
       <div className="sentence-section-switch" role="group" aria-label="句子学习内容"><button aria-pressed="false" onClick={() => setSentenceSection("library")}>日常长短句</button><button className="selected" aria-pressed="true">核心句型</button></div>
       {canResumePattern && <button className="resume-session-card" onClick={resumePatternSession}><span>继续上次</span><div><b>未完成的句型替换</b><small>第 {Math.min(patternIndex + 1, patternSessionIds.length)} 个句型 · 替换 {patternDrillIndex + 1} / 3</small></div><i>›</i></button>}
       <div className="sentence-summary pattern-summary"><div><b>{corePatterns.length}</b><small>核心句型</small></div><div><b>{patternMastered.length}</b><small>已掌握</small></div><div><b>{patternDifficult.length}</b><small>待加强</small></div></div>
       <div className="setup-block"><div className="row-heading"><h2>选择使用场景</h2><small>{availablePatterns.length} 个句型</small></div><div className="sentence-categories sentence-category-grid pattern-category-grid" role="group" aria-label="句型场景">{patternCategories.map((category) => <button key={category.id} className={patternCategory === category.id ? "selected" : ""} aria-pressed={patternCategory === category.id} onClick={() => selectPatternCategory(category.id)}>{category.label}</button>)}</div></div>
       <div className="pattern-preview-list">{availablePatterns.slice(0, 6).map((pattern) => <div key={pattern.id}><span>{pattern.title}</span><b lang="en">{pattern.template}</b><small>{pattern.meaning}</small></div>)}</div>
-      <p className="session-choice-summary" aria-live="polite"><span>↔</span> 当前：{patternCategories.find((category) => category.id === patternCategory)?.label} · 每组最多10个句型 · 每个3次替换</p>
-      <button className="sticky-start primary-action" disabled={!availablePatterns.length} onClick={() => startPatternSession()}>开始句型替换练习</button>
       {canResumePattern && <button className="sentence-new-group" disabled={!availablePatterns.length} onClick={() => startPatternSession(false, true)}>另开新一组</button>}
       {difficultInSelection > 0 && <button className="sentence-review-start" onClick={() => startPatternSession(true)}>复习当前范围内 {Math.min(10, difficultInSelection)} 个待加强句型</button>}
     </section>;
@@ -2418,9 +2467,11 @@ export default function Home() {
         <div className="pattern-drill-count">替换练习 {patternDrillIndex + 1} / 3</div>
         <div className="pattern-prompt"><span>先自己说英文</span><p>{currentPatternDrill.prompt}</p></div>
         {patternAnswerOpen ? <div id={`pattern-answer-${currentPattern.id}-${patternDrillIndex}`} ref={patternAnswerRef} className="pattern-answer" tabIndex={-1} role="status" aria-live="polite" aria-atomic="true"><span>参考答案</span><p lang="en">{currentPatternDrill.answer}</p><div><small>本次替换</small><b lang="en">{currentPatternDrill.slot}</b><button onClick={() => playSpeech(currentPatternDrill.answer, .76)} aria-label="播放参考答案">♪</button></div></div> : <button className="reveal-answer" aria-expanded="false" aria-controls={`pattern-answer-${currentPattern.id}-${patternDrillIndex}`} onClick={() => setPatternAnswerOpen(true)}>我说好了，查看参考答案</button>}
-        <div className="pattern-drill-pager" role="group" aria-label="切换句型替换练习"><button disabled={patternDrillIndex === 0} onClick={() => movePatternDrill(-1)}>‹ 上一组</button><span>{patternDrillIndex + 1} / 3</span><button disabled={!patternAnswerOpen || patternDrillIndex === 2} onClick={() => movePatternDrill(1)}>下一组 ›</button></div>
       </div> : <div className="sentence-card-loading" role="status">正在恢复句型练习…</div>}
+      {currentPattern && <div className="word-card-actions pattern-card-actions" ref={wordActionsRef}>
+        <div className="pattern-drill-pager" role="group" aria-label="切换句型替换练习"><button disabled={patternDrillIndex === 0} onClick={() => movePatternDrill(-1)}>‹ 上一组</button><span>{patternDrillIndex + 1} / 3</span><button disabled={!patternAnswerOpen || patternDrillIndex === 2} onClick={() => movePatternDrill(1)}>下一组 ›</button></div>
       {currentPattern && patternAnswerOpen && patternDrillIndex === 2 && <div className="learn-actions"><button className={`secondary-action ${currentPatternRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishPattern(false)}>{currentPatternRating === "difficult" ? "✓ 继续练习" : "还需练习"}</button><button className={`primary-action ${currentPatternRating === "known" ? "is-mastered" : ""}`} onClick={() => finishPattern(true)}>{currentPatternRating === "known" ? "✓ 已掌握" : "掌握句型"}</button></div>}
+      </div>}
     </section>
   );
 
@@ -2547,10 +2598,12 @@ export default function Home() {
         {listening ? <><button className="big-listen" onClick={() => playSpeech(quizWord.example, .72)}><span aria-hidden="true">♪</span><b>播放句子</b><small>可以重复播放</small></button><p lang="en" className="blank-sentence listening-blank">{blankSentence(quizWord)}</p></> : <p lang="en" className="blank-sentence">{blankSentence(quizWord)}</p>}
         <p className="quiz-translation">{quizWord.translation}</p>
         <label className={`answer-field ${quizFeedback ?? ""}`}><span>你的答案</span><input lang="en" ref={quizInputRef} value={quizAnswer} maxLength={100} onChange={(event) => setQuizAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && !event.repeat) { event.preventDefault(); checkQuiz(); } }} autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="go" placeholder="输入英文单词或词组" disabled={Boolean(quizFeedback)} /></label>
-        {quizFeedback && <div className={`feedback-box ${quizFeedback}`} role="status" aria-live="polite"><b>{quizFeedback === "correct" ? "回答正确 ✓" : "再记一下"}</b>{quizFeedback === "wrong" && <p>正确答案：<strong lang="en">{quizWord.exampleForm ?? quizWord.word}</strong>{quizWord.exampleForm && quizWord.exampleForm !== quizWord.word ? `（词条：${quizWord.word}）` : ""}</p>}<button onClick={() => playSpeech(quizWord.example)}>♪ 听完整句</button></div>}
+        {quizFeedback && <div ref={quizFeedbackRef} className={`feedback-box ${quizFeedback}`} role="status" aria-live="polite"><b>{quizFeedback === "correct" ? "回答正确 ✓" : "再记一下"}</b>{quizFeedback === "wrong" && <p>正确答案：<strong lang="en">{quizWord.exampleForm ?? quizWord.word}</strong>{quizWord.exampleForm && quizWord.exampleForm !== quizWord.word ? `（词条：${quizWord.word}）` : ""}</p>}<button onClick={() => playSpeech(quizWord.example)}>♪ 听完整句</button></div>}
       </div>
+      <div className="quiz-actions" ref={quizActionsRef}>
       <button ref={quizNextRef} onKeyDown={(event) => { if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault(); }} className="sticky-start primary-action" disabled={!quizFeedback && !quizAnswer.trim()} onClick={() => quizFeedback ? nextQuiz() : checkQuiz()}>{quizFeedback ? (quizIndex === sessionWords.length - 1 ? "查看结果" : "下一题") : "提交答案"}</button>
       {!quizFeedback && <button className="quiz-skip text-button" onClick={() => checkQuiz(true)}>想不起来，查看答案</button>}
+      </div>
     </section>;
   };
 
@@ -2642,7 +2695,7 @@ export default function Home() {
 
   if (!wordData || !hydrated) return <main className="app-shell"><div className="phone-stage app-loading" role={storageReadError ? "alert" : "status"} aria-live="polite"><div className="loading-mark" aria-hidden="true">EN</div><b>{storageReadError ? "学习记录暂时无法读取" : wordDataLoadError ? "核心词库暂时没有加载成功" : "词流英语"}</b><span>{storageReadError ? "已暂停恢复和保存，现有记录没有被覆盖。请确认浏览器允许本机存储后重试。" : wordDataLoadError ? (networkOnline ? "已保存成功下载的数据；可以先重试缺少部分，仍失败时再重新载入页面。" : "当前处于离线状态，联网后会自动继续载入。") : wordDataLoadedPacks ? `核心词库已加载 ${wordDataLoadedPacks}/3，正在继续…` : "正在载入核心词库并恢复学习进度…"}</span>{storageReadError ? <div className="app-loading-actions"><button onClick={() => { setStorageReadError(false); setStorageReadAttempt((value) => value + 1); }}>重试读取记录</button><button onClick={() => window.location.reload()}>重新载入页面</button></div> : wordDataLoadError && <div className="app-loading-actions"><button disabled={!networkOnline} onClick={() => { setWordDataLoadError(false); setWordDataLoadedPacks(0); setWordDataLoadAttempt((value) => value + 1); }}>重试核心词库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div>}</div></main>;
 
-  return <main className="app-shell"><div className="phone-stage" style={speechNotice || offlineCacheWriteError || !networkOnline ? { paddingBottom: statusToastHeight + 64 } : undefined}>
+  return <main className="app-shell"><div className="phone-stage" style={speechNotice || offlineCacheWriteError || !networkOnline ? { paddingBottom: statusToastHeight + 64, "--status-notice-space": `${statusToastHeight + 64}px` } as React.CSSProperties : undefined}>
     <div inert={hasOpenDialog}>
     <div className="sr-only" aria-live="polite" aria-atomic="true">{screenAnnouncement}</div>
     {storageWriteError && <div className="storage-warning" role="alert"><div><b>学习记录暂未保存</b><span>请关闭 Safari 无痕浏览，并确认设备还有可用存储空间。</span></div><button aria-label="关闭保存失败提示" onClick={() => setStorageWriteError(false)}>×</button></div>}
@@ -2655,6 +2708,6 @@ export default function Home() {
     {activeDialog === "discard" && discardRequest && <div className="sheet-backdrop discard-backdrop" onClick={() => setDiscardRequest(null)}><div ref={discardDialogRef} tabIndex={-1} className="discard-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description" onClick={(event) => event.stopPropagation()}><span className="discard-icon" aria-hidden="true">↻</span><h2 id="discard-title">结束当前学习？</h2><p id="discard-description">{discardRequest.pattern ? `本组已完成 ${ratedPatternCount} / ${patternSessionIds.length} 个句型。` : discardRequest.sentence ? `本组已标记 ${ratedSentenceCount} / ${sentenceSessionIds.length} 个句子。` : learnStage === "quiz" ? `考试已完成 ${quizResults.length} / ${sessionWords.length} 题。` : `本组已标记 ${ratedCardCount} / ${sessionWords.length} 个词。`}已有记录都会保留，但未完成位置将结束。{(discardRequest.sentenceStart || discardRequest.patternStart) && "确认后会直接开始你刚刚选择的练习。"}</p><div className="discard-actions"><button ref={discardCancelRef} className="secondary-action" onClick={() => setDiscardRequest(null)}>保留进度</button><button className="discard-confirm" onClick={confirmDiscardSession}>{discardRequest.sentenceStart || discardRequest.patternStart ? "结束并开始新练习" : "结束本组"}</button></div></div></div>}
     {activeDialog === "reset" && <div className="sheet-backdrop discard-backdrop" onClick={() => setResetProgressOpen(false)}><div ref={resetDialogRef} tabIndex={-1} className="discard-dialog reset-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-description" onClick={(event) => event.stopPropagation()}><span className="discard-icon reset-icon" aria-hidden="true">!</span><h2 id="reset-title">确定重置学习进度？</h2><p id="reset-description">单词、句子、核心句型和阅读的掌握记录、待加强内容、复习计划、学习天数以及未完成课程都会被清除。<strong>句库收藏和学习偏好会保留。</strong></p><div className="discard-actions"><button ref={resetCancelRef} className="secondary-action" onClick={() => setResetProgressOpen(false)}>取消</button><button className="reset-confirm" onClick={resetLearningProgress}>确认重置</button></div></div></div>}
     {activeDialog === "restore" && pendingBackup && <div className="sheet-backdrop discard-backdrop" onClick={() => { if (!backupBusy) setPendingBackup(null); }}><div ref={restoreDialogRef} tabIndex={-1} className="discard-dialog restore-dialog" role="dialog" aria-modal="true" aria-labelledby="restore-title" aria-describedby="restore-description" aria-busy={backupBusy === "restore"} onClick={(event) => event.stopPropagation()}><span className="discard-icon restore-icon" aria-hidden="true">↥</span><h2 id="restore-title">恢复这份学习记录？</h2><p id="restore-description">备份时间：{new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(pendingBackup.exportedAt))}<br />包含 {backupItemCount(pendingBackup, STORAGE.mastered)} 个已掌握单词、{backupItemCount(pendingBackup, STORAGE.sentenceMastered)} 个已掌握句子、{backupItemCount(pendingBackup, STORAGE.patternMastered)} 个已掌握句型和 {backupItemCount(pendingBackup, STORAGE.readingCompleted)} 篇已读文章。<strong>恢复后会替换这台设备当前的全部学习记录和偏好。</strong></p><div className="discard-actions"><button ref={restoreCancelRef} disabled={backupBusy === "restore"} className="secondary-action" onClick={() => setPendingBackup(null)}>取消</button><button disabled={backupBusy === "restore"} className="restore-confirm" onClick={restoreLearningBackup}>{backupBusy === "restore" ? "正在恢复…" : "确认恢复"}</button></div></div></div>}
-    {activeDialog === "sync" && <div className="sheet-backdrop discard-backdrop sync-backdrop"><div ref={syncDialogRef} tabIndex={-1} className="discard-dialog sync-dialog" role="alertdialog" aria-modal="true" aria-labelledby="sync-title" aria-describedby="sync-description"><span className="discard-icon sync-icon" aria-hidden="true">↻</span><h2 id="sync-title">另一窗口已更新记录</h2><p id="sync-description">为避免旧页面覆盖最新学习进度，此页面已暂停。请只保留一个 English Flow 学习窗口，再载入最新记录继续。</p><button ref={syncReloadRef} className="primary-action full-button" onClick={() => window.location.reload()}>载入最新记录</button></div></div>}
+    {activeDialog === "sync" && <div className="sheet-backdrop discard-backdrop sync-backdrop"><div ref={syncDialogRef} tabIndex={-1} className="discard-dialog sync-dialog" role="alertdialog" aria-modal="true" aria-busy={backupBusy === "export"} aria-labelledby="sync-title" aria-describedby="sync-description"><span className="discard-icon sync-icon" aria-hidden="true">↻</span><h2 id="sync-title">另一窗口已更新记录</h2><p id="sync-description">此页面已暂停，以免覆盖另一窗口的新记录。如果本页有未保存的学习进度，请先导出本页备份；载入最新记录会替换本页内容。备份只包含本页记录，请分别保管，再只保留一个学习窗口继续。</p><button className="secondary-action full-button" disabled={Boolean(backupBusy)} onClick={exportLearningBackup}>{backupBusy === "export" ? "正在导出…" : "导出本页备份"}</button>{backupNotice && <div className={`backup-notice ${backupNotice.kind}`} role={backupNotice.kind === "error" ? "alert" : "status"}><span>{backupNotice.message}</span></div>}<button ref={syncReloadRef} className="primary-action full-button" disabled={Boolean(backupBusy)} onClick={() => window.location.reload()}>载入最新记录</button></div></div>}
   </div></main>;
 }

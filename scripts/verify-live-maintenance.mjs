@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 if (!process.env.PLAYWRIGHT_MODULE) throw new Error('Set PLAYWRIGHT_MODULE to the isolated Playwright installation.');
@@ -35,6 +36,34 @@ async function beginWords(page) {
   await page.getByRole('button', { name: '开始这组学习', exact: true }).click();
   await page.locator('.word-card').waitFor();
 }
+async function tapVisible(page, locator) {
+  const box = await locator.evaluate(button => {
+    const r = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return { x: r.x, y: r.y, width: r.width, height: r.height, disabled: button.disabled,
+      hit: button === hit || button.contains(hit), label: button.textContent,
+      limit: document.querySelector('.bottom-nav')?.getBoundingClientRect().top ?? innerHeight,
+      viewportWidth: innerWidth };
+  });
+  assert.equal(box.disabled, false, JSON.stringify(box));
+  assert.ok(box.x >= -1 && box.x + box.width <= box.viewportWidth + 1 && box.y >= -1
+    && box.y + box.height <= box.limit + 1 && box.width >= 44 && box.height >= 44 && box.hit,
+  `The visible control must receive a direct coordinate tap: ${JSON.stringify(box)}`);
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+}
+async function quizFeedbackVisible(page, answer) {
+  await page.waitForFunction(() => {
+    const feedback = document.querySelector('.feedback-box'), action = document.querySelector('.quiz-page .sticky-start');
+    if (!feedback || !action) return false;
+    const f = feedback.getBoundingClientRect(), a = action.getBoundingClientRect();
+    return f.top >= -1 && f.bottom <= a.top - 3 && a.bottom <= innerHeight + 1;
+  });
+  assert.equal(await page.locator('.feedback-box strong').innerText(), answer, 'The complete correct answer is visible');
+  assert.ok(await page.locator('.feedback-box p').evaluate(paragraph => {
+    const p = paragraph.getBoundingClientRect(), a = document.querySelector('.quiz-page .sticky-start').getBoundingClientRect();
+    return p.top >= -1 && p.bottom <= a.top - 3;
+  }));
+}
 async function identify(page, scripts, beforeReady) {
   const url = new URL('/', base);
   url.searchParams.set('ef-update', expected);
@@ -56,7 +85,7 @@ for (const engine of ['chromium', 'webkit']) {
   async function check(name, body, seed = {}, beforeReady) {
     // Fresh, disposable profiles only. Real Service Worker acceptance is separate
     // in verify-live-pwa.mjs; these UI checks must not intercept a learner's cache.
-    const context = await browser.newContext({ viewport: { width: 390, height: 650 }, hasTouch: true,
+    const context = await browser.newContext({ viewport: { width: 390, height: 650 }, hasTouch: true, acceptDownloads: true,
       isMobile: true, serviceWorkers: 'block' });
     await context.addInitScript(({ values, simulateStartupReadFault, masteredKey }) => {
       const storage = window.localStorage;
@@ -182,6 +211,163 @@ for (const engine of ['chromium', 'webkit']) {
     assert.equal(await page.evaluate(() => window.__maintenanceSpeech.log.length), 0, 'Recall does not automatically speak the answer');
     return { patternIndex: before.index, substitutionIndex: before.drillIndex, ratingCount: 1,
       repeatedStartResumesWithoutDiscard: true, rotationPreserved: true, recallAnswerHidden: true, instrumentedSpeech: true };
+  });
+
+  await check('small-phone-pattern-top-start-substitutions-and-final-rating-receive-direct-taps', async page => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await nav(page, '句库');
+    await page.getByRole('button', { name: '核心句型', exact: true }).click();
+    await page.waitForFunction(() => scrollY <= 1);
+    const start = page.getByRole('button', { name: '开始句型替换练习', exact: true });
+    assert.equal(await start.count(), 1);
+    assert.equal(await start.evaluate(button => button.compareDocumentPosition(document.querySelector('.pattern-category-grid')) & Node.DOCUMENT_POSITION_FOLLOWING), 4,
+      'Pattern Start precedes the category options');
+    await tapVisible(page, start);
+    await page.locator('.pattern-prompt').waitFor();
+    const original = await stored(page, keys.pattern);
+    for (let drill = 0; drill < 3; drill++) {
+      assert.equal(await page.locator('.pattern-answer').count(), 0, 'Each substitution starts with recall');
+      assert.equal(await page.locator('.pattern-card-actions .learn-actions').count(), 0, 'Rating waits for the final revealed substitution');
+      const reveal = page.getByRole('button', { name: '我说好了，查看参考答案', exact: true });
+      await reveal.evaluate(button => button.scrollIntoView({ block: 'center', behavior: 'auto' }));
+      await tapVisible(page, reveal);
+      await page.locator('.pattern-answer').waitFor();
+      await page.waitForFunction(() => document.activeElement === document.querySelector('.pattern-answer'));
+      await page.evaluate(() => scrollTo(0, 0));
+      await page.waitForFunction(() => scrollY <= 1);
+      if (drill < 2) {
+        await tapVisible(page, page.getByRole('button', { name: '下一组 ›', exact: true }));
+        await page.waitForFunction(drill => JSON.parse(localStorage.getItem('wordflow-pattern-active-session-v1'))?.drillIndex === drill, drill + 1);
+      }
+    }
+    await tapVisible(page, page.getByRole('button', { name: '掌握句型', exact: true }));
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('wordflow-pattern-active-session-v1'))?.index === 1);
+    const after = await stored(page, keys.pattern);
+    assert.equal(after.drillIndex, 0);
+    assert.deepEqual(after.patternIds, original.patternIds);
+    assert.deepEqual(after.ratings, { [original.patternIds[0]]: 'known' });
+    assert.equal(await page.locator('.pattern-answer').count(), 0);
+    assert.equal(await page.evaluate(() => window.__maintenanceSpeech.log.length), 0, 'Recall never automatically speaks the answer');
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    return { viewport: { width: 320, height: 568 }, topStartReceivedCoordinateTap: true,
+      threeSubstitutionsAndFinalRatingReceivedCoordinateTaps: true, nextPatternAnswerHidden: true, instrumentedSpeech: true };
+  });
+
+  const quizReadyWord = {
+    version: 1, kind: 'group', updatedAt: Date.now(), path: 'frequency', mode: 'test', wordIds: [1, 2, 3],
+    index: 2, ratings: { 1: 'known', 2: 'known' }, stage: 'cards', quizIndex: 0,
+    quizAnswer: '', quizFeedback: null, quizResults: [],
+  };
+  await check('small-phone-quiz-wrong-answer-and-empty-skip-keep-feedback-and-actions-visible', async page => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await nav(page, '学习');
+    await page.locator('.learn-actions .primary-action').click();
+    await page.locator('.quiz-page input').waitFor();
+    assert.equal(await page.locator('.feedback-box').count(), 0);
+    await page.locator('.quiz-page input').fill('unrecognized');
+    await tapVisible(page, page.locator('.quiz-page .sticky-start'));
+    await page.locator('.feedback-box.wrong').waitFor();
+    await quizFeedbackVisible(page, 'The');
+    let session = await stored(page, keys.word);
+    assert.equal(session.quizIndex, 0);
+    assert.deepEqual(session.quizResults, [false]);
+    await tapVisible(page, page.getByRole('button', { name: '下一题', exact: true }));
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('wordflow-active-session-v1'))?.quizIndex === 1);
+    assert.equal(await page.locator('.feedback-box').count(), 0);
+    assert.equal(await page.locator('.quiz-page input').inputValue(), '');
+    assert.equal(await page.locator('.quiz-page .sticky-start').isDisabled(), true);
+    await tapVisible(page, page.locator('.quiz-skip'));
+    await page.locator('.feedback-box.wrong').waitFor();
+    await quizFeedbackVisible(page, 'Be');
+    session = await stored(page, keys.word);
+    assert.equal(session.quizIndex, 1);
+    assert.equal(session.quizAnswer, '');
+    assert.deepEqual(session.quizResults, [false, false]);
+    await tapVisible(page, page.getByRole('button', { name: '下一题', exact: true }));
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('wordflow-active-session-v1'))?.quizIndex === 2);
+    assert.deepEqual((await stored(page, keys.word)).quizResults, [false, false], 'Next does not submit a second result');
+    assert.equal(await page.locator('.feedback-box').count(), 0);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    return { viewport: { width: 320, height: 568 }, wrongAndEmptySkipReceivedCoordinateTaps: true,
+      completeAnswersVisible: ['The', 'Be'], nextQuestionReceivedCoordinateTaps: true, instrumentedSpeech: true };
+  }, {
+    [keys.word]: quizReadyWord, [keys.mastered]: [1, 2],
+    'wordflow-session-preferences-v1': { mode: 'test', count: 10, path: 'frequency' },
+  });
+
+  const reviewSchedule = { 1: { due: Date.now() - 60_000, stage: 3 }, 2: { due: Date.now() - 59_999, stage: 1 }, 3: { due: Date.now() - 59_998, stage: 2 } };
+  await check('review-undo-can-immediately-correct-the-rating-and-preserve-other-records', async page => {
+    await nav(page, '复习');
+    await page.getByRole('button', { name: '显示答案', exact: true }).click();
+    await page.evaluate(() => {
+      window.__maintenanceReviewClicks = [];
+      document.addEventListener('click', event => {
+        const text = event.target.closest('button')?.textContent || '';
+        if (/忘了|撤销上次|记得/.test(text)) window.__maintenanceReviewClicks.push({ text, at: performance.now() });
+      }, true);
+    });
+    const before = Date.now();
+    await page.getByRole('button', { name: '忘了 10 分钟后', exact: true }).click();
+    await page.getByRole('button', { name: '撤销上次', exact: true }).click();
+    await page.getByRole('button', { name: '记得 14 天后', exact: true }).click();
+    const after = Date.now(), clicks = await page.evaluate(() => window.__maintenanceReviewClicks);
+    assert.equal(clicks.length, 3, 'Rating, undo and correction are actual pointer clicks');
+    const correctionMilliseconds = clicks[2].at - clicks[0].at;
+    assert.ok(correctionMilliseconds < 350, `Correction exercises the previous rating-lock interval: ${correctionMilliseconds} ms`);
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('wordflow-ngsl-mastered-v1') || '[]').includes(1)
+      && !JSON.parse(localStorage.getItem('wordflow-ngsl-difficult-v1') || '[]').includes(1));
+    assert.deepEqual((await stored(page, keys.mastered)).sort(), [1, 3]);
+    assert.deepEqual(await stored(page, keys.difficult), [2]);
+    const schedule = await stored(page, 'wordflow-ngsl-schedule-v1');
+    assert.deepEqual(schedule[2], reviewSchedule[2]);
+    assert.deepEqual(schedule[3], reviewSchedule[3]);
+    assert.equal(schedule[1].stage, 4);
+    assert.ok(schedule[1].due >= before + 14 * 86_400_000 && schedule[1].due <= after + 14 * 86_400_000);
+    return { immediateCorrectionPersisted: true, correctionMilliseconds: Math.round(correctionMilliseconds), otherWordRecordsPreserved: true };
+  }, { [keys.mastered]: [3], [keys.difficult]: [1, 2], 'wordflow-ngsl-schedule-v1': reviewSchedule });
+
+  await check('paused-window-exports-its-memory-backup-without-overwriting-the-other-window', async (page, context) => {
+    await beginWords(page);
+    await page.locator('.learn-actions .primary-action').click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('wordflow-active-session-v1'))?.index === 1);
+    const original = await stored(page, keys.word);
+    assert.deepEqual(await stored(page, keys.mastered), [1]);
+    const newer = await context.newPage(), scripts = [], newerErrors = [];
+    newer.setDefaultTimeout(30_000);
+    newer.on('pageerror', error => newerErrors.push(error.message));
+    newer.on('response', response => {
+      if (response.request().resourceType() === 'script' && new URL(response.url()).origin === base.origin) scripts.push(response.text().catch(() => ''));
+    });
+    await identify(newer, scripts);
+    await nav(newer, '学习');
+    await newer.locator('.learn-actions .primary-action').click();
+    await newer.waitForFunction(() => localStorage.getItem('wordflow-ngsl-mastered-v1') === '[1,2]');
+    await page.locator('.sync-dialog').waitFor();
+    const before = await records(newer);
+    await page.evaluate(() => {
+      window.__maintenanceSyncDocument = 'same-paused-document';
+      // Select the real download fallback; native OS sharing remains untested.
+      Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false });
+    });
+    const rescue = page.locator('.sync-dialog').getByRole('button', { name: '导出本页备份', exact: true });
+    assert.equal(await rescue.isEnabled(), true);
+    assert.equal(await rescue.evaluate(button => Boolean(button.closest('[inert]'))), false);
+    const pending = page.waitForEvent('download');
+    await rescue.click();
+    const download = await pending;
+    const backup = JSON.parse(await readFile(await download.path(), 'utf8'));
+    assert.equal(backup.formatVersion, 1);
+    assert.equal(Object.keys(backup.data).length, 19);
+    assert.deepEqual(backup.data[keys.mastered], [1], 'A exports its own memory, rather than the newer B records');
+    assert.deepEqual(backup.data[keys.word], original);
+    await page.locator('.sync-dialog .backup-notice.success').waitFor();
+    assert.equal(await page.locator('.sync-dialog').count(), 1, 'The old window remains paused');
+    assert.equal(await page.evaluate(() => window.__maintenanceSyncDocument), 'same-paused-document');
+    assert.deepEqual(await records(page), before, 'Export never writes the old window over shared records');
+    assert.deepEqual(await records(newer), before);
+    assert.deepEqual(newerErrors, []);
+    return { twoActualIsolatedProfileWindows: true, downloadedMemoryMastered: [1], newerDiskMastered: [1, 2],
+      otherWindowFullRecordsPreserved: true, pausedDocumentPreserved: true, downloadFallbackSelected: true, nativeShareVerified: false };
   });
 
   await check('word-and-sentence-new-search-reset-results-with-more-and-lookup-return-preserved', async page => {
