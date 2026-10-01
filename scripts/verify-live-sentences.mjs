@@ -18,7 +18,7 @@ for(const engine of ['chromium','webkit']){
  const page=await context.newPage();page.setDefaultTimeout(25000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
  try{
   const url=new URL('/',base);url.searchParams.set('ef-update',expected);const response=await page.goto(url.href,{waitUntil:'domcontentloaded'});assert.equal(response.status(),200);assert.equal(await page.title(),'词流英语');assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'),expected);
-  await page.locator('.bottom-nav').waitFor();await page.locator('.bottom-nav button').filter({hasText:'句子'}).click();await page.waitForFunction(()=>{const b=document.querySelector('.sentence-page .setup-start');return b&&!b.disabled;});await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.sentence-translation').waitFor();
+  await page.locator('.bottom-nav').waitFor();await page.locator('.bottom-nav button').filter({hasText:'句子'}).click();await page.waitForFunction(()=>{const b=document.querySelector('.sentence-page .setup-start');return b&&!b.disabled;});await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-translation').waitFor();
   let offset=0;const checks=[];
   for(const action of ['first','next','known','difficult']){
    if(action==='next')await page.getByRole('button',{name:'下一句 ›',exact:true}).click();
@@ -30,8 +30,9 @@ for(const engine of ['chromium','webkit']){
    const spoken=await page.evaluate(n=>window.__liveSentence.log.slice(n),offset);assert.deepEqual(spoken.map(u=>u.text),[english,english,english,chinese]);assert.deepEqual(spoken.map(u=>u.lang),['en-US','en-US','en-US','zh-CN']);assert.equal(spoken[0].gesture,true);offset+=4;checks.push({action,englishRepeats:3,chineseRepeats:1,translationVisible:true});
   }
   const snapshot=await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1'));
-  for(let i=0;i<2;i++){await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.sentence-study-card').waitFor();assert.equal(await page.locator('#discard-title').count(),0);assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1')),snapshot);}
-  assert.deepEqual(errors,[]);console.log('LIVE_SENTENCE_PASS',JSON.stringify({engine,commit:expected,checks,resumeWithoutDialog:true,progressPreserved:true,instrumentedSpeech:true}));
+  const session=JSON.parse(snapshot);assert.equal(session.continuous,true);assert.ok(session.sentenceIds.length>20,'Live sentence learning must include the selected range beyond twenty cards');
+  for(let i=0;i<2;i++){await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();assert.equal(await page.locator('#discard-title').count(),0);assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1')),snapshot);}
+  assert.deepEqual(errors,[]);console.log('LIVE_SENTENCE_PASS',JSON.stringify({engine,commit:expected,checks,resumeWithoutDialog:true,progressPreserved:true,continuousRange:true,instrumentedSpeech:true}));
  }catch(error){console.error('LIVE_SENTENCE_FAIL',JSON.stringify({engine,commit:expected,error:String(error),errors}));process.exitCode=1;}
  finally{await context.close();await browser.close();}
 }

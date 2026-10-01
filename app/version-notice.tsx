@@ -66,7 +66,7 @@ export default function VersionNotice({ showDetails, beforeReload }: Props) {
   const update = async () => {
     if (reloadLock.current || !latest) return;
     if (!guard.current()) {
-      setMessage("请先到进度页再更新。若有记录尚未保存，请先导出备份；不会强制刷新。");
+      setMessage("请先到首页的“记录与设置”再更新。若有记录尚未保存，请先导出备份；不会强制刷新。");
       return;
     }
     reloadLock.current = true;

@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import VersionNotice from "./version-notice";
-import { APP_BUILD_COMMIT, isSnapshotPersisted } from "./version-utils";
+import { isSnapshotPersisted } from "./version-utils";
 import { scenes, type SceneId, type WordItem } from "./data";
 import { corePatterns, patternCategories, type PatternCategory } from "./pattern-data";
 import { BACKUP_MAX_BYTES, createLearningBackup, isLearningBackup, readLearningStorage, restoreLearningBackupData, type LearningBackup } from "./backup-data";
 import { isSpeechSupported, SPEECH_ERROR_EVENT, SPEECH_PLAYBACK_EVENT, speak, startBilingualSentenceSpeech, startRepeatedSpeech, startSegmentedSpeech, stopSpeech, toggleSegmentedSpeech, type SpeechPlaybackState } from "./speech-playback";
-import { blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, takeRotatedSpread } from "./session-utils";
+import { blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, selectContinuousSession, takeRotatedSpread } from "./session-utils";
 
 type Tab = "home" | "learn" | "sentences" | "read" | "review" | "progress";
 type LearnStage = "setup" | "cards" | "quiz" | "result";
@@ -19,6 +19,7 @@ type ReviewUndo = { id: number; word: string; schedule?: ScheduleEntry; mastered
 type SessionPreferences = { mode: LearnMode; count: 10 | 20; path: LearnPath };
 type DiscardRequest = {
   path?: LearnPath;
+  wordStart?: { path: LearnPath };
   sentence?: boolean;
   pattern?: boolean;
   sentenceStart?: { reviewOnly: boolean; singleSentence?: SentenceItem };
@@ -41,6 +42,8 @@ type ReadingLast = { id: string; updatedAt: number };
 type SentenceItem = import("./sentence-data").SentenceItem;
 type SentenceSessionSnapshot = {
   version: 1;
+  continuous?: true;
+  reviewOnly?: true;
   updatedAt: number;
   band: SentenceBand;
   category: SentenceCategory;
@@ -61,6 +64,7 @@ type PatternSessionSnapshot = {
 };
 type ActiveSessionSnapshot = {
   version: 1;
+  continuous?: true;
   kind?: "group" | "lookup";
   updatedAt: number;
   path: LearnPath;
@@ -104,12 +108,10 @@ type StorageKey = (typeof STORAGE)[keyof typeof STORAGE];
 const STORAGE_KEYS = Object.values(STORAGE);
 const BACKUP_OPTIONAL_KEYS: StorageKey[] = [STORAGE.readingCompleted, STORAGE.readingLast, STORAGE.practiceRotation, STORAGE.readingAnswers];
 const tabItems: { id: Tab; label: string; icon: string }[] = [
-  { id: "home", label: "今天", icon: "⌂" },
+  { id: "home", label: "首页", icon: "⌂" },
   { id: "learn", label: "单词", icon: "▤" },
   { id: "sentences", label: "句子", icon: "“”" },
   { id: "read", label: "阅读", icon: "◫" },
-  { id: "review", label: "复习", icon: "↻" },
-  { id: "progress", label: "进度", icon: "◌" },
 ];
 let STUDY_WORD_IDS = new Set<number>();
 let STUDY_WORD_BY_ID = new Map<number, WordItem>();
@@ -259,10 +261,10 @@ function cleanPracticeRotation(value: unknown): PracticeRotation {
 function cleanSentenceSession(value: unknown): SentenceSessionSnapshot | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Partial<SentenceSessionSnapshot>;
-  const isRecent = Number.isFinite(item.updatedAt) && Number(item.updatedAt) <= Date.now() + DAY && Number(item.updatedAt) >= Date.now() - ACTIVE_SESSION_TTL;
+  const isRecent = Number.isFinite(item.updatedAt) && Number(item.updatedAt) >= 0 && Number(item.updatedAt) <= Date.now() + DAY && (item.continuous === true || Number(item.updatedAt) >= Date.now() - ACTIVE_SESSION_TTL);
   if (item.version !== 1 || !isRecent || !isSentenceBand(item.band) || !isSentenceCategory(item.category) || (item.count !== 10 && item.count !== 20)) return null;
   const [minimumId, maximumId] = item.band === "short" ? [1, 1000] : item.band === "medium" ? [1001, 2000] : [2001, 3000];
-  const sentenceIds = cleanSentenceIds(item.sentenceIds).filter((id) => id >= minimumId && id <= maximumId).slice(0, item.count);
+  const sentenceIds = cleanSentenceIds(item.sentenceIds).filter((id) => id >= minimumId && id <= maximumId).slice(0, item.continuous === true ? 1000 : item.count);
   if (!sentenceIds.length) return null;
   const allowedIds = new Set(sentenceIds);
   const rawRatings = item.ratings && typeof item.ratings === "object" && !Array.isArray(item.ratings) ? item.ratings : {};
@@ -270,7 +272,7 @@ function cleanSentenceSession(value: unknown): SentenceSessionSnapshot | null {
   if (!hasUnfinishedRatings(sentenceIds, ratings)) return null;
   const index = Math.min(Math.max(Number.isInteger(item.index) ? Number(item.index) : 0, 0), sentenceIds.length - 1);
   const mode: SentenceLearningMode = isSentenceLearningMode(item.mode) ? item.mode : "bilingual";
-  return { version: 1, updatedAt: Number(item.updatedAt), band: item.band, category: item.category, count: item.count, mode, sentenceIds, index, ratings };
+  return { version: 1, ...(item.continuous === true ? { continuous: true } : {}), ...(item.reviewOnly === true ? { reviewOnly: true } : {}), updatedAt: Number(item.updatedAt), band: item.band, category: item.category, count: item.count, mode, sentenceIds, index, ratings };
 }
 
 function cleanPatternSession(value: unknown): PatternSessionSnapshot | null {
@@ -310,10 +312,11 @@ function cleanActiveSession(value: unknown): ActiveSessionSnapshot | null {
   const pathIsValid = isLearnPath(item.path);
   const modeIsValid = item.mode === "free" || item.mode === "test";
   const stageIsValid = item.stage === "cards" || item.stage === "quiz";
-  const isRecent = Number.isFinite(item.updatedAt) && Number(item.updatedAt) <= Date.now() + DAY && Number(item.updatedAt) >= Date.now() - ACTIVE_SESSION_TTL;
+  const isRecent = Number.isFinite(item.updatedAt) && Number(item.updatedAt) >= 0 && Number(item.updatedAt) <= Date.now() + DAY && (item.continuous === true || Number(item.updatedAt) >= Date.now() - ACTIVE_SESSION_TTL);
   if (item.version !== 1 || !pathIsValid || !modeIsValid || !stageIsValid || !isRecent || !Array.isArray(item.wordIds)) return null;
   if (item.stage === "quiz" && item.mode !== "test") return null;
-  const wordIds = [...new Set(item.wordIds.filter((id): id is number => Number.isInteger(id) && STUDY_WORD_IDS.has(id)))].slice(0, 20);
+  if (item.continuous === true && (item.mode !== "free" || item.stage !== "cards" || item.kind === "lookup")) return null;
+  const wordIds = [...new Set(item.wordIds.filter((id): id is number => Number.isInteger(id) && STUDY_WORD_IDS.has(id)))].slice(0, item.continuous === true ? STUDY_WORD_IDS.size : 20);
   if (!wordIds.length) return null;
   const allowedIds = new Set(wordIds);
   const rawRatings = item.ratings && typeof item.ratings === "object" && !Array.isArray(item.ratings) ? item.ratings : {};
@@ -334,7 +337,7 @@ function cleanActiveSession(value: unknown): ActiveSessionSnapshot | null {
   const quizFeedback = hasCurrentFeedback ? item.quizFeedback as "correct" | "wrong" : null;
   const quizResults = item.stage === "quiz" ? rawQuizResults : [];
   const kind = item.kind === "group" || (item.kind === "lookup" && item.mode === "free" && wordIds.length === 1) ? item.kind : undefined;
-  return { version: 1, ...(kind ? { kind } : {}), updatedAt: Number(item.updatedAt), path: item.path as LearnPath, mode: item.mode as LearnMode, wordIds, index, ratings, stage: item.stage as "cards" | "quiz", quizIndex, quizAnswer, quizFeedback, quizResults };
+  return { version: 1, ...(item.continuous === true ? { continuous: true } : {}), ...(kind ? { kind } : {}), updatedAt: Number(item.updatedAt), path: item.path as LearnPath, mode: item.mode as LearnMode, wordIds, index, ratings, stage: item.stage as "cards" | "quiz", quizIndex, quizAnswer, quizFeedback, quizResults };
 }
 
 function localDateKey(date: Date) {
@@ -421,11 +424,13 @@ export default function Home() {
   const ngslMeta = wordData?.ngslMeta ?? EMPTY_NGSL_META;
   const [tab, setTab] = useState<Tab>("home");
   const [learnStage, setLearnStage] = useState<LearnStage>("setup");
-  const [preferences, setPreferences] = useState<SessionPreferences>({ mode: "test", count: 10, path: "frequency" });
-  const { mode, count, path } = preferences;
-  const [sessionMode, setSessionMode] = useState<LearnMode>("test");
-  // This visit's playback choice deliberately stays outside learning backups.
-  const [autoWordExamples, setAutoWordExamples] = useState(true);
+  const [preferences, setPreferences] = useState<SessionPreferences>({ mode: "free", count: 10, path: "frequency" });
+  const { count, path } = preferences;
+  const [sessionMode, setSessionMode] = useState<LearnMode>("free");
+  const [wordContinuous, setWordContinuous] = useState(false);
+  const [pausedWordSession, setPausedWordSession] = useState<ActiveSessionSnapshot | null>(null);
+  // Automatic examples remain enabled without adding learning-record fields.
+  const autoWordExamples = true;
   const wordExampleStartedRef = useRef<string | null>(null);
   const [wordSessionKind, setWordSessionKind] = useState<"group" | "lookup">("group");
   const [sessionPath, setSessionPath] = useState<LearnPath>("frequency");
@@ -460,6 +465,8 @@ export default function Home() {
   const [sentenceMode, setSentenceMode] = useState<SentenceLearningMode>("bilingual");
   const [sentenceSection, setSentenceSection] = useState<SentenceSection>("library");
   const [sentenceStage, setSentenceStage] = useState<SentenceStage>("setup");
+  const [sentenceContinuous, setSentenceContinuous] = useState(false);
+  const [sentenceSessionReview, setSentenceSessionReview] = useState(false);
   const [sentenceSearch, setSentenceSearch] = useState("");
   const [sentenceSavedOnly, setSentenceSavedOnly] = useState(false);
   const [sentenceReviewOnly, setSentenceReviewOnly] = useState(false);
@@ -514,7 +521,6 @@ export default function Home() {
   const [libraryLimit, setLibraryLimit] = useState(24);
   const [standalone, setStandalone] = useState(false);
   const [iosInstallAvailable, setIosInstallAvailable] = useState(false);
-  const [dateText, setDateText] = useState("");
   const [todayKey, setTodayKey] = useState("");
   const [weekKeys, setWeekKeys] = useState<string[]>([]);
   const [reviewClock, setReviewClock] = useState(0);
@@ -801,7 +807,7 @@ export default function Home() {
     const storedSessionValue = readStored<unknown>(STORAGE.session, {});
     const storedSession = storedSessionValue && typeof storedSessionValue === "object" && !Array.isArray(storedSessionValue) ? storedSessionValue as Partial<SessionPreferences> : {};
     const storedPath: LearnPath = isLearnPath(storedSession.path) ? storedSession.path : "frequency";
-    const storedMode = storedSession.mode === "free" ? "free" : "test";
+    const storedMode = storedSession.mode === "test" ? "test" : "free";
     const storedCount = storedSession.count === 20 ? 20 : 10;
     const normalizedSession: SessionPreferences = { mode: storedMode, count: storedCount, path: storedPath };
     const storedActiveSession = cleanActiveSession(readStored<unknown>(STORAGE.activeSession, null));
@@ -824,6 +830,8 @@ export default function Home() {
     setPatternDifficult(validPatternDifficult);
     if (storedSentenceActiveSession) {
       sentenceResumeSnapshotRef.current = storedSentenceActiveSession;
+      setSentenceContinuous(storedSentenceActiveSession.continuous === true);
+      setSentenceSessionReview(storedSentenceActiveSession.reviewOnly === true);
       setSentenceSessionIds(storedSentenceActiveSession.sentenceIds);
       setSentenceIndex(storedSentenceActiveSession.index);
       setSentenceRatings(storedSentenceActiveSession.ratings);
@@ -850,6 +858,8 @@ export default function Home() {
     setPreferences(normalizedSession);
     if (storedActiveSession) {
       activeSessionResumeSnapshotRef.current = storedActiveSession;
+      setPausedWordSession(storedActiveSession);
+      setWordContinuous(storedActiveSession.continuous === true);
       const restoredWords = storedActiveSession.wordIds.map((id) => STUDY_WORD_BY_ID.get(id)).filter((word): word is WordItem => Boolean(word));
       setSessionWords(restoredWords);
       setIndex(storedActiveSession.index);
@@ -864,6 +874,7 @@ export default function Home() {
       setLearnStage(storedActiveSession.stage);
     } else {
       activeSessionResumeSnapshotRef.current = null;
+    setPausedWordSession(null);
       removeStoredValue(STORAGE.activeSession);
       setSessionWords(words.slice(0, normalizedSession.count));
     }
@@ -894,7 +905,6 @@ export default function Home() {
     if (JSON.stringify(readStored<unknown>(STORAGE.practiceRotation, null)) !== JSON.stringify(storedPracticeRotation)) writeJson(STORAGE.practiceRotation, storedPracticeRotation);
     setStandalone(window.matchMedia("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
     setIosInstallAvailable(/iP(?:hone|ad|od)/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
-    setDateText(new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" }).format(today).toUpperCase());
     setTodayKey(currentKey);
     setWeekKeys(weekDateKeys(today));
     setHydrated(true);
@@ -906,7 +916,6 @@ export default function Home() {
       if (nextDateKey !== displayedDateKey) {
         displayedDateKey = nextDateKey;
         setTodayKey(nextDateKey);
-        setDateText(new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" }).format(current).toUpperCase());
         setWeekKeys(weekDateKeys(current));
       }
     };
@@ -966,6 +975,8 @@ export default function Home() {
     if (sentenceStage === "cards" && sentenceSessionIds.length) {
       const payload = {
         version: 1,
+        ...(sentenceContinuous ? { continuous: true as const } : {}),
+        ...(sentenceSessionReview ? { reviewOnly: true as const } : {}),
         band: sentenceBand,
         category: sentenceCategory,
         count: sentenceCount,
@@ -982,7 +993,7 @@ export default function Home() {
       sentenceResumeSnapshotRef.current = null;
       removeStoredValue(STORAGE.sentenceActiveSession);
     }
-  }, [externalUpdateDetected, hydrated, sentenceBand, sentenceCategory, sentenceCount, sentenceIndex, sentenceMode, sentenceRatings, sentenceSection, sentenceSessionIds, sentenceStage]);
+  }, [externalUpdateDetected, hydrated, sentenceBand, sentenceCategory, sentenceContinuous, sentenceSessionReview, sentenceCount, sentenceIndex, sentenceMode, sentenceRatings, sentenceSection, sentenceSessionIds, sentenceStage]);
 
   useEffect(() => {
     if (!hydrated || externalUpdateDetected) return;
@@ -1029,9 +1040,14 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated || externalUpdateDetected) return;
+    const paused = activeSessionResumeSnapshotRef.current;
+    const lookupOverGroup = wordSessionKind === "lookup" && paused && (paused.kind === "group" || paused.mode === "test" || paused.wordIds.length > 1);
     if (learnStage === "cards" || learnStage === "quiz") {
+      // Looking up a word must not replace a paused learning range.
+      if (lookupOverGroup) return;
       const payload = {
         version: 1,
+        ...(wordContinuous ? { continuous: true as const } : {}),
         kind: wordSessionKind,
         path: sessionPath,
         mode: sessionMode,
@@ -1047,12 +1063,14 @@ export default function Home() {
       const previous = activeSessionResumeSnapshotRef.current;
       const snapshot = { ...payload, updatedAt: sessionPayloadMatches(previous, payload) ? previous!.updatedAt : Date.now() } satisfies ActiveSessionSnapshot;
       activeSessionResumeSnapshotRef.current = snapshot;
+      setPausedWordSession(snapshot);
       writeJson(STORAGE.activeSession, snapshot);
-    } else {
+    } else if (learnStage === "result" && !lookupOverGroup) {
       activeSessionResumeSnapshotRef.current = null;
+    setPausedWordSession(null);
       removeStoredValue(STORAGE.activeSession);
     }
-  }, [cardRatings, externalUpdateDetected, hydrated, index, learnStage, quizAnswer, quizFeedback, quizIndex, quizResults, sessionMode, sessionPath, sessionWords, wordSessionKind]);
+  }, [cardRatings, externalUpdateDetected, hydrated, index, learnStage, quizAnswer, quizFeedback, quizIndex, quizResults, sessionMode, sessionPath, sessionWords, wordContinuous, wordSessionKind]);
 
   useEffect(() => {
     if (!hasOpenDialog) return;
@@ -1206,15 +1224,8 @@ export default function Home() {
     return () => window.cancelAnimationFrame(frame);
   }, [hasOpenDialog, patternAnswerOpen, patternDrillIndex, patternIndex, patternStage, sentenceSection, tab]);
 
-  const masteredSet = useMemo(() => new Set(mastered), [mastered]);
   const difficultSet = useMemo(() => new Set(difficult), [difficult]);
   const studiedSet = useMemo(() => new Set([...mastered, ...difficult]), [difficult, mastered]);
-  const masteredNgslCount = mastered.filter((id) => id <= ngslMeta.count).length;
-  const preciseProgress = words.length ? (masteredNgslCount / words.length) * 100 : 0;
-  const progress = preciseProgress > 0 && preciseProgress < 1 ? Number(preciseProgress.toFixed(2))
-    : preciseProgress < 10 ? Number(preciseProgress.toFixed(1))
-    : preciseProgress < 99 ? Math.round(preciseProgress)
-    : preciseProgress < 100 ? Math.min(99.9, Number(preciseProgress.toFixed(1))) : 100;
   const visibleStudyDays = useMemo(() => studyDays.filter((key) => key <= todayKey), [studyDays, todayKey]);
   const streak = useMemo(() => calculateStreak(visibleStudyDays, todayKey), [visibleStudyDays, todayKey]);
   const weeklyStudyCount = weekKeys.filter((key) => visibleStudyDays.includes(key)).length;
@@ -1234,7 +1245,6 @@ export default function Home() {
     return nextScheduledReview(schedule, Math.max(reviewClock, Date.now()));
   }, [reviewClock, schedule]);
   const wordbookWords = allStudyWords.filter((word) => difficultSet.has(word.id));
-  const sceneTotals = useMemo(() => Object.fromEntries(scenes.map((scene) => [scene.id, scenePacks[scene.id].length])) as Record<SceneId, number>, [scenePacks]);
   const bandWords = useMemo(() => {
     const start = libraryBand === 1 ? 1 : libraryBand === 2 ? 1001 : 2001;
     const end = libraryBand === 1 ? 1000 : libraryBand === 2 ? 2000 : words.length;
@@ -1282,7 +1292,6 @@ export default function Home() {
   const currentSentenceRating = currentSentence ? sentenceRatings[currentSentence.id] : undefined;
   const ratedSentenceCount = Object.keys(sentenceRatings).length;
   const canResumeSentence = sentenceStage === "setup" && sentenceSessionIds.length > ratedSentenceCount;
-  const hasUnfinishedSentence = sentenceSessionIds.length > ratedSentenceCount;
   const availablePatterns = corePatterns.filter((pattern) => patternCategory === "all" || pattern.category === patternCategory);
   const patternById = new Map(corePatterns.map((pattern) => [pattern.id, pattern]));
   const patternSessionItems = patternSessionIds.map((id) => patternById.get(id)).filter((item): item is (typeof corePatterns)[number] => Boolean(item));
@@ -1298,16 +1307,9 @@ export default function Home() {
   const sentencePacksIncomplete = requiredSentencePacks.some((pack) => !sentencePacks[pack]);
   const sentenceLoading = sentencePacksIncomplete && !sentenceLoadError;
   const sentenceSelectionLoading = !sentencePacks[SENTENCE_PACK_BY_BAND[sentenceBand]] && !sentenceLoadError;
-  const nextNgslWord = words.find((word) => !studiedSet.has(word.id)) ?? null;
   const selectedScene = path === "frequency" ? null : scenes.find((scene) => scene.id === path) ?? null;
-  const activeScene = sessionPath === "frequency" ? null : scenes.find((scene) => scene.id === sessionPath) ?? null;
   const currentPathLabel = selectedScene ? selectedScene.name : "NGSL 高频顺序";
   const currentPathIcon = selectedScene?.icon ?? "NG";
-  const activePathLabel = activeScene ? activeScene.name : "NGSL 高频顺序";
-  const currentSessionCount = Math.min(count, path === "frequency" ? words.length : sceneTotals[path]);
-  const currentModeLabel = mode === "test" ? "学习＋考试" : "自由学习";
-  const estimatedMinutes = Math.max(3, Math.round(currentSessionCount * 0.8));
-  const hasOngoingSession = learnStage === "cards" || learnStage === "quiz";
   const hasWordStudyHistory = mastered.length > 0 || difficult.length > 0 || Object.keys(schedule).length > 0;
   const reviewWordsForSpeech = reviewView === "due" ? dueWords : wordbookWords;
   const currentReviewWordId = tab === "review" ? reviewWordsForSpeech[Math.min(reviewIndex, Math.max(reviewWordsForSpeech.length - 1, 0))]?.id ?? null : null;
@@ -1348,12 +1350,12 @@ export default function Home() {
                   : tab === "progress"
                     ? "学习进度"
                     : tab === "sentences"
-                      ? "句子与核心句型"
+                      ? "句子练习"
                       : tab === "read"
                         ? "分级阅读"
                         : tab === "learn"
                           ? "单词学习设置"
-                          : "今天";
+                          : "首页";
 
   useEffect(() => {
     if (!hydrated || tab !== "review" || hasOpenDialog) return;
@@ -1433,8 +1435,6 @@ export default function Home() {
   const saveSessionPreferences = (patch: Partial<SessionPreferences>) => {
     setPreferences((current) => ({ ...current, ...patch }));
   };
-  const selectMode = (nextMode: LearnMode) => { saveSessionPreferences({ mode: nextMode }); };
-  const selectCount = (nextCount: 10 | 20) => { saveSessionPreferences({ count: nextCount }); };
   const selectPath = (nextPath: LearnPath) => { saveSessionPreferences({ path: nextPath }); };
 
   const finishOpeningLearningSetup = (nextPath?: LearnPath) => {
@@ -1446,10 +1446,7 @@ export default function Home() {
   };
 
   const openLearningSetup = (nextPath?: LearnPath) => {
-    if (hasOngoingSession && !(learnStage === "cards" && index === 0 && ratedCardCount === 0)) {
-      setDiscardRequest(nextPath ? { path: nextPath } : {});
-      return;
-    }
+    stopSpeech();
     finishOpeningLearningSetup(nextPath);
   };
 
@@ -1503,6 +1500,7 @@ export default function Home() {
   const selectSentencePractice = (practice: SentenceLearningMode | "patterns") => {
     // Switch setup choices without changing either paused session's snapshot.
     sentenceBrowserOriginRef.current = null;
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
     if (practice === "patterns") {
       restorePatternSetupPreferences();
       setSentenceSection("patterns");
@@ -1544,9 +1542,14 @@ export default function Home() {
       if (pendingStart) beginSentenceSession(pendingStart.reviewOnly, pendingStart.singleSentence);
       return;
     }
+    const pendingWordStart = discardRequest?.wordStart;
     const nextPath = discardRequest?.path;
     setDiscardRequest(null);
-    finishOpeningLearningSetup(nextPath);
+    activeSessionResumeSnapshotRef.current = null;
+    setPausedWordSession(null);
+    removeStoredValue(STORAGE.activeSession);
+    if (pendingWordStart) startSession(pendingWordStart.path, undefined, undefined, true);
+    else finishOpeningLearningSetup(nextPath);
   };
 
   const noteStudyDay = () => {
@@ -1830,6 +1833,7 @@ export default function Home() {
     setQuizFeedback(null);
     setQuizResults([]);
     activeSessionResumeSnapshotRef.current = null;
+    setPausedWordSession(null);
     setReadingAnswers({});
     setReadingRetryId(null);
     setReadingFilter("all");
@@ -1892,32 +1896,49 @@ export default function Home() {
     wordExampleStartedRef.current = `${word.id}:${word.example}`;
     // Start synchronously in the click/touch handler, including the first card.
     if (!startRepeatedSpeech(word.example, 3)) {
-      setSpeechNotice("例句朗读未能启动，请点一次“重播三遍”，或检查设备的英文语音设置。");
+      setSpeechNotice("例句朗读未能启动，请点卡片中的播放按钮，或检查设备的英文语音设置。");
     }
   };
 
-  const replayWordExample = () => {
-    if (!current || document.hidden) return;
-    setSpeechNotice(null);
-    wordExampleStartedRef.current = null;
-    if (!startRepeatedSpeech(current.example, 3)) {
-      setSpeechNotice("例句朗读未能启动，请点一次“重播三遍”，或检查设备的英文语音设置。");
-    }
+  const resumeWordSession = () => {
+    const snapshot = newestSnapshot(cleanActiveSession(readJson<unknown>(STORAGE.activeSession, null)), activeSessionResumeSnapshotRef.current);
+    if (!snapshot) return;
+    const restored = snapshot.wordIds.map((id) => STUDY_WORD_BY_ID.get(id)).filter((word): word is WordItem => Boolean(word));
+    const kind = snapshot.kind ?? (snapshot.mode === "free" && restored.length === 1 ? "lookup" : "group");
+    if (snapshot.stage === "cards") playAutomaticWordExample(restored[snapshot.index], snapshot.path, kind);
+    setSessionWords(restored);
+    setSessionPath(snapshot.path);
+    setSessionMode(snapshot.mode);
+    setWordContinuous(snapshot.continuous === true);
+    setWordSessionKind(kind);
+    setIndex(snapshot.index);
+    setCardRatings(snapshot.ratings);
+    setQuizIndex(snapshot.quizIndex);
+    setQuizAnswer(snapshot.quizAnswer);
+    setQuizFeedback(snapshot.quizFeedback);
+    setQuizResults(snapshot.quizResults);
+    setLearnStage(snapshot.stage);
+    setTab("learn");
   };
 
-  const toggleWordExamples = () => {
-    stopSpeech();
-    wordExampleStartedRef.current = null;
-    setAutoWordExamples(!autoWordExamples);
-    if (!autoWordExamples) playAutomaticWordExample(current, sessionPath, wordSessionKind, true);
-  };
-
-  const startSession = (pathOverride?: LearnPath, modeOverride?: LearnMode, countOverride?: 10 | 20) => {
+  const startSession = (pathOverride?: LearnPath, modeOverride?: LearnMode, countOverride?: 10 | 20, forceNew = false) => {
     wordBrowserOriginRef.current = null;
     wordBrowserReturnRef.current = false;
     const selectedPath = pathOverride ?? path;
-    const selectedMode = modeOverride ?? mode;
+    const selectedMode = modeOverride ?? "free";
     const selectedCount = countOverride ?? count;
+    const continuous = modeOverride === undefined && countOverride === undefined;
+    const snapshot = newestSnapshot(cleanActiveSession(readJson<unknown>(STORAGE.activeSession, null)), activeSessionResumeSnapshotRef.current);
+    if (continuous && snapshot && !forceNew) {
+      if (snapshot.path === selectedPath && snapshot.mode === "free" && snapshot.kind !== "lookup") {
+        resumeWordSession();
+        return;
+      }
+      if (snapshot.index > 0 || snapshot.stage === "quiz" || Object.keys(snapshot.ratings).length > 0) {
+        setDiscardRequest({ wordStart: { path: selectedPath } });
+        return;
+      }
+    }
     const currentMastered = new Set(mastered);
     const currentDifficult = new Set(difficult);
     const pool = selectedPath === "frequency" ? words : scenePacks[selectedPath];
@@ -1928,7 +1949,7 @@ export default function Home() {
     const selectionRotation = practiceRotationRef.current.word;
     practiceRotationRef.current = { ...practiceRotationRef.current, word: selectionRotation + 1 };
     writeJson(STORAGE.practiceRotation, practiceRotationRef.current);
-    const selected = [unseen, needsReview, completed].reduce<WordItem[]>((items, group, groupIndex) => {
+    const selected = continuous ? selectContinuousSession(pool, new Set([...mastered, ...difficult, ...Object.keys(schedule).map(Number)]), currentDifficult, currentMastered) : [unseen, needsReview, completed].reduce<WordItem[]>((items, group, groupIndex) => {
       if (items.length >= selectionLimit) return items;
       const remaining = selectionLimit - items.length;
       const candidates = groupIndex === 0 ? group.slice(0, remaining) : takeRotatedSpread(group, remaining, selectionRotation + groupIndex);
@@ -1938,6 +1959,7 @@ export default function Home() {
     saveSessionPreferences({ path: selectedPath, mode: selectedMode, count: selectedCount });
     setSessionPath(selectedPath);
     setSessionMode(selectedMode);
+    setWordContinuous(continuous);
     setWordSessionKind("group");
     setSessionWords(selected);
     setIndex(0);
@@ -1965,6 +1987,7 @@ export default function Home() {
     setQuizFeedback(null);
     setQuizResults([]);
     setSessionMode("free");
+    setWordContinuous(false);
     setWordSessionKind("lookup");
     setSessionPath("frequency");
     setLearnStage("cards");
@@ -2129,7 +2152,7 @@ export default function Home() {
   };
 
   const commonHeader = (title: string, eyebrow: string) => (
-    <header className="simple-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1></div><span className="avatar-button" aria-hidden="true">EN</span></header>
+    <header className="simple-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1></div>{tab === "review" || tab === "progress" ? <button className="round-button" aria-label="返回首页" onClick={() => setTab("home")}>‹</button> : <span className="avatar-button" aria-hidden="true">EN</span>}</header>
   );
 
   const markSentenceSeen = (sentenceId: number) => {
@@ -2167,19 +2190,12 @@ export default function Home() {
     const masteredIds = new Set(sentenceMastered);
     const difficultIds = new Set(sentenceDifficult);
     const pool = reviewOnly ? categoryPool.filter((item) => difficultIds.has(item.id)) : categoryPool;
-    const unseen = pool.filter((item) => !masteredIds.has(item.id) && !difficultIds.has(item.id));
-    const needsWork = pool.filter((item) => difficultIds.has(item.id));
-    const learned = pool.filter((item) => masteredIds.has(item.id));
-    const selectionLimit = Math.min(sentenceCount, pool.length);
     const selectionRotation = practiceRotationRef.current.sentence;
     if (!singleSentence) {
       practiceRotationRef.current = { ...practiceRotationRef.current, sentence: selectionRotation + 1 };
       writeJson(STORAGE.practiceRotation, practiceRotationRef.current);
     }
-    const selected = singleSentence ? [singleSentence] : [unseen, needsWork, learned].reduce<SentenceItem[]>((items, group, groupIndex) => {
-      if (items.length >= selectionLimit) return items;
-      return [...items, ...takeRotatedSpread(group, selectionLimit - items.length, selectionRotation + groupIndex)];
-    }, []);
+    const selected = singleSentence ? [singleSentence] : selectContinuousSession(pool, new Set([...sentenceSeen, ...sentenceMastered, ...sentenceDifficult]), difficultIds, masteredIds);
     if (!selected.length) return;
     if (!singleSentence) {
       const setup = { band: sentenceBand, category: sentenceCategory, count: sentenceCount, mode: sentenceMode } satisfies SentencePreferences;
@@ -2202,6 +2218,8 @@ export default function Home() {
     }
     playAutomaticSentenceExample(selected[0]);
     setSentenceSessionIds(selected.map((item) => item.id));
+    setSentenceContinuous(!singleSentence);
+    setSentenceSessionReview(reviewOnly);
     setSentenceIndex(0);
     setSentenceRatings({});
     setSentenceTranslationOpen(false);
@@ -2213,7 +2231,7 @@ export default function Home() {
     const snapshot = newestSnapshot(cleanSentenceSession(readJson<unknown>(STORAGE.sentenceActiveSession, null)), sentenceResumeSnapshotRef.current);
     if (sentenceStage === "setup" && sentenceSessionIds.length && snapshot) {
       const sameChoices = snapshot.band === sentenceBand && snapshot.category === sentenceCategory
-        && snapshot.count === sentenceCount && snapshot.mode === sentenceMode;
+        && snapshot.mode === sentenceMode && !snapshot.reviewOnly;
       // Returning to the same practice means resume, not discard and restart.
       if (!forceNew && !reviewOnly && !singleSentence && sameChoices) {
         resumeSentenceSession();
@@ -2236,6 +2254,8 @@ export default function Home() {
     setSentenceCategory(snapshot.category);
     setSentenceCount(snapshot.count);
     setSentenceMode(snapshot.mode);
+    setSentenceContinuous(snapshot.continuous === true);
+    setSentenceSessionReview(snapshot.reviewOnly === true);
     setSentenceSessionIds(snapshot.sentenceIds);
     setSentenceIndex(snapshot.index);
     setSentenceRatings(snapshot.ratings);
@@ -2391,16 +2411,6 @@ export default function Home() {
     setTab("sentences");
   };
 
-  const openSentencePracticeFromHome = () => {
-    if (hasUnfinishedSentence) resumeSentenceSession();
-    else {
-      restoreSentenceSetupPreferences();
-      setSentenceMode("speak");
-      setSentenceSection("library");
-    }
-    setTab("sentences");
-  };
-
   const openPatternPracticeFromHome = () => {
     if (hasUnfinishedPattern) resumePatternSession();
     else {
@@ -2414,7 +2424,6 @@ export default function Home() {
     <div className="setup-block"><h2>练习方式</h2><div className="sentence-mode-grid practice-methods" role="group" aria-label="句子练习方式">
       <button className={sentenceSection === "library" && sentenceMode === "bilingual" ? "selected" : ""} aria-pressed={sentenceSection === "library" && sentenceMode === "bilingual"} onClick={() => selectSentencePractice("bilingual")}><span aria-hidden="true">EN</span><div><b>英文卡片</b><small>直接看中英 · 英文三遍，中文一遍</small></div></button>
       <button className={sentenceSection === "library" && sentenceMode === "speak" ? "selected" : ""} aria-pressed={sentenceSection === "library" && sentenceMode === "speak"} onClick={() => selectSentencePractice("speak")}><span aria-hidden="true">中</span><div><b>看中文说英文</b><small>先自己说，再揭晓答案</small></div></button>
-      <button className={sentenceSection === "patterns" ? "selected" : ""} aria-label="核心句型" aria-pressed={sentenceSection === "patterns"} onClick={() => selectSentencePractice("patterns")}><span aria-hidden="true">↔</span><div><b>核心句型</b><small>一个句型，练三次替换</small></div></button>
     </div></div>
   );
 
@@ -2424,20 +2433,18 @@ export default function Home() {
     const difficultInSelection = currentPack.filter((item) => sentenceDifficult.includes(item.id) && (sentenceCategory === "all" || item.category === sentenceCategory)).length;
     return <section className="page sentence-page simple-setup">{commonHeader("句子", "听懂一句，再开口说一句")}
       <div className="setup-start-panel">
-        <button aria-describedby="sentence-session-choice" className="sticky-start primary-action setup-start" disabled={sentenceSelectionLoading || availableCount === 0} onClick={() => startSentenceSession()}>开始这组学习</button>
-        <p id="sentence-session-choice" className="session-choice-summary" aria-live="polite"><span>“”</span> 当前：{sentenceMode === "speak" ? "看中文说英文" : "英文卡片"} · {sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label} · {Math.min(sentenceCount, availableCount)} 句</p>
+        <button aria-describedby="sentence-session-choice" className="sticky-start primary-action setup-start" disabled={sentenceSelectionLoading || availableCount === 0} onClick={() => startSentenceSession()}>开始学习句子</button>
+        <p id="sentence-session-choice" className="session-choice-summary" aria-live="polite"><span>“”</span> 当前：{sentenceMode === "speak" ? "看中文说英文" : "英文卡片"} · {sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label} · 退出自动保存</p>
       </div>
       {canResumeSentence && <button className="resume-session-card" onClick={resumeSentenceSession}><span>继续上次</span><div><b>未完成的句子练习</b><small>第 {Math.min(sentenceIndex + 1, sentenceSessionIds.length)} 张 · 已标记 {ratedSentenceCount} / {sentenceSessionIds.length}</small></div><i>›</i></button>}
-      {canResumeSentence && <button className="sentence-new-group text-button" onClick={() => startSentenceSession(false, undefined, true)}>另开新一组</button>}
       {sentenceLoadError && sentencePacksIncomplete && <div className="sentence-load-error" role="alert"><span>{networkOnline ? "部分句库尚未载入，已有内容和本机记录仍保留。可以先重试；仍失败时再重新载入页面。" : "当前处于离线状态，已缓存的句子仍可使用；联网后会自动补全。"}</span><div className="sentence-load-actions"><button onClick={retrySentenceContent}>重试缺少的句库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div></div>}
       {renderSentencePracticeMethods()}
-      <div className="setup-block"><div className="row-heading"><h2>每组句数</h2><small>学完逐句标记</small></div><div className="count-switch"><button className={sentenceCount === 10 ? "selected" : ""} aria-pressed={sentenceCount === 10} onClick={() => setSentenceCount(10)}>10 句</button><button className={sentenceCount === 20 ? "selected" : ""} aria-pressed={sentenceCount === 20} onClick={() => setSentenceCount(20)}>20 句</button></div></div>
       <details className="setup-disclosure sentence-range" open={sentenceRangeOpen} onToggle={(event) => setSentenceRangeOpen(event.currentTarget.open)}><summary><div><b>练习范围</b><small>{sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label}</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
       <div className="setup-block"><h2>选择句子长度</h2><div className="sentence-band-switch">
         {(["short", "medium", "long"] as const).map((band) => <button key={band} className={sentenceBand === band ? "selected" : ""} aria-pressed={sentenceBand === band} onClick={() => { setSentenceBand(band); setSentenceSavedOnly(false); setSentenceReviewOnly(false); setSentenceSearch(""); setSentenceResultLimit(30); }}>{band === "short" ? "短句" : band === "medium" ? "常用句" : "长句"}<small>{band === "short" ? "2–7 词" : band === "medium" ? "8–12 词" : "13–18 词"}</small></button>)}
       </div></div>
       <div className="setup-block"><div className="row-heading"><h2>选择沟通场景</h2><small>{sentenceSelectionLoading ? "正在加载…" : !sentencePacks[SENTENCE_PACK_BY_BAND[sentenceBand]] ? "句库未载入" : `${availableCount} 句可学`}</small></div><div className="sentence-categories sentence-category-grid" role="group" aria-label="句子场景">{sentenceCategories.map((category) => <button key={category.id} className={sentenceCategory === category.id ? "selected" : ""} aria-pressed={sentenceCategory === category.id} onClick={() => { setSentenceCategory(category.id); setSentenceSavedOnly(false); setSentenceReviewOnly(false); setSentenceResultLimit(30); }}>{category.label}</button>)}</div></div>
-      {difficultInSelection > 0 && <button className="sentence-review-start" onClick={() => startSentenceSession(true)}>复习当前范围内 {Math.min(sentenceCount, difficultInSelection)} 个待加强句子</button>}
+      {difficultInSelection > 0 && <button className="sentence-review-start" onClick={() => startSentenceSession(true)}>复习当前范围内 {difficultInSelection} 个待加强句子</button>}
       </div></details>
       <details className="setup-disclosure sentence-find" open={sentenceBrowserOpen} onToggle={(event) => setSentenceBrowserOpen(event.currentTarget.open)}><summary><div><b>找句子与收藏</b><small>搜索中英文 · 收藏 {sentenceSaved.length} · 待加强 {sentenceDifficult.length}</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
       <div className="sentence-summary"><div><b>{sentenceMastered.length}</b><small>已掌握</small></div><button className={sentenceReviewOnly ? "selected" : ""} aria-pressed={sentenceReviewOnly} aria-label={`查看 ${sentenceDifficult.length} 个待加强句子`} onClick={() => openSentenceBrowser(false, true)}><b>{sentenceDifficult.length}</b><small>待加强</small></button><button className={sentenceSavedOnly ? "selected" : ""} aria-pressed={sentenceSavedOnly} onClick={() => openSentenceBrowser(true)}><b>{sentenceSaved.length}</b><small>{sentenceSavedOnly ? "正在看收藏" : "收藏句子"}</small></button></div>
@@ -2448,7 +2455,7 @@ export default function Home() {
         {(sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly) && <div className="sentence-result-list">{sentencePacksIncomplete && !filteredSentences.length ? <p role="status">{sentenceLoading ? "正在加载完整句库…" : sentenceSavedOnly ? "收藏记录仍保留，相关句库尚未载入。请重试缺少的句库。" : sentenceReviewOnly ? "待加强记录仍保留，相关句库尚未载入。请重试缺少的句库。" : "句库尚未完整载入，暂时无法确认是否有匹配句子。请重试缺少的句库。"}</p> : filteredSentences.length ? <>{sentencePacksIncomplete && <p className="browser-hint" role="status">{sentenceLoading ? "其余句库仍在加载，先显示已载入的结果。" : "部分句库未载入，当前仅显示已载入的结果。"}</p>}{filteredSentences.slice(0, sentenceResultLimit).map((item) => <button key={item.id} data-sentence-id={item.id} onClick={() => startSentenceSession(false, item)}><div><b lang="en">{item.text}</b><small>{item.translation}</small></div><i>›</i></button>)}<p className="sentence-result-count">已显示 {Math.min(sentenceResultLimit, filteredSentences.length)} / {sentencePacksIncomplete ? "已载入 " : ""}{filteredSentences.length} 句</p>{sentenceResultLimit < filteredSentences.length && <button className="library-more" onClick={() => setSentenceResultLimit((value) => value + 30)}>再显示 30 句</button>}</> : <p>{sentenceSavedOnly ? "还没有收藏句子。学习时点 ☆ 就能在这里找到。" : sentenceReviewOnly ? "当前没有待加强的句子。以后标记“还不熟悉”的句子会出现在这里。" : "没有找到相关句子，请换一个关键词。"}</p>}</div>}
       </div>
       </div></details>
-      <p className="setup-footnote">进度自动保存在本机，可在“进度”页备份。</p>
+      <p className="setup-footnote">进度自动保存在本机，可在首页的“记录与设置”备份。</p>
       <details className="setup-source"><summary>句库说明与来源</summary><div className="source-card sentence-license"><b>句库说明</b><p>共 3,000 组 Tatoeba 英汉对应句，短句、常用句、长句各 1,000 句。学习状态和当前卡片位置只保存在当前设备。</p><div><a href="https://tatoeba.org/en/downloads" target="_blank" rel="noreferrer">Tatoeba 数据与授权</a></div></div></details>
     </section>;
   };
@@ -2488,7 +2495,7 @@ export default function Home() {
       <div className="pattern-preview-list">{availablePatterns.slice(0, 6).map((pattern) => <div key={pattern.id}><span>{pattern.title}</span><b lang="en">{pattern.template}</b><small>{pattern.meaning}</small></div>)}</div>
       </div></details>
       {difficultInSelection > 0 && <button className="sentence-review-start" onClick={() => startPatternSession(true)}>复习当前范围内 {Math.min(10, difficultInSelection)} 个待加强句型</button>}
-      <p className="setup-footnote">进度自动保存在本机，可在“进度”页备份。</p>
+      <p className="setup-footnote">进度自动保存在本机，可在首页的“记录与设置”备份。</p>
     </section>;
   };
 
@@ -2516,7 +2523,7 @@ export default function Home() {
         {difficultCount > 0 && <button ref={resultPrimaryRef} className="primary-action full-button" onClick={retryDifficultPatterns}>再练这 {difficultCount} 个待加强句型</button>}
         <div className={difficultCount > 0 ? "result-secondary" : undefined}>
           <button ref={difficultCount === 0 ? resultPrimaryRef : undefined} className={difficultCount > 0 ? "text-button" : "primary-action full-button"} onClick={() => { restorePatternSetupPreferences(); setPatternSessionIds([]); setPatternRatings({}); setPatternIndex(0); setPatternDrillIndex(0); }}>再练一组</button>
-          <button className="text-button" onClick={() => { restorePatternSetupPreferences(); setPatternSessionIds([]); setPatternRatings({}); setPatternIndex(0); setPatternDrillIndex(0); setTab("home"); }}>回到今天</button>
+          <button className="text-button" onClick={() => { restorePatternSetupPreferences(); setPatternSessionIds([]); setPatternRatings({}); setPatternIndex(0); setPatternDrillIndex(0); setTab("home"); }}>回到首页</button>
         </div>
       </div>
     </section>;
@@ -2530,7 +2537,7 @@ export default function Home() {
         {difficultCount > 0 && <button ref={resultPrimaryRef} className="primary-action full-button" onClick={retryDifficultSentences}>再练这 {difficultCount} 个待加强句子</button>}
         <div className={difficultCount > 0 ? "result-secondary" : undefined}>
           <button ref={difficultCount === 0 ? resultPrimaryRef : undefined} className={difficultCount > 0 ? "text-button" : "primary-action full-button"} onClick={() => { restoreSentenceSetupPreferences(); setSentenceSessionIds([]); setSentenceRatings({}); setSentenceIndex(0); }}>{returnLabel}</button>
-          <button className="text-button" onClick={() => { restoreSentenceSetupPreferences(); setSentenceSessionIds([]); setSentenceRatings({}); setSentenceIndex(0); setTab("home"); }}>回到今天</button>
+          <button className="text-button" onClick={() => { restoreSentenceSetupPreferences(); setSentenceSessionIds([]); setSentenceRatings({}); setSentenceIndex(0); setTab("home"); }}>回到首页</button>
         </div>
       </div>
     </section>;
@@ -2538,51 +2545,42 @@ export default function Home() {
 
   const renderSentences = () => sentenceSection === "patterns" ? (patternStage === "setup" ? renderPatternSetup() : patternStage === "cards" ? renderPatternCards() : renderPatternResult()) : (sentenceStage === "setup" ? renderSentenceSetup() : sentenceStage === "cards" ? renderSentenceCards() : renderSentenceResult());
 
-  const handleHomeStudyClick = () => {
-    if (hasOngoingSession) { if (learnStage === "cards") playAutomaticWordExample(current); setTab("learn"); } else startSession();
-  };
-
-  const renderHome = () => (
-    <section className="page home-page">
-      <header className="home-header">
-        <div><p className="date-line">{dateText}</p><h1>今天，学一点就很好。</h1></div>
-        <div className="streak-badge" aria-label={`连续学习 ${streak} 天`}><span>🔥</span><b>{streak}</b></div>
-      </header>
-      {dueWords.length > 0 && <button className="review-banner home-review-priority" onClick={() => { setReviewView("due"); setReviewIndex(0); setTab("review"); }}><span aria-hidden="true">↻</span><div><b>{dueWords.length} 个词到期了，先复习</b><small>回忆旧词后，再开始新一组学习</small></div><i aria-hidden="true">›</i></button>}
-      <button className="hero-card" onClick={handleHomeStudyClick} aria-label={hasOngoingSession ? `继续${activePathLabel}${learnStage === "quiz" ? "考试" : "学习"}` : `开始${currentPathLabel}，${currentSessionCount}个词，${currentModeLabel}`}>
-        {hasOngoingSession ? <><span className="hero-kicker">继续本组 · {activeScene ? `${activeScene.icon} ${activePathLabel}` : activePathLabel}</span><h2>{learnStage === "quiz" ? `继续第 ${quizIndex + 1} 题` : `继续第 ${index + 1} 张`}</h2><p className="hero-meta" key={`resume-${learnStage}-${quizIndex}-${ratedCardCount}`}><span>{learnStage === "quiz" ? `已完成 ${quizResults.length} / ${sessionWords.length} 题` : `已标记 ${ratedCardCount} / ${sessionWords.length} 个`}</span><span>· 进度已自动保存</span></p></> : <><span className="hero-kicker">今日学习 · {selectedScene ? `${currentPathIcon} ${currentPathLabel}` : nextNgslWord ? `NGSL 从 #${nextNgslWord.rank} 开始` : "NGSL 全库已学习 · 继续巩固"}</span><h2>{currentSessionCount} 个{selectedScene ? `${currentPathLabel}词汇` : "核心词"}</h2><p className="hero-meta" key={`${estimatedMinutes}-${mode}`}><span>约 {estimatedMinutes} 分钟</span><span>· {mode === "test" ? "学完进行填空与听音测试" : "自由滑动学习，不安排考试"}</span></p></>}
-        <span className="hero-cta">{hasOngoingSession ? "继续学习" : "开始学习"} <b>→</b></span><i className="orb orb-one" /><i className="orb orb-two" />
-      </button>
-      <div className="stats-row">
-        <button onClick={() => setTab("progress")}><span className="stat-icon mint" aria-hidden="true">✓</span><div><b>{mastered.length}</b><small>已掌握</small></div></button>
-        <button onClick={() => { setReviewView("due"); setReviewIndex(0); setTab("review"); }}><span className="stat-icon lilac" aria-hidden="true">↻</span><div><b>{dueWords.length}</b><small>待复习</small></div></button>
-        <button onClick={() => { setReviewView("wordbook"); setReviewIndex(0); setTab("review"); }}><span className="stat-icon peach" aria-hidden="true">☆</span><div><b>{difficult.length}</b><small>生词</small></div></button>
-      </div>
-      <div className="section-heading quick-practice-heading"><div><p className="eyebrow">SPEAK OUT LOUD</p><h2>快速口语练习</h2></div><button onClick={() => setTab("sentences")}>全部内容</button></div>
-      <div className="quick-practice-grid"><button onClick={openSentencePracticeFromHome}><span>{hasUnfinishedSentence ? "继续" : "中→EN"}</span><div><b>{hasUnfinishedSentence ? "继续句子练习" : "看中文说英文"}</b><small>{hasUnfinishedSentence ? `第 ${sentenceIndex + 1} / ${sentenceSessionIds.length} 句 · 已标记 ${ratedSentenceCount} 句` : "用 3,000 句练主动表达"}</small></div><i>›</i></button><button onClick={openPatternPracticeFromHome}><span>{hasUnfinishedPattern ? "继续" : "↔"}</span><div><b>{hasUnfinishedPattern ? "继续句型练习" : "核心句型替换"}</b><small>{hasUnfinishedPattern ? `第 ${patternIndex + 1} / ${patternSessionIds.length} 个句型 · 替换 ${patternDrillIndex + 1} / 3` : `${patternMastered.length}/${corePatterns.length} 个句型已掌握`}</small></div><i>›</i></button></div>
-      <div className="section-heading"><div><p className="eyebrow">CHOOSE A PATH</p><h2>按场景学习</h2></div><button onClick={() => openLearningSetup()}>自选模式</button></div>
-      <div className="scene-strip">
-        {scenes.map((scene) => <button key={scene.id} className="scene-card" style={{ background: scene.color }} onClick={() => openLearningSetup(scene.id)}><span>{scene.icon}</span><b>{scene.name}</b><small>{sceneTotals[scene.id]} 个词</small></button>)}
-      </div>
-      <div className="section-heading"><div><p className="eyebrow">YOUR RHYTHM</p><h2>本周节奏</h2></div><span className="percent">{weeklyStudyCount}/7 天</span></div>
+  const renderHome = () => {
+    const studiedWordCount = words.filter((word) => studiedSet.has(word.id) || Object.hasOwn(schedule, word.id)).length;
+    const studiedSentenceCount = new Set([...sentenceSeen, ...sentenceMastered, ...sentenceDifficult]).size;
+    // A rounded percentage must not show completion before the final item.
+    const percentFor = (done: number, total: number) => !total || !done ? 0 : done >= total ? 100 : Math.min(99.9, Number((done / total * 100).toFixed(2)));
+    const wordPercent = percentFor(studiedWordCount, words.length);
+    const sentencePercent = percentFor(studiedSentenceCount, 3000);
+    const readingPercent = percentFor(readingCompleted.length, READING_TOTAL);
+    return <section className="page home-page home-dashboard">
+      <header className="section-heading dashboard-heading" aria-label={`本周节奏，连续学习 ${streak} 天`}><h1>本周节奏</h1><span className="percent">{weeklyStudyCount}/7 天</span></header>
       <div className="week-card">
-        {["一", "二", "三", "四", "五", "六", "日"].map((day, dayIndex) => { const key = weekKeys[dayIndex]; const done = Boolean(key && visibleStudyDays.includes(key)); const today = key === todayKey; const state = `${today ? "今天，" : ""}${done ? "已学习" : "未学习"}`; return <div key={day} role="img" aria-label={`星期${day}，${state}`}><span className={[done ? "done" : "", today ? "today" : ""].filter(Boolean).join(" ")} aria-hidden="true">{done ? "✓" : today ? "•" : ""}</span><small aria-hidden="true">{day}</small></div>; })}
+        {["一", "二", "三", "四", "五", "六", "日"].map((day, dayIndex) => { const key = weekKeys[dayIndex]; const done = Boolean(key && visibleStudyDays.includes(key)); const today = key === todayKey; const state = (today ? "今天，" : "") + (done ? "已学习" : "未学习"); return <div key={day} role="img" aria-label={"星期" + day + "，" + state}><span className={[done ? "done" : "", today ? "today" : ""].filter(Boolean).join(" ")} aria-hidden="true">{done ? "✓" : today ? "•" : ""}</span><small aria-hidden="true">{day}</small></div>; })}
       </div>
-    </section>
-  );
+      <section className="dashboard-progress" aria-labelledby="home-progress-title">
+        <div className="section-heading"><h2 id="home-progress-title">学习进度</h2></div>
+        <div className="dashboard-progress-list">
+          <button className="dashboard-progress-row home-word-progress" onClick={() => setTab("learn")} aria-label={"单词，已学习 " + studiedWordCount + " / " + words.length + " 个，" + wordPercent + "%"}><span className="stat-icon mint" aria-hidden="true">▤</span><div className="dashboard-progress-copy"><p><b>单词</b><strong>{wordPercent}%</strong></p><small>已学习 {studiedWordCount} / {words.length} 个</small><i className="dashboard-progress-track" aria-hidden="true"><em style={{ width: wordPercent + "%" }} /></i></div><span aria-hidden="true">›</span></button>
+          <button className="dashboard-progress-row home-sentence-progress" onClick={() => { setSentenceSection("library"); setTab("sentences"); }} aria-label={"句子，已学习 " + studiedSentenceCount + " / 3000 句，" + sentencePercent + "%"}><span className="stat-icon lilac" aria-hidden="true">“”</span><div className="dashboard-progress-copy"><p><b>句子</b><strong>{sentencePercent}%</strong></p><small>已学习 {studiedSentenceCount} / 3,000 句</small><i className="dashboard-progress-track" aria-hidden="true"><em style={{ width: sentencePercent + "%" }} /></i></div><span aria-hidden="true">›</span></button>
+          <button className="dashboard-progress-row home-reading-progress reading-progress-panel" onClick={() => setTab("read")} aria-label={"阅读，已读 " + readingCompleted.length + " / " + READING_TOTAL + " 篇，" + readingPercent + "%"}><span className="stat-icon peach" aria-hidden="true">◫</span><div className="dashboard-progress-copy"><p><b>阅读</b><strong>{readingPercent}%</strong></p><small>{readingCompleted.length}/{READING_TOTAL} 篇已读</small><i className="dashboard-progress-track" aria-hidden="true"><em style={{ width: readingPercent + "%" }} /></i></div><span aria-hidden="true">›</span></button>
+        </div>
+      </section>
+      <div className="dashboard-review-grid">
+        <button className="home-review-entry" onClick={() => { setReviewView("due"); setReviewIndex(0); setReviewRevealedWordId(null); setTab("review"); }}><span aria-hidden="true">↻</span><b>复习</b><small>{dueWords.length ? dueWords.length + " 个词待复习" : "暂无到期词"}</small><i aria-hidden="true">›</i></button>
+        <button className="home-wordbook-entry" onClick={() => { setReviewView("wordbook"); setReviewIndex(0); setReviewRevealedWordId(null); setTab("review"); }}><span aria-hidden="true">☆</span><b>生词本</b><small>{wordbookWords.length} 个待加强单词</small><i aria-hidden="true">›</i></button>
+      </div>
+      <button className="home-settings-entry" onClick={() => setTab("progress")}>记录与设置 <span aria-hidden="true">›</span></button>
+    </section>;
+  };
 
   const renderLearnSetup = () => (
     <section className="page setup-page simple-setup">
-      {commonHeader("单词", "每天一组，轻松积累")}
+      {commonHeader("单词", "随时开始，随时继续")}
       <div className="setup-start-panel">
-        <button aria-describedby="word-session-choice" className="sticky-start primary-action setup-start" onClick={() => startSession()}>开始这组学习</button>
-        <p id="word-session-choice" className="session-choice-summary" aria-live="polite"><span>{currentPathIcon}</span> 当前：{currentPathLabel} · {currentSessionCount} 个 · {currentModeLabel}</p>
+        <button aria-describedby="word-session-choice" className="sticky-start primary-action setup-start" onClick={() => startSession()}>开始学习</button>
+        <p id="word-session-choice" className="session-choice-summary" aria-live="polite"><span>{currentPathIcon}</span> 当前：{currentPathLabel} · 退出自动保存</p>
       </div>
-      <div className="setup-block"><h2>练习方式</h2><div className="mode-grid">
-        <button className={mode === "free" ? "selected" : ""} aria-pressed={mode === "free"} onClick={() => selectMode("free")}><span>∞</span><b>自由学习</b><small>自由滑动，不安排考试</small></button>
-        <button className={mode === "test" ? "selected" : ""} aria-pressed={mode === "test"} onClick={() => selectMode("test")}><span>✎</span><b>学习＋考试</b><small>学完进行英文填空</small></button>
-      </div></div>
-      <div className="setup-block"><div className="row-heading"><h2>每组词数</h2><small>场景不足时学习全部</small></div><div className="count-switch"><button className={count === 10 ? "selected" : ""} aria-pressed={count === 10} onClick={() => selectCount(10)}>10 个</button><button className={count === 20 ? "selected" : ""} aria-pressed={count === 20} onClick={() => selectCount(20)}>20 个</button></div></div>
       <details className="setup-disclosure word-range" open={wordRangeOpen} onToggle={(event) => setWordRangeOpen(event.currentTarget.open)}><summary><div><b>学习范围</b><small>{currentPathLabel}</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
       <div className="setup-block"><h2>选择词汇路线</h2><button className={`path-card ${path === "frequency" ? "selected" : ""}`} aria-pressed={path === "frequency"} onClick={() => selectPath("frequency")}><span className="path-icon">NG</span><div><b>NGSL 高频顺序</b><small>官方 1.2 版 · 共 {ngslMeta.count.toLocaleString()} 个通用词</small></div><i>{path === "frequency" ? "✓" : "›"}</i></button>
         <div className="scene-list">{scenes.map((scene) => <button key={scene.id} className={path === scene.id ? "selected" : ""} aria-pressed={path === scene.id} onClick={() => selectPath(scene.id)}><span style={{ background: scene.color }}>{scene.icon}</span><div><b>{scene.name}</b><small>{scene.subtitle}</small></div><i>{path === scene.id ? "✓" : "›"}</i></button>)}</div>
@@ -2597,16 +2595,15 @@ export default function Home() {
         {bandWords.length > 0 && <p className="library-note">已显示 {Math.min(libraryLimit, bandWords.length)} / {bandWords.length} 个；也可以输入关键词直接定位。</p>}
       </div>
       </div></details>
-      <p className="setup-footnote">进度自动保存在本机，可在“进度”页备份。</p>
+      <p className="setup-footnote">进度自动保存在本机，可在首页的“记录与设置”备份。</p>
     </section>
   );
 
   const renderCards = () => {
     const singleWordLookup = wordSessionKind === "lookup" && sessionMode === "free" && sessionWords.length === 1;
     return (
-    <section className="page learn-page">
-      <header className="compact-header"><button className={singleWordLookup ? "library-back" : "round-button"} onClick={() => singleWordLookup ? returnToWordLibrary() : openLearningSetup()} aria-label={singleWordLookup ? "返回词库" : "退出本组"}>{singleWordLookup ? "‹ 词库" : "‹"}</button><div><p className="eyebrow">{sessionPath === "frequency" ? "NGSL 高频词" : scenes.find((item) => item.id === sessionPath)?.name} · {sessionMode === "test" ? "学后测试" : "自由学习"}</p><h1>核心词卡</h1></div><button className="round-button" onClick={() => playSpeech(current.example, .72)} aria-label="慢速播放">0.7×</button></header>
-      <div className="session-progress" role="progressbar" aria-label="本组学习进度" aria-valuemin={0} aria-valuemax={sessionWords.length} aria-valuenow={ratedCardCount}><span style={{ width: `${(ratedCardCount / sessionWords.length) * 100}%` }} /></div><p className="card-count" aria-live="polite">第 {index + 1} 张 · 已标记 {ratedCardCount} / {sessionWords.length}</p>
+    <section className="page learn-page immersive-learning" aria-label="单词学习">
+      <header className="compact-header"><button className={singleWordLookup ? "library-back" : "round-button"} onClick={() => singleWordLookup ? returnToWordLibrary() : openLearningSetup()} aria-label={singleWordLookup ? "返回词库" : "退出学习并保留进度"}>{singleWordLookup ? "‹ 词库" : "‹"}</button><button className="round-button" onClick={() => playSpeech(current.example, .72)} aria-label="慢速播放">0.7×</button></header>
       <div className="word-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => endCardSwipe(event, moveCard)} onTouchCancel={() => { touchStart.current = null; }}>
         <div className="card-topline"><span className="scene-pill">{sessionPath === "frequency" ? current.rank ? `NGSL #${current.rank}` : "实用场景词组" : `${scenes.find((scene) => scene.id === sessionPath)?.icon} ${scenes.find((scene) => scene.id === sessionPath)?.name}`}</span><button className="sound-button" onClick={() => playSpeech(current.word)} aria-label={`播放 ${current.word} 发音`}>♪</button></div>
         <div className="word-heading"><h2 lang="en" className={current.word.length > 12 ? "long" : ""} ref={wordHeadingRef} tabIndex={-1}>{current.word}</h2><p>{current.phonetic || "点击右上角听发音"}</p><strong>{current.meaning}</strong>{current.exampleForm && current.exampleForm !== current.word && <small>句中形式：{current.exampleForm}</small>}</div><div className="card-divider" />
@@ -2614,16 +2611,10 @@ export default function Home() {
         <div className="example-box"><div><span className="section-label">场景句子</span><button onClick={() => playSpeech(current.example)} aria-label="播放场景句子">♪</button></div><p lang="en">{highlightedExample(current)}</p><small>{current.translation}</small></div>
       </div>
       <div className="word-card-actions" ref={wordActionsRef}>
-      <div className="sentence-pager" role="group" aria-label="切换词卡"><button disabled={index === 0} onClick={() => moveCard(-1)}>‹ 上一张</button><span>{index + 1} / {sessionWords.length}</span><button disabled={index === sessionWords.length - 1} onClick={() => moveCard(1)}>下一张 ›</button></div>
+      <div className="sentence-pager" role="group" aria-label="切换词卡"><button disabled={index === 0} onClick={() => moveCard(-1)}>‹ 上一张</button><span className="sr-only">{index + 1} / {sessionWords.length}</span><button disabled={index === sessionWords.length - 1} onClick={() => moveCard(1)}>下一张 ›</button></div>
       <div className="learn-actions"><button className={`secondary-action ${currentCardRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishCard(false)}>{currentCardRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentCardRating === "known" ? "is-mastered" : ""}`} onClick={() => finishCard(true)}>{currentCardRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>
       </div>
-      {sessionPath === "frequency" && wordSessionKind === "group" && <div className="word-auto-controls">
-        <div role="group" aria-label="例句自动朗读设置">
-          <button type="button" aria-pressed={autoWordExamples} onClick={toggleWordExamples}>自动例句三遍：{autoWordExamples ? "开" : "关"}</button>
-          <button type="button" onClick={replayWordExample}>重播三遍</button>
-        </div>
-        <p>{autoWordExamples ? "切换词卡后自动朗读例句三遍。" : "本次已关闭自动朗读。"}刷新后若没有声音，点一次“重播三遍”。手动播放会结束当前自动朗读。</p>
-      <small className="word-auto-build">例句三遍版 · {APP_BUILD_COMMIT.slice(0, 7)}</small></div>}
+
     </section>
     );
   };
@@ -2654,7 +2645,7 @@ export default function Home() {
     const sessionDifficultCount = sessionWords.filter((word) => difficultSet.has(word.id)).length;
     return <section className="page result-page"><div className="result-mark">{tested && score / quizResults.length >= .8 ? "★" : "✓"}</div><p className="eyebrow">SESSION COMPLETE</p><h1>这一组完成了</h1><p>{tested ? (missedWords.length ? `答对 ${score} / ${quizResults.length}，错词已自动加入生词本。` : `答对 ${score} / ${quizResults.length}，系统已安排后续复习。`) : `你学习了 ${sessionWords.length} 个词，系统已安排后续复习。`}</p>
       <div className="result-stats"><div><b>{sessionWords.length}</b><small>学习词数</small></div><div><b>{tested ? `${Math.round(score / quizResults.length * 100)}%` : mastered.length}</b><small>{tested ? "正确率" : "累计掌握"}</small></div><div><b>{tested ? quizResults.filter((item) => !item).length : sessionDifficultCount}</b><small>{tested ? "本组错词" : "待加强"}</small></div></div>
-      <div className="result-actions">{singleWordLookup ? <><button ref={resultPrimaryRef} className="primary-action full-button" onClick={returnToWordLibrary}>返回词库，继续查词</button><button className="text-button" onClick={() => { setTab("home"); setLearnStage("setup"); }}>回到今天</button></> : missedWords.length > 0 || (!tested && sessionDifficultCount > 0) ? <><button ref={resultPrimaryRef} className="primary-action full-button" onClick={tested ? retryMissedWords : retryDifficultWords}>{tested ? `再练这 ${missedWords.length} 个错词` : `再练这 ${sessionDifficultCount} 个待加强单词`}</button><div className="result-secondary"><button className="text-button" onClick={() => { setTab("home"); setLearnStage("setup"); }}>回到今天</button><button className="text-button" onClick={() => setLearnStage("setup")}>再学一组</button></div></> : <><button ref={resultPrimaryRef} className="primary-action full-button" onClick={() => { setTab("home"); setLearnStage("setup"); }}>回到今天</button><button className="text-button" onClick={() => setLearnStage("setup")}>再学一组</button></>}</div>
+      <div className="result-actions">{singleWordLookup ? <><button ref={resultPrimaryRef} className="primary-action full-button" onClick={returnToWordLibrary}>返回词库，继续查词</button><button className="text-button" onClick={() => { setTab("home"); setLearnStage("setup"); }}>回到首页</button></> : missedWords.length > 0 || (!tested && sessionDifficultCount > 0) ? <><button ref={resultPrimaryRef} className="primary-action full-button" onClick={tested ? retryMissedWords : retryDifficultWords}>{tested ? `再练这 ${missedWords.length} 个错词` : `再练这 ${sessionDifficultCount} 个待加强单词`}</button><div className="result-secondary"><button className="text-button" onClick={() => { setTab("home"); setLearnStage("setup"); }}>回到首页</button><button className="text-button" onClick={() => setLearnStage("setup")}>再学一组</button></div></> : <><button ref={resultPrimaryRef} className="primary-action full-button" onClick={() => { setTab("home"); setLearnStage("setup"); }}>回到首页</button><button className="text-button" onClick={() => setLearnStage("setup")}>再学一组</button></>}</div>
       {missedWords.length > 0 && <div className="result-mistakes"><h2>这次需要巩固的词</h2><p>点击听例句，也可以重练词卡后再测试。</p><div>{missedWords.map((word) => <button key={word.id} onClick={() => playSpeech(word.example)} aria-label={`播放 ${word.word} 的例句`}><span><b lang="en">{word.word}</b><small>{word.meaning}</small></span><i aria-hidden="true">♪</i></button>)}</div></div>}
     </section>;
   };
@@ -2710,21 +2701,21 @@ export default function Home() {
         <h2 ref={reviewHeadingRef} tabIndex={-1} lang="en">{reviewWord.word}</h2><p>{reviewWord.phonetic || "点击播放发音"}</p>
         {answerOpen ? <div id={`review-answer-${reviewWord.id}`} ref={reviewAnswerRef} className="review-answer" tabIndex={-1} role="status" aria-live="polite"><strong>{reviewWord.meaning}</strong><div className="mini-example"><p lang="en">{highlightedExample(reviewWord)}</p><small>{reviewWord.translation}</small></div></div> : <button className="review-reveal" aria-expanded="false" aria-controls={`review-answer-${reviewWord.id}`} onClick={() => revealReviewAnswer(reviewWord.id)}>显示答案</button>}
         <div className="review-pager" role="group" aria-label="切换复习词"><button aria-label="上一个复习词" disabled={safeReviewIndex === 0} onClick={() => { setReviewIndex(safeReviewIndex - 1); setReviewRevealedWordId(null); }}>‹</button><span>{safeReviewIndex + 1} / {reviewWords.length}</span><button aria-label="下一个复习词" disabled={safeReviewIndex === reviewWords.length - 1} onClick={() => { setReviewIndex(safeReviewIndex + 1); setReviewRevealedWordId(null); }}>›</button></div>
-      </div> : <div className="empty-state"><span>✓</span><h2 ref={reviewHeadingRef} tabIndex={-1}>{reviewView === "due" ? (nextReviewDue !== null ? "暂时没有到期的词" : hasWordStudyHistory ? "当前没有待复习的词" : "还没有需要复习的词") : "生词本还是空的"}</h2><p>{reviewView === "due" ? (nextReviewDue !== null ? <>下次复习<strong className="next-review-time">{formatReviewDue(nextReviewDue, todayKey)}</strong>到时会自动出现在这里，也可以先去学习新词。</> : hasWordStudyHistory ? "继续学习新词，系统会安排下一次复习。" : "先完成一组学习，系统会按记忆规律安排复习。") : "测试答错或标记“还不熟悉”的词会出现在这里。"}</p><button onClick={() => openLearningSetup()}>去学习新词</button></div>}
+      </div> : <div className="empty-state"><span>✓</span><h2 ref={reviewHeadingRef} tabIndex={-1}>{reviewView === "due" ? (nextReviewDue !== null ? "暂时没有到期的词" : hasWordStudyHistory ? "当前没有待复习的词" : "还没有需要复习的词") : "生词本还是空的"}</h2><p>{reviewView === "due" ? (nextReviewDue !== null ? <>下次复习<strong className="next-review-time">{formatReviewDue(nextReviewDue, todayKey)}</strong>到时会自动出现在这里，也可以先去学习新词。</> : hasWordStudyHistory ? "继续学习新词，系统会安排下一次复习。" : "先完成一组学习，系统会按记忆规律安排复习。") : "标记“还不熟悉”的词会出现在这里。"}</p><button onClick={() => openLearningSetup()}>去学习新词</button></div>}
       {reviewWord && answerOpen && reviewView === "due" && <div className="rating-grid" role="group" aria-label="评价记忆程度"><button onClick={() => rateReview("again")}><b>忘了</b><small>10 分钟后</small></button><button onClick={() => rateReview("hard")}><b>困难</b><small>1 天后</small></button><button onClick={() => rateReview("good")}><b>记得</b><small>{reviewIntervalDays(schedule[reviewWord.id]?.stage ?? 0, "good")} 天后</small></button><button onClick={() => rateReview("easy")}><b>简单</b><small>{reviewIntervalDays(schedule[reviewWord.id]?.stage ?? 0, "easy")} 天后</small></button></div>}
       {reviewWord && answerOpen && reviewView === "wordbook" && <button className="primary-action full-button" onClick={() => markWordbookMastered(reviewWord.id)}>这个词已经会了</button>}
     </section>;
   };
 
   const renderProgress = () => (
-    <section className="page progress-page">{commonHeader("进度", "查看学习记录与备份")}
-      <div className="progress-hero"><div><span>NGSL 1.2 掌握度</span><strong>{progress}<small>%</small></strong><p>{masteredNgslCount} / {words.length} 个通用高频词</p></div><div className="progress-ring" aria-hidden="true" style={{ "--value": `${progress * 3.6}deg` } as React.CSSProperties}><span>{progress}%</span></div></div>
-      <div className="progress-mini-grid"><article><span>🔥</span><b>{visibleStudyDays.length}</b><small>学习天数</small></article><article><span>✎</span><b>{difficult.length}</b><small>需要加强</small></article><article><span>↻</span><b>{dueWords.length}</b><small>今日复习</small></article></div>
-      <button className="sentence-progress-panel" onClick={() => setTab("sentences")}><span>“”</span><div><p><b>句子与核心句型</b><small>{sentenceMastered.length}/3,000 句 · {patternMastered.length}/{corePatterns.length} 句型</small></p><i><em style={{ width: `${Math.min(sentenceMastered.length / 30, 100)}%` }} /></i></div><strong>›</strong></button>
-      <button className="sentence-progress-panel reading-progress-panel" onClick={() => setTab("read")}><span>◫</span><div><p><b>分级阅读</b><small>{readingCompleted.length}/{READING_TOTAL} 篇已读{readingLast ? " · 可继续上次文章" : ""}</small></p><i><em style={{ width: `${readingCompletionPercent}%` }} /></i></div><strong>›</strong></button>
-      <div className="progress-section"><div className="section-heading"><div><p className="eyebrow">BY SCENE</p><h2>场景掌握情况</h2></div></div><div className="scene-progress-list">{scenes.map((scene) => { const sceneWords = scenePacks[scene.id]; const sceneDone = sceneWords.filter((word) => masteredSet.has(word.id)).length; const value = Math.round(sceneDone / sceneWords.length * 100); return <div key={scene.id}><span style={{ background: scene.color }}>{scene.icon}</span><div><p><b>{scene.name}</b><small>{sceneDone}/{sceneWords.length}</small></p><i><em style={{ width: `${value}%` }} /></i></div></div>; })}</div></div>
-      <div className="progress-section"><div className="section-heading"><div><p className="eyebrow">NEEDS ATTENTION</p><h2>容易错的词</h2></div><button onClick={() => { setReviewView("wordbook"); setReviewIndex(0); setTab("review"); }}>去复习</button></div>{wordbookWords.length ? <div className="trouble-list">{wordbookWords.slice(0, 5).map((word) => <button key={word.id} onClick={() => playSpeech(word.word)}><div><b lang="en">{word.word}</b><small>{word.meaning}</small></div><span>♪</span></button>)}</div> : <div className="clean-slate">目前没有错词，继续保持。</div>}</div>
-      <div className="source-card"><b>词库说明</b><p>完整收录 NGSL 1.2 的 {ngslMeta.count.toLocaleString()} 个词条，并按官方 SFI 词频顺序排列；另含 {sceneExtras.length} 个实用场景词组。中文释义基于 ECDICT；例句基于 Tatoeba 并经过学习化整理，每个词条均配有完整场景例句。</p><div><a href="https://www.newgeneralservicelist.com/new-general-service-list" target="_blank" rel="noreferrer">NGSL · CC BY-SA 4.0</a><a href="https://github.com/skywind3000/ECDICT" target="_blank" rel="noreferrer">ECDICT · MIT</a><a href="https://tatoeba.org/en/downloads" target="_blank" rel="noreferrer">Tatoeba · CC BY 2.0 FR</a></div></div>
+    <section className="page progress-page records-page">{commonHeader("记录与设置", "保管本机学习记录")}
+      <div className="backup-management"><div><b>累计学习</b><small>按实际学习日期统计，同一天只记一天。</small></div><div className="record-study-days"><b>{visibleStudyDays.length}</b><small>学习天数</small></div></div>
+      {((pausedWordSession && !pausedWordSession.continuous && pausedWordSession.kind !== "lookup") || hasUnfinishedPattern || patternMastered.length > 0 || patternDifficult.length > 0) && <details className="setup-details legacy-practice"><summary>旧版练习记录</summary><div className="legacy-resume-list">
+        {(pausedWordSession && !pausedWordSession.continuous && pausedWordSession.kind !== "lookup") && <button className="secondary-action full-button legacy-word-resume" onClick={resumeWordSession}>继续旧版单词练习</button>}
+        {(patternMastered.length > 0 || patternDifficult.length > 0 || hasUnfinishedPattern) && <p>已保留 {patternMastered.length} 个掌握句型、{patternDifficult.length} 个待加强句型及未完成位置。</p>}
+        {hasUnfinishedPattern && <button className="secondary-action full-button legacy-pattern-resume" onClick={openPatternPracticeFromHome}>继续旧版句型练习</button>}
+      </div></details>}
+      <details className="setup-details setup-source"><summary>词库说明</summary><div className="source-card"><b>词库说明</b><p>完整收录 NGSL 1.2 的 {ngslMeta.count.toLocaleString()} 个词条，并按官方 SFI 词频顺序排列；另含 {sceneExtras.length} 个实用场景词组。中文释义基于 ECDICT；例句基于 Tatoeba 并经过学习化整理，每个词条均配有完整场景例句。</p><div><a href="https://www.newgeneralservicelist.com/new-general-service-list" target="_blank" rel="noreferrer">NGSL · CC BY-SA 4.0</a><a href="https://github.com/skywind3000/ECDICT" target="_blank" rel="noreferrer">ECDICT · MIT</a><a href="https://tatoeba.org/en/downloads" target="_blank" rel="noreferrer">Tatoeba · CC BY 2.0 FR</a></div></div></details>
       <div className="backup-management"><div><b>学习记录备份</b><small>换手机或清理 Safari 前，导出一个本机备份文件。</small></div><div className="backup-actions"><button disabled={Boolean(backupBusy)} onClick={exportLearningBackup}>{backupBusy === "export" ? "正在导出…" : "导出备份"}</button><button disabled={Boolean(backupBusy)} onClick={() => backupInputRef.current?.click()}>{backupBusy === "read" ? "正在读取…" : "恢复备份"}</button></div>{backupBusy === "read" && <div className="backup-read-status" role="status"><span>正在读取备份文件…</span><button onClick={cancelBackupRead}>取消读取</button></div>}<input ref={backupInputRef} hidden type="file" accept=".json,application/json" onChange={chooseBackupFile} /></div>
       {backupNotice && <div className={`backup-notice ${backupNotice.kind}`} role={backupNotice.kind === "error" ? "alert" : "status"}><span>{backupNotice.message}</span><button aria-label="关闭备份提示" onClick={() => setBackupNotice(null)}>×</button></div>}
       <div className="data-management"><div><b>重置学习进度</b><small>清除单词、句子、句型、阅读和复习记录</small></div><button disabled={Boolean(backupBusy)} onClick={() => setResetProgressOpen(true)}>重置</button></div>
@@ -2734,17 +2725,17 @@ export default function Home() {
 
   if (!wordData || !hydrated) return <main className="app-shell"><div className="phone-stage app-loading" role={storageReadError ? "alert" : "status"} aria-live="polite"><div className="loading-mark" aria-hidden="true">EN</div><b>{storageReadError ? "学习记录暂时无法读取" : wordDataLoadError ? "核心词库暂时没有加载成功" : "词流英语"}</b><span>{storageReadError ? "已暂停恢复和保存，现有记录没有被覆盖。请确认浏览器允许本机存储后重试。" : wordDataLoadError ? (networkOnline ? "已保存成功下载的数据；可以先重试缺少部分，仍失败时再重新载入页面。" : "当前处于离线状态，联网后会自动继续载入。") : wordDataLoadedPacks ? `核心词库已加载 ${wordDataLoadedPacks}/3，正在继续…` : "正在载入核心词库并恢复学习进度…"}</span>{storageReadError ? <div className="app-loading-actions"><button onClick={() => { setStorageReadError(false); setStorageReadAttempt((value) => value + 1); }}>重试读取记录</button><button onClick={() => window.location.reload()}>重新载入页面</button></div> : wordDataLoadError && <div className="app-loading-actions"><button disabled={!networkOnline} onClick={() => { setWordDataLoadError(false); setWordDataLoadedPacks(0); setWordDataLoadAttempt((value) => value + 1); }}>重试核心词库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div>}</div></main>;
 
-  return <main className="app-shell"><div className="phone-stage" style={speechNotice || offlineCacheWriteError || !networkOnline ? { paddingBottom: statusToastHeight + 64, "--status-notice-space": `${statusToastHeight + 64}px` } as React.CSSProperties : undefined}>
+  return <main className="app-shell"><div className={`phone-stage${tab === "learn" && learnStage === "cards" ? " is-immersive" : ""}`} style={speechNotice || offlineCacheWriteError || !networkOnline ? { paddingBottom: tab === "learn" && learnStage === "cards" ? 0 : statusToastHeight + 64, "--status-notice-space": `${statusToastHeight + (tab === "learn" && learnStage === "cards" ? 0 : 64)}px` } as React.CSSProperties : undefined}>
     <div inert={hasOpenDialog}>
     <div className="sr-only" aria-live="polite" aria-atomic="true">{screenAnnouncement}</div>
     {storageWriteError && <div className="storage-warning" role="alert"><div><b>学习记录暂未保存</b><span>请关闭 Safari 无痕浏览，并确认设备还有可用存储空间。</span></div><button aria-label="关闭保存失败提示" onClick={() => setStorageWriteError(false)}>×</button></div>}
     {(speechNotice || offlineCacheWriteError || !networkOnline) && <div className="status-toast-stack" ref={statusToastRef}>{speechNotice && <div className="speech-warning" role="alert"><span>{speechNotice}</span><button aria-label="关闭语音提示" onClick={() => setSpeechNotice(null)}>×</button></div>}{offlineCacheWriteError && <div className="speech-warning offline-cache-warning" role="alert"><span>本次内容可以正常使用，但离线副本暂未确认保存。请检查 Safari 隐私模式和可用空间。</span><button aria-label="关闭离线保存提示" onClick={() => setOfflineCacheWriteError(false)}>×</button></div>}{!networkOnline && <div className="offline-status" role="status">离线模式 · 已加载内容和本机记录仍可使用</div>}</div>}
     <VersionNotice showDetails={tab === "progress"} beforeReload={canReloadForUpdate} />
     {tab === "home" ? renderHome() : tab === "learn" ? renderLearn() : tab === "sentences" ? renderSentences() : tab === "read" ? renderRead() : tab === "review" ? renderReview() : renderProgress()}
-    {!(tab === "learn" && (learnStage === "quiz" || learnStage === "result")) && <nav className="bottom-nav" aria-label="主导航">{tabItems.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => { if (item.id === "learn" && tab !== "learn" && learnStage === "cards") playAutomaticWordExample(current); if (item.id === "sentences" && tab !== "sentences" && sentenceSection === "library" && sentenceStage === "cards") playAutomaticSentenceExample(currentSentence); setTab(item.id); }}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}</nav>}
+    {!(tab === "learn" && (learnStage === "cards" || learnStage === "quiz" || learnStage === "result")) && <nav className="bottom-nav" aria-label="主导航">{tabItems.map((item) => <button key={item.id} className={tab === item.id || (item.id === "home" && (tab === "review" || tab === "progress")) ? "active" : ""} aria-current={tab === item.id || (item.id === "home" && (tab === "review" || tab === "progress")) ? "page" : undefined} onClick={() => { if (item.id === "learn" && tab !== "learn" && learnStage === "cards") playAutomaticWordExample(current); if (item.id === "sentences" && sentenceSection === "patterns") { restoreSentenceSetupPreferences(); setSentenceSection("library"); } else if (item.id === "sentences" && tab !== "sentences" && sentenceSection === "library" && sentenceStage === "cards") playAutomaticSentenceExample(currentSentence); setTab(item.id); }}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}</nav>}
     </div>
     {activeDialog === "install" && <div className="sheet-backdrop" onClick={() => setInstallOpen(false)}><div ref={installSheetRef} tabIndex={-1} className="install-sheet" role="dialog" aria-modal="true" aria-labelledby="install-title" onClick={(event) => event.stopPropagation()}><div className="sheet-handle" /><button ref={installCloseRef} className="sheet-close" aria-label="关闭安装说明" onClick={() => setInstallOpen(false)}>×</button><div className="app-preview"><span className="app-preview-icon" aria-hidden="true" /><div><b>词流英语</b><small>添加到主屏幕</small></div></div><h2 id="install-title">在 Safari 中安装</h2><ol><li><span>1</span><p>点击 Safari 底部的<strong>分享按钮</strong>。</p></li><li><span>2</span><p>向下找到并点击<strong>“添加到主屏幕”</strong>。</p></li><li><span>3</span><p>点击右上角<strong>“添加”</strong>即可。</p></li></ol><button className="primary-action full-button" onClick={() => setInstallOpen(false)}>我知道了</button></div></div>}
-    {activeDialog === "discard" && discardRequest && <div className="sheet-backdrop discard-backdrop" onClick={() => setDiscardRequest(null)}><div ref={discardDialogRef} tabIndex={-1} className="discard-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description" onClick={(event) => event.stopPropagation()}><span className="discard-icon" aria-hidden="true">↻</span><h2 id="discard-title">结束当前学习？</h2><p id="discard-description">{discardRequest.pattern ? `本组已完成 ${ratedPatternCount} / ${patternSessionIds.length} 个句型。` : discardRequest.sentence ? `本组已标记 ${ratedSentenceCount} / ${sentenceSessionIds.length} 个句子。` : learnStage === "quiz" ? `考试已完成 ${quizResults.length} / ${sessionWords.length} 题。` : `本组已标记 ${ratedCardCount} / ${sessionWords.length} 个词。`}已有记录都会保留，但未完成位置将结束。{(discardRequest.sentenceStart || discardRequest.patternStart) && "确认后会直接开始你刚刚选择的练习。"}</p><div className="discard-actions"><button ref={discardCancelRef} className="secondary-action" onClick={() => setDiscardRequest(null)}>保留进度</button><button className="discard-confirm" onClick={confirmDiscardSession}>{discardRequest.sentenceStart || discardRequest.patternStart ? "结束并开始新练习" : "结束本组"}</button></div></div></div>}
+    {activeDialog === "discard" && discardRequest && <div className="sheet-backdrop discard-backdrop" onClick={() => setDiscardRequest(null)}><div ref={discardDialogRef} tabIndex={-1} className="discard-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description" onClick={(event) => event.stopPropagation()}><span className="discard-icon" aria-hidden="true">↻</span><h2 id="discard-title">结束当前学习？</h2><p id="discard-description">{discardRequest.pattern ? `本组已完成 ${ratedPatternCount} / ${patternSessionIds.length} 个句型。` : discardRequest.sentence ? `本组已标记 ${ratedSentenceCount} / ${sentenceSessionIds.length} 个句子。` : discardRequest.wordStart && pausedWordSession ? `已保存至第 ${pausedWordSession.index + 1} 张，已标记 ${Object.keys(pausedWordSession.ratings).length} / ${pausedWordSession.wordIds.length} 个词。` : learnStage === "quiz" ? `考试已完成 ${quizResults.length} / ${sessionWords.length} 题。` : `本组已标记 ${ratedCardCount} / ${sessionWords.length} 个词。`}已有记录都会保留，但未完成位置将结束。{(discardRequest.wordStart || discardRequest.sentenceStart || discardRequest.patternStart) && "确认后会直接开始你刚刚选择的练习。"}</p><div className="discard-actions"><button ref={discardCancelRef} className="secondary-action" onClick={() => setDiscardRequest(null)}>保留进度</button><button className="discard-confirm" onClick={confirmDiscardSession}>{discardRequest.wordStart || discardRequest.sentenceStart || discardRequest.patternStart ? "结束并开始新练习" : "结束本组"}</button></div></div></div>}
     {activeDialog === "reset" && <div className="sheet-backdrop discard-backdrop" onClick={() => setResetProgressOpen(false)}><div ref={resetDialogRef} tabIndex={-1} className="discard-dialog reset-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-description" onClick={(event) => event.stopPropagation()}><span className="discard-icon reset-icon" aria-hidden="true">!</span><h2 id="reset-title">确定重置学习进度？</h2><p id="reset-description">单词、句子、核心句型和阅读的掌握记录、待加强内容、复习计划、学习天数以及未完成课程都会被清除。<strong>句库收藏和学习偏好会保留。</strong></p><div className="discard-actions"><button ref={resetCancelRef} className="secondary-action" onClick={() => setResetProgressOpen(false)}>取消</button><button className="reset-confirm" onClick={resetLearningProgress}>确认重置</button></div></div></div>}
     {activeDialog === "restore" && pendingBackup && <div className="sheet-backdrop discard-backdrop" onClick={() => { if (!backupBusy) setPendingBackup(null); }}><div ref={restoreDialogRef} tabIndex={-1} className="discard-dialog restore-dialog" role="dialog" aria-modal="true" aria-labelledby="restore-title" aria-describedby="restore-description" aria-busy={backupBusy === "restore"} onClick={(event) => event.stopPropagation()}><span className="discard-icon restore-icon" aria-hidden="true">↥</span><h2 id="restore-title">恢复这份学习记录？</h2><p id="restore-description">备份时间：{new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(pendingBackup.exportedAt))}<br />包含 {backupItemCount(pendingBackup, STORAGE.mastered)} 个已掌握单词、{backupItemCount(pendingBackup, STORAGE.sentenceMastered)} 个已掌握句子、{backupItemCount(pendingBackup, STORAGE.patternMastered)} 个已掌握句型和 {backupItemCount(pendingBackup, STORAGE.readingCompleted)} 篇已读文章。<strong>恢复后会替换这台设备当前的全部学习记录和偏好。</strong></p><div className="discard-actions"><button ref={restoreCancelRef} disabled={backupBusy === "restore"} className="secondary-action" onClick={() => setPendingBackup(null)}>取消</button><button disabled={backupBusy === "restore"} className="restore-confirm" onClick={restoreLearningBackup}>{backupBusy === "restore" ? "正在恢复…" : "确认恢复"}</button></div></div></div>}
     {activeDialog === "sync" && <div className="sheet-backdrop discard-backdrop sync-backdrop"><div ref={syncDialogRef} tabIndex={-1} className="discard-dialog sync-dialog" role="alertdialog" aria-modal="true" aria-busy={backupBusy === "export"} aria-labelledby="sync-title" aria-describedby="sync-description"><span className="discard-icon sync-icon" aria-hidden="true">↻</span><h2 id="sync-title">另一窗口已更新记录</h2><p id="sync-description">此页面已暂停，以免覆盖另一窗口的新记录。如果本页有未保存的学习进度，请先导出本页备份；载入最新记录会替换本页内容。备份只包含本页记录，请分别保管，再只保留一个学习窗口继续。</p><button className="secondary-action full-button" disabled={Boolean(backupBusy)} onClick={exportLearningBackup}>{backupBusy === "export" ? "正在导出…" : "导出本页备份"}</button>{backupNotice && <div className={`backup-notice ${backupNotice.kind}`} role={backupNotice.kind === "error" ? "alert" : "status"}><span>{backupNotice.message}</span></div>}<button ref={syncReloadRef} className="primary-action full-button" disabled={Boolean(backupBusy)} onClick={() => window.location.reload()}>载入最新记录</button></div></div>}

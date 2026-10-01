@@ -425,3 +425,117 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .sentence-auto-controls button{min-height:44px;padding:8px 12px;border:1px solid #bfcfc8;border-radius:12px;background:#fff;color:#284d40;font-size:13px;font-weight:700}
 .sentence-auto-controls button[aria-pressed="true"]{background:#e7f4ee;border-color:#6a9785}
 .sentence-auto-controls p{flex-basis:100%;margin:0;color:#526071;font-size:12px;line-height:1.6}
+
+/* Four everyday destinations; review and record tools now belong to home. */
+.bottom-nav{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+.bottom-nav small{font-size:.75rem;line-height:1.5}
+
+/* Home follows one clear reading order: this week, progress, then practice. */
+.home-dashboard .dashboard-heading{align-items:center;margin:0 0 14px}
+.dashboard-heading h1{margin:0;font-size:1.5rem;line-height:1.4;letter-spacing:-.035em}
+.home-dashboard .percent{flex:0 0 auto;font-size:.875rem}
+.home-dashboard .week-card{padding:16px 8px;border-radius:20px;gap:2px}
+.home-dashboard .week-card>div{min-width:0}
+.home-dashboard .week-card span{width:30px;height:30px;font-size:.875rem}
+.home-dashboard .week-card span.done,.home-dashboard .week-card span.today{color:var(--green-dark)}
+.home-dashboard .week-card small{font-size:.75rem;color:#526071}
+.home-dashboard .dashboard-progress>.section-heading{margin:24px 0 12px}
+.home-dashboard .section-heading h2{font-size:1.125rem;line-height:1.5}
+.dashboard-progress-list{overflow:hidden;border:1px solid #dfe4dd;border-radius:20px;background:#fff}
+.dashboard-progress-row{width:100%;min-width:0;min-height:94px;display:grid;grid-template-columns:36px minmax(0,1fr) 12px;align-items:center;gap:12px;margin:0;padding:15px 14px;border:0;background:#fff;text-align:left;color:var(--ink)}
+.dashboard-progress-row+.dashboard-progress-row{border-top:1px solid #edf0ea}
+.dashboard-progress-row:focus-visible{outline-offset:-3px}
+.dashboard-progress-row:active{background:#f3f9f5}
+.dashboard-progress-row>.stat-icon{width:36px;height:36px;flex:0 0 36px;font-size:1rem}
+.dashboard-progress-row>span:last-child{font-size:1.25rem;color:#596d63}
+.dashboard-progress-copy{min-width:0}
+.dashboard-progress-copy p{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0}
+.dashboard-progress-copy b{font-size:1rem;line-height:1.5}
+.dashboard-progress-copy strong{color:var(--green-dark);font-size:.875rem;line-height:1.5;white-space:nowrap}
+.dashboard-progress-copy small{display:block;margin-top:3px;color:#526071;font-size:.75rem;line-height:1.6;overflow-wrap:anywhere}
+.dashboard-progress-track{display:block;height:5px;margin-top:10px;border-radius:99px;background:#e8eee8;overflow:hidden}
+.dashboard-progress-track em{display:block;height:100%;border-radius:inherit;background:var(--green-dark)}
+.dashboard-progress-row.reading-progress-panel{margin:0}
+.dashboard-progress-row.reading-progress-panel>span:last-child{background:transparent!important;color:#596d63!important}
+.dashboard-review-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:20px}
+.dashboard-review-grid>button{min-width:0;min-height:78px;display:grid;grid-template-columns:36px minmax(0,1fr) 12px;grid-template-rows:auto auto;align-content:center;align-items:center;column-gap:12px;row-gap:3px;padding:14px;border:1px solid #dfe4dd;border-radius:18px;background:#fff;text-align:left}
+.dashboard-review-grid>button>span{grid-column:1;grid-row:1/3;width:36px;height:36px;display:grid;place-items:center;border-radius:12px;background:#e5f3ec;color:var(--green-dark);font-size:1.25rem}
+.dashboard-review-grid>button>b{grid-column:2;grid-row:1;font-size:1rem;line-height:1.5}
+.dashboard-review-grid>button>small{grid-column:2;grid-row:2;font-size:.75rem;line-height:1.6;color:#526071;overflow-wrap:anywhere}
+.dashboard-review-grid>button>i{grid-column:3;grid-row:1/3;font-size:1.25rem;font-style:normal;color:#596d63}
+.dashboard-review-grid>.home-wordbook-entry>span{background:#f7efdf;color:#8a621f}
+.home-settings-entry{width:100%;min-height:48px;display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;padding:10px 14px;border:0;border-radius:14px;background:transparent;color:#526071;font-size:.875rem;line-height:1.5;text-align:left}
+.home-settings-entry>span{font-size:1.25rem}
+.home-settings-entry:active{background:#ecefea}
+.records-page .record-study-days{display:flex;align-items:baseline;gap:10px;margin-top:14px}
+.record-study-days>b{color:var(--green-dark);font-size:2rem;line-height:1.2}
+.record-study-days>small{margin:0;font-size:.875rem}
+.records-page .setup-details{margin-top:20px;border:1px solid #dfe4dd;border-radius:18px;background:#fff}
+.records-page .setup-details>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:52px;padding:13px 15px;list-style:none;cursor:pointer;color:#334a40;font-size:.875rem;font-weight:750;line-height:1.5}
+.records-page .setup-details>summary::-webkit-details-marker{display:none}
+.records-page .setup-details>summary::after{content:"⌄";flex:0 0 auto;color:#526071;font-size:1.125rem}
+.records-page .setup-details[open]>summary::after{transform:rotate(180deg)}
+.records-page .setup-details[open]>summary{border-bottom:1px solid #e6e9e3}
+.records-page .setup-details>summary:focus-visible{outline:3px solid var(--green-dark);outline-offset:3px;border-radius:18px}
+.legacy-resume-list{display:grid;gap:12px;padding:14px;min-width:0}
+.legacy-resume-list>p{margin:0;color:#526071;font-size:.875rem;line-height:1.65;overflow-wrap:anywhere}
+.legacy-resume-list>button{padding:10px 12px;border-radius:14px;font-size:.875rem;line-height:1.5;white-space:normal}
+.records-page .setup-source .source-card{margin:0;padding:14px;border:0;border-radius:0;background:transparent}
+@media(max-width:360px){
+  .dashboard-progress-row,.dashboard-review-grid>button{gap:9px;padding-left:12px;padding-right:12px}
+}
+
+/* The word itself is the screen. Content keeps its natural height so large
+   text and long examples remain scrollable above the primary action toolbar. */
+.phone-stage.is-immersive{padding-bottom:0;background:#fff;overflow-x:clip;overflow-y:visible}
+.is-immersive .storage-warning{position:relative;top:auto;left:auto;transform:none;width:calc(100% - 24px);max-width:none;margin:calc(10px + env(safe-area-inset-top)) 12px 0;box-shadow:none}
+.is-immersive .storage-warning b{font-size:.875rem;line-height:1.5}
+.is-immersive .storage-warning span{font-size:.75rem;line-height:1.6;overflow-wrap:anywhere}
+.page.learn-page.immersive-learning{display:flex;flex-direction:column;min-height:100dvh;padding:calc(10px + env(safe-area-inset-top)) 16px 0;background:#fff}
+.immersive-learning>.compact-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 6px}
+.immersive-learning>.compact-header>.round-button{width:44px;height:44px;flex:0 0 44px;background:var(--paper);border-color:var(--line)}
+.immersive-learning>.compact-header>.library-back{padding:8px 12px;font-size:.875rem;white-space:normal}
+.immersive-learning>.word-card{flex:1;min-height:0;margin:0;padding:12px 4px calc(18px + var(--status-notice-space, 0px));border:0;border-radius:0;box-shadow:none;background:#fff}
+.immersive-learning .card-topline{gap:12px}
+.immersive-learning .scene-pill{min-width:0;font-size:.75rem;line-height:1.5;overflow-wrap:anywhere}
+.immersive-learning .sound-button{width:44px;height:44px;flex:0 0 44px}
+.immersive-learning .word-heading{padding:18px 0 20px}
+.immersive-learning .word-heading h2{font-size:clamp(2.35rem,11vw,3.25rem)}
+.immersive-learning .word-heading h2.long{font-size:clamp(1.85rem,8vw,2.5rem)}
+.immersive-learning .word-heading p{margin:10px 0;font-size:.875rem;line-height:1.5}
+.immersive-learning .word-heading strong{font-size:1.125rem;line-height:1.6}
+.immersive-learning .word-heading small{font-size:.75rem;line-height:1.5}
+.immersive-learning .card-section{padding:15px 0 18px}
+.immersive-learning .chips{gap:7px}
+.immersive-learning .chips span{padding:7px 10px;font-size:.875rem;line-height:1.5}
+.immersive-learning .example-box{padding:15px;border-radius:18px}
+.immersive-learning .example-box p{margin:11px 0 8px;font-size:1rem;line-height:1.65}
+.immersive-learning .example-box small{display:block;font-size:.875rem;line-height:1.65}
+.immersive-learning .example-box button{min-width:44px;min-height:44px;border-radius:12px}
+.immersive-learning>.word-card-actions{position:sticky;bottom:0;z-index:10;margin:0;padding:9px 0 calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:rgba(255,255,255,.97);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.immersive-learning .word-card-actions>.sentence-pager{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0 0 8px}
+.immersive-learning .word-card-actions button{min-width:0;min-height:48px;padding:10px 8px;font-size:.875rem;line-height:1.5;white-space:normal}
+.immersive-learning .sentence-pager button{background:#f5f7f4;border-color:#dde4de;color:#304d41}
+.immersive-learning .sentence-pager button:last-child{background:#f5f7f4;border-color:#dde4de;color:#304d41}
+.immersive-learning .learn-actions{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.is-immersive .status-toast-stack{bottom:calc(138px + env(safe-area-inset-bottom))}
+@media(max-width:360px){
+  .page.learn-page.immersive-learning{padding-left:12px;padding-right:12px}
+  .immersive-learning>.word-card{padding-left:2px;padding-right:2px}
+}
+@media(min-width:700px){
+  .phone-stage.is-immersive{margin:0;min-height:100dvh;border-radius:0}
+}
+@media(max-height:450px){
+  .page.learn-page.immersive-learning{padding-top:calc(6px + env(safe-area-inset-top))}
+  .immersive-learning>.compact-header{margin-bottom:0}
+  .immersive-learning .word-heading{padding:10px 0 14px}
+  .immersive-learning>.word-card-actions{padding-top:6px;padding-bottom:calc(6px + env(safe-area-inset-bottom))}
+  .immersive-learning .word-card-actions button{min-height:44px;padding-top:7px;padding-bottom:7px}
+  /* On a very short screen, stacked alerts and a fixed toolbar cannot share
+     enough space. Keep all recovery controls in the scrollable document. */
+  .is-immersive .status-toast-stack{position:static;left:auto;bottom:auto;transform:none;width:calc(100% - 24px);margin:10px 12px 0}
+  .is-immersive .immersive-learning>.word-card{padding-bottom:18px}
+  .is-immersive:has(.storage-warning) .immersive-learning>.word-card-actions,
+  .is-immersive:has(.status-toast-stack) .immersive-learning>.word-card-actions{position:static}
+}

@@ -166,14 +166,14 @@ test("English content in mixed-language lists carries an explicit language tag",
   const patternSetup = sourceBetween("const renderPatternSetup", "const renderPatternCards");
   const learnSetup = sourceBetween("const renderLearnSetup", "const renderCards");
   const renderRead = sourceBetween("const renderRead", "const renderReview");
-  const progress = sourceBetween("const renderProgress", "if (!wordData || !hydrated)");
+  const review = sourceBetween("const renderReview", "const renderProgress");
 
   assertEnglishElement(sentenceSetup, "b", "item.text");
   assertEnglishElement(patternSetup, "b", "pattern.template");
   assertEnglishElement(learnSetup, "b", "word.word");
   assertEnglishElement(renderRead, "b", "lastReading.title");
   assertEnglishElement(renderRead, "h2", "item.title");
-  assertEnglishElement(progress, "b", "word.word");
+  assertEnglishElement(review, "h2", "reviewWord.word");
 });
 
 test("today remains visually distinct after the learner completes it", () => {
@@ -185,5 +185,5 @@ test("today remains visually distinct after the learner completes it", () => {
   assert.doesNotMatch(week, /done \? "done" : today \? "today"/);
   assert.match(week, /done \? "done" : ""/);
   assert.match(week, /today \? "today" : ""/);
-  assert.match(week, /aria-label=\{`星期\$\{day\}，\$\{state\}`\}/);
+  assert.match(week, /aria-label=\{"星期" \+ day \+ "，" \+ state\}/);
 });

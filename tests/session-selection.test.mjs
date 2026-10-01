@@ -43,8 +43,8 @@ function learningSetup(patch = {}) {
   const state = {
     tab: "learn", learnStage: "cards", index: 0, cardRatings: {},
     sessionWords: [{ id: 1 }, { id: 2 }, { id: 3 }], sessionPath: "frequency",
-    sessionMode: "free", wordSessionKind: "group", quizIndex: 0, quizAnswer: "",
-    quizFeedback: null, quizResults: [], discardRequest: null,
+    sessionMode: "free", wordSessionKind: "group", wordContinuous: false, quizIndex: 0, quizAnswer: "",
+    quizFeedback: null, quizResults: [], discardRequest: null, pausedWordSession: null,
     mastered: [500], difficult: [501], schedule: { 500: { due: 123456, stage: 1 } },
     studyDays: ["2026-09-30"], preferences: { path: "frequency", mode: "free", count: 10 },
     ...patch,
@@ -58,6 +58,7 @@ function learningSetup(patch = {}) {
     wordBrowserOriginRef: { current: null }, wordBrowserReturnRef: { current: false },
     activeSessionResumeSnapshotRef: resume, STORAGE: { activeSession: "active" },
     selectPath: (path) => { state.preferences = { ...state.preferences, path }; },
+    stopSpeech() {},
     writeJson: (key, value) => saved.set(key, JSON.stringify(value)),
     removeStoredValue: (key) => saved.delete(key),
     sessionPayloadMatches: (previous, payload) => {
@@ -75,72 +76,71 @@ function learningSetup(patch = {}) {
     open: (path) => { vm.runInContext(setupHandlers, context()).openLearningSetup(path); persist(); },
     cancel: () => { vm.runInContext(compile(`(${cancelDiscardAction})();`), context()); persist(); },
     confirm: () => { vm.runInContext(setupHandlers, context()).confirmDiscardSession(); persist(); },
+    complete: () => { state.learnStage = "result"; persist(); },
   };
 }
 
-test("browsing later unrated word cards requires confirmation before discarding the position", () => {
+test("exiting later unrated word cards pauses and preserves the position without a discard dialog", () => {
   const app = learningSetup({ index: 2 });
   const before = app.saved.get("active");
   app.open();
-  assert.deepEqual(JSON.parse(JSON.stringify(app.state.discardRequest)), {});
-  assert.equal(app.state.learnStage, "cards");
+  assert.equal(app.state.discardRequest, null);
+  assert.equal(app.state.learnStage, "setup");
   assert.equal(app.state.index, 2);
   assert.equal(app.saved.get("active"), before);
 });
 
-test("an untouched first word card can return to setup without a discard dialog", () => {
+test("exiting an untouched first word card preserves its saved range", () => {
   const app = learningSetup();
   app.open();
   assert.equal(app.state.discardRequest, null);
   assert.equal(app.state.learnStage, "setup");
-  assert.equal(app.saved.has("active"), false);
+  assert.equal(app.saved.has("active"), true);
+  assert.deepEqual(JSON.parse(app.saved.get("active")).wordIds, [1, 2, 3]);
   assert.deepEqual(app.state.mastered, [500]);
   assert.deepEqual(app.state.difficult, [501]);
 });
 
-test("keeping a browsed word group preserves the saved position and all existing progress", () => {
+test("selecting a different range in setup does not overwrite paused word progress", () => {
   const app = learningSetup({ index: 2 });
   const before = app.saved.get("active");
   app.open("airport");
-  app.cancel();
   assert.equal(app.state.discardRequest, null);
-  assert.equal(app.state.learnStage, "cards");
+  assert.equal(app.state.learnStage, "setup");
   assert.equal(app.state.index, 2);
   assert.equal(app.saved.get("active"), before);
-  assert.equal(app.state.preferences.path, "frequency");
+  assert.equal(app.state.preferences.path, "airport");
   assert.deepEqual(app.state.mastered, [500]);
   assert.deepEqual(app.state.difficult, [501]);
   assert.deepEqual(app.state.studyDays, ["2026-09-30"]);
 });
 
-test("confirming the end of a word group removes only its unfinished-session snapshot", () => {
+test("a completed word session clears only its unfinished snapshot", () => {
   const app = learningSetup({ index: 1, cardRatings: { 1: "known" }, mastered: [1, 500] });
   const progress = JSON.stringify({ mastered: app.state.mastered, difficult: app.state.difficult, schedule: app.state.schedule, days: app.state.studyDays });
-  app.open();
-  app.confirm();
+  app.complete();
   assert.equal(app.state.discardRequest, null);
-  assert.equal(app.state.learnStage, "setup");
+  assert.equal(app.state.learnStage, "result");
   assert.equal(app.saved.has("active"), false);
   assert.equal(JSON.stringify({ mastered: app.state.mastered, difficult: app.state.difficult, schedule: app.state.schedule, days: app.state.studyDays }), progress);
 });
 
-test("home session uses the learner's current choices", () => {
+test("normal word start uses the selected range and free continuous learning", () => {
   assert.doesNotMatch(page, /startSession\("frequency",\s*"test",\s*10\)/);
-  assert.match(page, /if \(hasOngoingSession\) \{ if \(learnStage === "cards"\) playAutomaticWordExample\(current\); setTab\("learn"\); \} else startSession\(\)/);
-  assert.match(page, /currentPathLabel/);
-  assert.match(page, /currentSessionCount/);
-  assert.match(page, /currentModeLabel/);
+  const start = region("  const startSession =", "  const startSingleWord =");
+  assert.match(start, /const selectedPath = pathOverride \?\? path/);
+  assert.match(start, /const selectedMode = modeOverride \?\? "free"/);
+  assert.match(start, /const continuous = modeOverride === undefined && countOverride === undefined/);
+  assert.match(start, /continuous \? selectContinuousSession/);
 });
 
 test("an ongoing session resumes instead of being silently overwritten", () => {
-  assert.match(page, /const hasOngoingSession = learnStage === "cards" \|\| learnStage === "quiz"/);
-  assert.match(page, /继续本组/);
-  assert.match(page, /setDiscardRequest\(nextPath \? \{ path: nextPath \} : \{\}\)/);
+  assert.match(page, /const \[pausedWordSession, setPausedWordSession\] = useState<ActiveSessionSnapshot \| null>\(null\)/);
+  assert.match(page, /resumeWordSession\(\)/);
+  assert.match(page, /setDiscardRequest\(\{ wordStart: \{ path: selectedPath \} \}\)/);
   assert.match(page, /id="discard-title">结束当前学习/);
   assert.match(page, /className="discard-confirm" onClick=\{confirmDiscardSession\}/);
-  assert.match(page, /进度已自动保存/);
-  assert.match(page, /activeScene \? `\$\{activeScene\.icon\} \$\{activePathLabel\}` : activePathLabel/);
-  assert.doesNotMatch(page, /activeScene\?\.icon \?\? "NG"/);
+  assert.match(page, /退出自动保存/);
 });
 
 test("paused sentence and pattern sessions cannot be silently replaced", () => {
@@ -194,11 +194,10 @@ test("major screen transitions return to the top", () => {
   assert.match(page, /\[hydrated, index, learnStage, patternDrillIndex, patternIndex, patternStage, quizIndex, readingId, readingLevel, readingNavigation, reviewIndex, reviewView, sentenceIndex, sentenceSection, sentenceStage, tab\]/);
 });
 
-test("iPhone repaints changing home summary text without overlapping glyphs", () => {
-  assert.match(page, /className="hero-meta" key=\{`\$\{estimatedMinutes\}-\$\{mode\}`\}/);
-  assert.match(page, /<span>约 \{estimatedMinutes\} 分钟<\/span><span>·/);
+test("the simplified home separates counts and percentages and preserves phone text scaling", () => {
+  assert.match(page, /<strong>\{wordPercent\}%<\/strong>/);
+  assert.match(page, /<small>已学习 \{studiedWordCount\} \/ \{words\.length\} 个<\/small>/);
   assert.match(styles, /-webkit-text-size-adjust:100%/);
-  assert.match(styles, /\.hero-meta\{[^}]*line-height:20px[^}]*contain:paint/);
   assert.match(styles, /font-family:-apple-system,BlinkMacSystemFont/);
 });
 
@@ -236,14 +235,13 @@ test("free learning results count words marked for reinforcement", () => {
 });
 
 test("the first mastered words do not display as zero percent progress", () => {
-  assert.match(page, /preciseProgress > 0 && preciseProgress < 1 \? Number\(preciseProgress\.toFixed\(2\)\)/);
+  assert.match(page, /Number\(\(done \/ total \* 100\)\.toFixed\(2\)\)/);
 });
 
 test("review shortcuts open the intended review list", () => {
   const homeSection = page.split("const renderHome", 2)[1].split("const renderLearnSetup", 1)[0];
-  const progressSection = page.split("const renderProgress", 2)[1].split("return <main", 1)[0];
   assert.match(homeSection, /setReviewView\("due"\)/);
-  assert.match(progressSection, /setReviewView\("wordbook"\)/);
+  assert.match(homeSection, /setReviewView\("wordbook"\)/);
 });
 
 test("stored progress is cleaned and difficult words take priority", () => {
@@ -362,9 +360,10 @@ test("example highlighting does not match letters inside another word", () => {
 });
 
 test("selection controls expose their state to assistive technology", () => {
-  assert.match(page, /aria-pressed=\{mode === "free"\}/);
+  assert.match(page, /aria-pressed=\{path === "frequency"\}/);
+  assert.match(page, /aria-pressed=\{sentenceSection === "library" && sentenceMode === "bilingual"\}/);
   assert.match(page, /aria-pressed=\{readingLevel === level\}/);
-  assert.match(page, /aria-current=\{tab === item\.id \? "page" : undefined\}/);
+  assert.match(page, /aria-current=\{tab === item\.id \|\| \(item\.id === "home" && \(tab === "review" \|\| tab === "progress"\)\) \? "page" : undefined\}/);
   assert.match(page, /role="dialog" aria-modal="true"/);
   assert.match(page, /event\.key !== "Tab"/);
   assert.match(page, /aria-describedby="discard-description"/);

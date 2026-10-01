@@ -1,3 +1,4 @@
+import { navigate, openLegacyPatterns, openLegacyWords } from './browser-navigation.mjs';
 import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -22,19 +23,18 @@ const stored = (page, key) => page.evaluate(key => JSON.parse(localStorage.getIt
 const records = page => page.evaluate(() => Object.fromEntries(
   Object.keys(localStorage).filter(key => key.startsWith('wordflow-')).sort().map(key => [key, localStorage.getItem(key)]),
 ));
-const nav = (page, label) => page.locator('.bottom-nav button').filter({ hasText: label }).click();
+const nav = navigate;
 const results = [];
 
 async function retainChoices(page) {
   assert.deepEqual(await stored(page, keys.preferences), choices);
   const summary = await page.locator('.session-choice-summary').innerText();
-  for (const label of ['看中文说英文', '短句', '餐饮', '20 句']) assert.ok(summary.includes(label), summary);
+  for (const label of ['看中文说英文', '短句', '餐饮']) assert.ok(summary.includes(label), summary);
 }
 async function beginWords(page) {
   await nav(page, '单词');
-  await page.getByRole('button', { name: '自由学习', exact: false }).click();
-  await page.getByRole('button', { name: '10 个', exact: true }).click();
-  await page.getByRole('button', { name: '开始这组学习', exact: true }).click();
+
+  await page.getByRole('button', { name: /^开始学习(?:句子)?$/, exact: true }).click();
   await page.locator('.word-card').waitFor();
 }
 async function tapVisible(page, locator, quizMode = null) {
@@ -109,7 +109,7 @@ async function identify(page, scripts, beforeReady) {
   assert.equal(await page.title(), '词流英语');
   assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'), expected);
   await beforeReady?.(page);
-  await page.locator('.bottom-nav').waitFor();
+  await page.locator('.bottom-nav, .word-card, .quiz-page, .sentence-study-card, .pattern-prompt').first().waitFor();
   await nav(page, '进度');
   assert.ok((await page.locator('.app-version-panel').innerText()).includes(`当前版本 ${expected.slice(0, 7)}`),
     'The executing client must report the expected release');
@@ -200,7 +200,30 @@ for (const engine of ['chromium', 'webkit']) {
     }
   }
 
-  await check('simple-practice-entry-and-visible-disclosure-controls', async page => {
+  await check('merged-dashboard-progress-and-review-shortcuts', async page => {
+    await nav(page,'首页');
+    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(),['首页','单词','句子','阅读']);
+    assert.equal(await page.locator('.hero-card,.quick-practice-grid,.scene-strip').count(),0);
+    assert.equal(await page.locator('.home-dashboard .week-card').count(),1);
+    assert.match(await page.locator('.home-word-progress').innerText(),/已学习 4 \/ 2809 个/);
+    assert.match(await page.locator('.home-sentence-progress').innerText(),/已学习 2 \/ 3,000 句/);
+    assert.match(await page.locator('.home-reading-progress').innerText(),/1\/15 篇已读/);
+    for(const selector of ['.home-word-progress','.home-sentence-progress','.home-reading-progress']) {
+      const value=await page.locator(selector).innerText();
+      assert.match(value, /\d+(?:\.\d+)?%/);
+    }
+    const position=await page.evaluate(()=>({week:document.querySelector('.week-card').getBoundingClientRect().top,progress:document.querySelector('.home-word-progress').getBoundingClientRect().top,review:document.querySelector('.home-review-entry').getBoundingClientRect().top}));
+    assert.ok(position.week < position.progress && position.progress < position.review,'Weekly rhythm precedes simple progress and review');
+    await page.locator('.home-review-entry').click();
+    await page.locator('.review-page').waitFor();
+    await nav(page,'生词本');
+    await page.locator('.review-card').waitFor();
+    assert.deepEqual(await stored(page,keys.difficult),[10]);
+    assert.equal(await page.locator('.review-card .review-reveal').count(),1,'Wordbook starts with recall');
+    return {fourMainTabs:true,weeklyRhythmFirst:true,wordSentenceAndReadingCountsVisible:true,reviewAndWordbookAccessible:true};
+  },{[keys.mastered]:[1,2,3],[keys.difficult]:[10],'wordflow-sentence-mastered-v1':[1,1001],'wordflow-reading-completed-v1':['r1'],'wordflow-days':[new Date().toISOString().slice(0,10)]});
+
+  await check('simple-practice-entry-and-visible-disclosure-controls' , async page => {
     await nav(page, '单词');
     assert.equal(await page.locator('h1').innerText(), '单词');
     for (const selector of ['.word-range', '.word-find']) assert.equal(await page.locator(selector).evaluate(e => e.open), false);
@@ -216,14 +239,12 @@ for (const engine of ['chromium', 'webkit']) {
     assert.equal(await page.locator('h1').innerText(), '句子');
     for (const selector of ['.sentence-range', '.sentence-find']) assert.equal(await page.locator(selector).evaluate(e => e.open), false);
     assert.equal(await page.locator('.sentence-section-switch').count(), 0);
-    assert.equal(await page.locator('.practice-methods button').count(), 3);
-    await page.getByRole('button', { name: '核心句型', exact: true }).click();
-    assert.equal(await page.locator('h1').innerText(), '句子');
-    assert.equal(await page.locator('.practice-methods button[aria-pressed="true"]').count(), 1);
-    assert.equal(await page.locator('.pattern-preview-list').isVisible(), false);
+    assert.equal(await page.locator('.practice-methods button').count(), 2);
+    assert.equal(await page.getByRole('button',{name:'核心句型',exact:true}).count(),0);
+    assert.equal(await page.locator('.practice-methods button[aria-pressed="true"]').count(),1);
     await page.locator('.practice-methods button').filter({ hasText: '看中文说英文' }).click();
     assert.match(await page.locator('#sentence-session-choice').innerText(), /看中文说英文/);
-    return { secondaryToolsInitiallyFolded: true, threePracticeMethodsAtOneLevel: true, wordSearchUsable: true };
+    return { secondaryToolsInitiallyFolded: true, twoPracticeMethodsAtOneLevel: true, wordSearchUsable: true };
   });
 
   await check('cross-range-sentence-lists-search-and-practice-preferences', async page => {
@@ -245,11 +266,11 @@ for (const engine of ['chromium', 'webkit']) {
       await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();
       await retainChoices(page);
     }
-    await page.getByRole('button', { name: '开始这组学习', exact: true }).click();
+    await page.getByRole('button', { name: /^开始学习(?:句子)?$/, exact: true }).click();
     await page.locator('.sentence-study-card').waitFor();
     const session = await stored(page, keys.sentence);
     for (const [key, value] of Object.entries(choices)) assert.equal(session[key], value);
-    assert.equal(session.sentenceIds.length, 20);
+    assert.equal(session.continuous,true); assert.ok(session.sentenceIds.length>20);
     assert.equal(await page.locator('.sentence-english').count(), 0, 'Recall mode does not reveal the English answer');
     return { collectionAndReinforcementIds: [1, 1001, 2001], queries: ['airport', '机场'], practiceChoicesPreserved: true };
   }, {
@@ -258,8 +279,8 @@ for (const engine of ['chromium', 'webkit']) {
   });
 
   await check('pattern-start-resumes-rated-group-and-substitution-with-hidden-answer', async page => {
-    await nav(page, '句子');
-    await page.getByRole('button', { name: '核心句型', exact: true }).click();
+    await openLegacyPatterns(page);
+    await page.getByRole('button', { name: '返回句型设置并保留进度', exact: true }).click();
     await openSetupDetails(page, '.pattern-range');
     await page.locator('.pattern-category-grid button').filter({ hasText: '全部' }).click();
     const start = () => page.getByRole('button', { name: '开始句型替换练习', exact: true }).click();
@@ -291,12 +312,12 @@ for (const engine of ['chromium', 'webkit']) {
     assert.equal(await page.evaluate(() => window.__maintenanceSpeech.log.length), 0, 'Recall does not automatically speak the answer');
     return { patternIndex: before.index, substitutionIndex: before.drillIndex, ratingCount: 1,
       repeatedStartResumesWithoutDiscard: true, rotationPreserved: true, recallAnswerHidden: true, instrumentedSpeech: true };
-  });
+  }, {[keys.pattern]:{version:1,updatedAt:Date.now(),category:'all',patternIds:Array.from({length:10},(_,index)=>`p${String(index+1).padStart(2,'0')}`),index:0,drillIndex:0,ratings:{}}});
 
   await check('small-phone-pattern-top-start-substitutions-and-final-rating-receive-direct-taps', async page => {
     await page.setViewportSize({ width: 320, height: 568 });
-    await nav(page, '句子');
-    await page.getByRole('button', { name: '核心句型', exact: true }).click();
+    await openLegacyPatterns(page);
+    await page.getByRole('button', { name: '返回句型设置并保留进度', exact: true }).click();
     await page.waitForFunction(() => scrollY <= 1);
     const start = page.getByRole('button', { name: '开始句型替换练习', exact: true });
     assert.equal(await start.count(), 1);
@@ -334,7 +355,7 @@ for (const engine of ['chromium', 'webkit']) {
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     return { viewport: { width: 320, height: 568 }, topStartReceivedCoordinateTap: true,
       threeSubstitutionsAndFinalRatingReceivedCoordinateTaps: true, nextPatternAnswerHidden: true, instrumentedSpeech: true };
-  });
+  }, {[keys.pattern]:{version:1,updatedAt:Date.now(),category:'all',patternIds:Array.from({length:10},(_,index)=>`p${String(index+1).padStart(2,'0')}`),index:0,drillIndex:0,ratings:{}}});
 
   const quizReadyWord = {
     version: 1, kind: 'group', updatedAt: Date.now(), path: 'frequency', mode: 'test', wordIds: [1, 2, 3],
@@ -343,7 +364,7 @@ for (const engine of ['chromium', 'webkit']) {
   };
   await check('small-phone-quiz-wrong-answer-and-empty-skip-keep-feedback-and-actions-visible', async page => {
     await page.setViewportSize({ width: 320, height: 568 });
-    await nav(page, '单词');
+    await openLegacyWords(page);
     await page.locator('.learn-actions .primary-action').click();
     await page.locator('.quiz-page input').waitFor();
     assert.equal(await page.locator('.feedback-box').count(), 0);
@@ -423,6 +444,7 @@ for (const engine of ['chromium', 'webkit']) {
     });
     await identify(newer, scripts);
     await nav(newer, '单词');
+    await newer.getByRole('button',{name:'开始学习',exact:true}).click();
     await newer.locator('.learn-actions .primary-action').click();
     await newer.waitForFunction(() => localStorage.getItem('wordflow-ngsl-mastered-v1') === '[1,2]');
     await page.locator('.sync-dialog').waitFor();
@@ -525,12 +547,20 @@ for (const engine of ['chromium', 'webkit']) {
     }
     const before = await stored(page, keys.word);
     assert.deepEqual(before.ratings, {});
-    await page.getByRole('button', { name: '退出本组', exact: true }).click();
+    await page.getByRole('button', { name: '退出学习并保留进度', exact: true }).click();
+    assert.equal(await page.locator('#discard-title').count(),0,'Exiting preserves progress without a replacement prompt');
+    assert.deepEqual(await stored(page, keys.word),before);
+    await page.getByRole('button',{name:'开始学习',exact:true}).click();
+    await page.locator('.word-card').waitFor();
+    assert.deepEqual(await stored(page,keys.word),before);
+    await page.getByRole('button',{name:'退出学习并保留进度',exact:true}).click();
+    await openSetupDetails(page,'.word-range');
+    await page.locator('.scene-list button').first().click();
+    await page.getByRole('button',{name:'开始学习',exact:true}).click();
     await page.locator('#discard-title').waitFor();
-    await page.getByRole('button', { name: '保留进度', exact: true }).click();
-    assert.deepEqual(await stored(page, keys.word), before);
-    assert.equal(await page.locator('.word-card').count(), 1);
-    return { index: 2, ratingCount: 0, discardProtected: true };
+    await page.getByRole('button',{name:'保留进度',exact:true}).click();
+    assert.deepEqual(await stored(page,keys.word),before);
+    return {index:2,ratingCount:0,exitResumesWithoutDialog:true,replacementProtected:true};
   });
 
   const pausedWord = {
@@ -541,8 +571,10 @@ for (const engine of ['chromium', 'webkit']) {
   };
   await check('startup-read-failure-pauses-without-writes-and-retries-the-paused-group', async page => {
     await nav(page, '单词');
+    await page.getByRole('button',{name:'开始学习',exact:true}).click();
     await page.locator('.word-card').waitFor();
-    assert.match(await page.locator('.card-count').innerText(), /第\s*5\s*张.*4\s*\/\s*10/);
+    assert.equal((await stored(page,keys.word)).index,4);
+    assert.equal(await page.locator('.word-heading h2').innerText(),'to');
     assert.deepEqual(await stored(page, keys.mastered), [1, 2, 3]);
     assert.deepEqual(await stored(page, keys.difficult), [4]);
     assert.deepEqual(await stored(page, keys.word), pausedWord);
@@ -616,7 +648,7 @@ for (const engine of ['chromium', 'webkit']) {
   await check('speech-warning-keeps-the-next-sentence-directly-tappable', async page => {
     await nav(page, '句子');
     await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
-    await page.getByRole('button', { name: '开始这组学习', exact: true }).click();
+    await page.getByRole('button', { name: /^开始学习(?:句子)?$/, exact: true }).click();
     await page.locator('.sentence-study-card').waitFor();
     await page.evaluate(() => window.dispatchEvent(new CustomEvent('english-flow-speech-error', { detail: 'not-allowed' })));
     await page.getByRole('button', { name: '关闭语音提示', exact: true }).waitFor();
@@ -680,7 +712,7 @@ for (const engine of ['chromium', 'webkit']) {
       assert.equal(url.searchParams.get('ef-update'), later);
       assert.ok(url.searchParams.get('ef-preflight'), 'Each preflight carries an explicit attempt nonce');
     }
-    assert.equal(await page.getByText('请先到进度页再更新。若有记录尚未保存，请先导出备份；不会强制刷新。', { exact: true }).count(), 0);
+    assert.equal(await page.getByText('请先到首页的“记录与设置”再更新。若有记录尚未保存，请先导出备份；不会强制刷新。', { exact: true }).count(), 0);
     return { persistedRotation: { word: 0, sentence: 0, pattern: 0 }, updatePreflightReached: true,
       preflightAttempts: 2, distinctRetryUrls: true, simulatedFutureVersionAndStaleHtml: true, releaseSwitchVerified: false };
   });

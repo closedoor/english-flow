@@ -1,3 +1,4 @@
+import { navigate } from './browser-navigation.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -80,8 +81,9 @@ async function createPausedWindows(context) {
   await page.locator('.learn-actions .primary-action').click();
   await page.locator('.storage-warning').waitFor();
   assert.equal(await page.evaluate(key => localStorage.getItem(key), masteredKey), '[1]', 'The second mastered word exists only in A memory');
-  await page.locator('.bottom-nav button').filter({ hasText: '进度' }).click();
-  assert.match(await page.locator('.progress-hero p').innerText(), /^2 \/ 2809/, 'A retains its unsaved second word');
+  await navigate(page,'首页');
+  assert.match(await page.locator('.home-word-progress').innerText(), /已学习 2 \/ 2809/, 'A retains its unsaved second word');
+  await navigate(page,'进度');
   const newer = await context.newPage();
   newer.setDefaultTimeout(15_000);
   await newer.goto(origin, { waitUntil: 'domcontentloaded' });
@@ -146,7 +148,8 @@ for (const engine of ['chromium', 'webkit']) {
     await assertPausedRecords(windows);
     await newer.close();
     await Promise.all([page.waitForEvent('domcontentloaded'), reloadButton(page).click()]);
-    await page.locator('.bottom-nav').waitFor();
+    await page.locator('.word-card').waitFor();
+    assert.equal(await page.locator('.bottom-nav').count(),0,'Reload restores the focused saved card');
     assert.equal(await page.locator('.sync-dialog').count(), 0);
     assert.equal(await page.evaluate(key => localStorage.getItem(key), masteredKey), '[1,3]', 'Explicit reload loads B instead of replaying stale A work');
     assert.deepEqual(await records(page), windows.before, 'Reload preserves B full records');

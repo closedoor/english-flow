@@ -1,3 +1,4 @@
+import { navigate } from './browser-navigation.mjs';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -19,9 +20,9 @@ const quizSnapshot = () => ({ version: 1, kind: 'group', updatedAt: Date.now(), 
 const stored = (page, key) => page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
 async function ready(page) {
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
-  await page.locator('.bottom-nav, .quiz-page').first().waitFor({ timeout: 30_000 });
+  await page.locator('.bottom-nav, .quiz-page, .word-card, .sentence-study-card, .pattern-prompt, .speak-prompt').first().waitFor({ timeout: 30_000 });
 }
-async function nav(page, label) { await page.locator('.bottom-nav button').filter({ hasText: label }).click(); }
+const nav = navigate;
 async function waitSnapshot(page, field, value) {
   await page.waitForFunction(({key,field,value}) => JSON.parse(localStorage.getItem(key) || 'null')?.[field] === value, {key:keys.word,field,value});
 }
@@ -105,8 +106,8 @@ for (const engine of ['chromium','webkit']) {
       assert.deepEqual(await stored(page,keys.mastered),[1,2]);
       assert.deepEqual(await stored(page,keys.difficult),[3]);
       await nav(page,'单词');
-      await page.getByRole('button',{name:'自由学习',exact:false}).click();
-      await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
+
+      await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();
       await page.locator('.word-heading h2').waitFor();
     },{[keys.mastered]:[1,2],[keys.difficult]:[3]});
 
@@ -122,8 +123,8 @@ for (const engine of ['chromium','webkit']) {
       await ready(page);
       await page.locator('.offline-cache-warning').waitFor();
       await nav(page,'单词');
-      await page.getByRole('button',{name:'自由学习',exact:false}).click();
-      await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
+
+      await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();
       await page.locator('.learn-actions .primary-action').click();
       await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)||'null')?.ratings?.[1]==='known',keys.word);
       assert.ok((await stored(page,keys.mastered)).includes(1));
@@ -146,9 +147,8 @@ for (const engine of ['chromium','webkit']) {
     },{[keys.mastered]:[1,2],[keys.difficult]:[3]});
 
     await check('complete-ten-word-session-pause-resume-and-retry-only-mistakes',async page=>{
-      await ready(page);await nav(page,'单词');
-      await page.locator('.mode-grid button').last().click();
-      await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
+      await ready(page);
+      await page.locator('.word-card').waitFor();
       const expected=[];
       for(let index=0;index<10;index++){
         await page.locator('.word-heading h2').waitFor();
@@ -185,7 +185,7 @@ for (const engine of ['chromium','webkit']) {
       const retry=await stored(page,keys.word);
       assert.deepEqual(retry.wordIds,[original[1],original[4],original[7]]);
       assert.deepEqual(retry.ratings,{});
-    });
+    },{[keys.word]:{...quizSnapshot(),wordIds:Array.from({length:10},(_,index)=>index+1),index:0,ratings:{},stage:'cards'}});
 
     const large={
       [keys.mastered]:Array.from({length:1800},(_,i)=>i+1),

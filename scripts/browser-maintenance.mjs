@@ -1,3 +1,4 @@
+import { navigate } from './browser-navigation.mjs';
 import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
@@ -19,9 +20,7 @@ async function ready(page) {
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
   await page.locator('.bottom-nav').waitFor({ timeout: 30_000 });
 }
-async function nav(page, label) {
-  await page.locator('.bottom-nav button').filter({ hasText: label }).click();
-}
+const nav = navigate;
 async function openLongReading(page, filter = '全部') {
   await ready(page);
   await nav(page, '阅读');
@@ -49,7 +48,7 @@ async function runSentenceMaintenanceChecks(check, origin) {
     }, { key: preferencesKey, choices: seedChoices, extra });
     await page.goto(origin, { waitUntil: 'domcontentloaded' });
     await page.locator('.bottom-nav').waitFor();
-    await page.locator('.bottom-nav button').filter({ hasText: '句子' }).click();
+    await navigate(page,'句子');
     await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
   }
   async function retainedChoices(page) {
@@ -59,10 +58,10 @@ async function runSentenceMaintenanceChecks(check, origin) {
     await page.waitForFunction(() => {
       const button = document.querySelector('.sentence-page .setup-start');
       const summary = document.querySelector('.session-choice-summary')?.textContent || '';
-      return button && !button.disabled && ['看中文说英文', '短句', '餐饮', '20 句'].every(label => summary.includes(label));
+      return button && !button.disabled && ['看中文说英文', '短句', '餐饮'].every(label => summary.includes(label));
     });
     const summary = await page.locator('.session-choice-summary').innerText();
-    if (!summary.includes('看中文说英文') || !summary.includes('短句') || !summary.includes('餐饮') || !summary.includes('20 句')) throw Error(`Practice choices changed: ${summary}`);
+    if (!summary.includes('看中文说英文') || !summary.includes('短句') || !summary.includes('餐饮')) throw Error(`Practice choices changed: ${summary}`);
     const stored = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), preferencesKey);
     if (JSON.stringify(stored) !== JSON.stringify(seedChoices)) throw Error(`Stored practice choices changed: ${JSON.stringify(stored)}`);
   }
@@ -102,11 +101,11 @@ async function runSentenceMaintenanceChecks(check, origin) {
       await retainedChoices(page);
     }
     // The search cannot change the group the top Start button selects.
-    await page.getByRole('button', { name: '开始这组学习', exact: true }).click();
+    await page.getByRole('button', { name: /^开始学习(?:句子)?$/, exact: true }).click();
     await page.locator('.sentence-study-card').waitFor();
     const group = await page.evaluate(() => JSON.parse(localStorage.getItem('wordflow-sentence-active-session-v1')));
     for (const [key, value] of Object.entries(seedChoices)) if (group[key] !== value) throw Error(`Search changed new practice ${key}: ${group[key]}`);
-    if (group.sentenceIds.length !== 20) throw Error(`Wrong sentence count: ${group.sentenceIds.length}`);
+    if (!group.continuous || group.sentenceIds.length <= 20) throw Error(`Continuous practice did not include the selected scope: ${group.sentenceIds.length}`);
     if (await page.locator('.sentence-english').count()) throw Error('Chinese-first group revealed an answer');
   });
 }

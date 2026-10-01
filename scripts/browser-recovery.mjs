@@ -1,3 +1,4 @@
+import { navigate } from './browser-navigation.mjs';
 import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -30,7 +31,7 @@ for (const engine of ['chromium', 'webkit']) {
     try {
       await page.goto(origin, { waitUntil: 'domcontentloaded' });
       await page.locator('.bottom-nav').waitFor();
-      await page.locator('.bottom-nav button').filter({ hasText: '句子' }).click();
+      await navigate(page,'句子');
       await page.waitForFunction(() => { const button = document.querySelector('.sentence-page .sticky-start'); return button && !button.disabled; });
       await run(page, context);
       assert.deepEqual(errors, [], 'Uncaught browser errors');
@@ -94,7 +95,7 @@ for (const engine of ['chromium', 'webkit']) {
   }, { [keys.saved]: [target.id], [keys.difficult]: [2001], [keys.mastered]: [3], [keys.word]: [17] });
   await check('loaded-selection-remains-usable-after-other-packs-fail', async (page, context) => {
     await failSearch(page, context, 'I');
-    const start = page.getByRole('button', { name: '开始这组学习', exact: true });
+    const start = page.getByRole('button', { name: /^开始学习(?:句子)?$/, exact: true });
     assert.equal(await start.isEnabled(), true);
     await start.click(); await page.locator('.sentence-study-card').waitFor();
     await page.locator('.learn-actions .secondary-action').click();
@@ -117,7 +118,7 @@ for (const engine of ['chromium', 'webkit']) {
     await openSetupDetails(page, '.sentence-range');
     await page.locator('.sentence-band-switch button').first().click();
     await page.locator('.sentence-load-error').waitFor({ state: 'detached' });
-    assert.equal(await page.getByRole('button', { name: '开始这组学习', exact: true }).isEnabled(), true);
+    assert.equal(await page.getByRole('button', { name: /^开始学习(?:句子)?$/, exact: true }).isEnabled(), true);
     assert.equal(await page.getByRole('searchbox', { name: '搜索长短句' }).inputValue(), '');
   });
   await browser.close();

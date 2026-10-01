@@ -1,4 +1,5 @@
 import { openSetupDetails } from './browser-disclosures.mjs';
+import { openLegacyPatterns } from './browser-navigation.mjs';
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 
@@ -13,7 +14,6 @@ const results = [];
 const stored = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), sessionKey);
 const rotation = page => page.evaluate(() => JSON.parse(localStorage.getItem("wordflow-practice-rotation-v1"))?.pattern ?? 0);
 const speechCount = page => page.evaluate(() => window.__patternSpeech.length);
-const nav = (page, label) => page.locator(".bottom-nav button").filter({ hasText: label }).click();
 const exit = page => page.getByRole("button", { name: "返回句型设置并保留进度", exact: true }).click();
 const start = page => page.getByRole("button", { name: "开始句型替换练习", exact: true }).click();
 const reveal = page => page.getByRole("button", { name: "我说好了，查看参考答案", exact: true }).click();
@@ -21,8 +21,8 @@ const reveal = page => page.getByRole("button", { name: "我说好了，查看�
 async function setup(page, category = "全部") {
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
-  await nav(page, "句子");
-  await page.getByRole("button", { name: "核心句型", exact: true }).click();
+  await page.locator(".pattern-prompt").waitFor();
+  await exit(page);
   await openSetupDetails(page, '.pattern-range');
   await page.locator(".pattern-category-grid button").filter({ hasText: category }).click();
 }
@@ -55,6 +55,11 @@ for (const engine of ["chromium", "webkit"]) {
       if (!sessionStorage.getItem("pattern-maintenance-seeded")) {
         sessionStorage.setItem("pattern-maintenance-seeded", "1");
         localStorage.setItem("wordflow-pattern-difficult-v1", JSON.stringify(ids));
+        localStorage.setItem("wordflow-pattern-active-session-v1", JSON.stringify({
+          version: 1, updatedAt: Date.now(), category: "all",
+          patternIds: Array.from({ length: 10 }, (_, index) => `p${String(index + 1).padStart(2, "0")}`),
+          index: 0, drillIndex: 0, ratings: {},
+        }));
       }
       window.__patternSpeech = [];
       Object.defineProperty(window, "SpeechSynthesisUtterance", {
@@ -112,13 +117,12 @@ for (const engine of ["chromium", "webkit"]) {
     assert.equal(await speechCount(page), 0);
   });
 
-  await check("rated-patterns-and-home-shortcut-keep-the-same-group-and-substitution", async page => {
+  await check("rated-legacy-patterns-and-record-management-resume-keep-the-same-group-and-substitution", async page => {
     await setup(page); await start(page); await cards(page); await ratePattern(page, true);
     await page.waitForFunction(key => Object.keys(JSON.parse(localStorage.getItem(key))?.ratings ?? {}).length === 1, sessionKey);
     await toSecondSubstitution(page);
     const before = await stored(page), beforeRotation = await rotation(page);
-    await nav(page, "今天");
-    await page.locator(".quick-practice-grid button").filter({ hasText: "继续句型练习" }).click();
+    await openLegacyPatterns(page);
     await cards(page);
     assert.deepEqual(await stored(page), before);
     await exit(page); await start(page); await cards(page);

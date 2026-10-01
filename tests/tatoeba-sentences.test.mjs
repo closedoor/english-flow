@@ -81,8 +81,10 @@ test("sentence learning remembers choices, mastery, difficult cards and interrup
   assert.match(page, /ratings: sentenceRatings/);
   assert.match(page, /setSentenceMastered/);
   assert.match(page, /setSentenceDifficult/);
-  assert.match(page, /\[unseen, needsWork, learned\]\.reduce/);
-  assert.match(page, /takeRotatedSpread\(group, selectionLimit - items\.length, selectionRotation \+ groupIndex\)/);
+  const starter = page.split("const beginSentenceSession", 2)[1].split("const startSentenceSession", 1)[0];
+  assert.match(starter, /selectContinuousSession\(pool, new Set\(\[\.\.\.sentenceSeen, \.\.\.sentenceMastered, \.\.\.sentenceDifficult\]\), difficultIds, masteredIds\)/);
+  assert.doesNotMatch(starter, /selectionLimit/);
+  assert.match(starter, /setSentenceContinuous\(!singleSentence\)/);
   assert.match(page, /已保留在待加强练习中/);
   assert.match(page, /返回句库设置并保留进度/);
   assert.match(page, /resumeSentenceSession/);

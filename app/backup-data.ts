@@ -43,6 +43,20 @@ const sentenceMode = (value: unknown) => oneOf(value, ["bilingual", "speak"]);
 const patternCategory = (value: unknown) => oneOf(value, ["all", "daily", "request", "social", "travel", "food", "shopping", "work"]);
 const sessionCount = (value: unknown) => value === 10 || value === 20;
 const ratings = (value: unknown) => isRecord(value) && Object.values(value).every((rating) => rating === "known" || rating === "difficult");
+const continuous = (value: Record<string, unknown>) => optional(value, "continuous", (flag) => flag === true);
+
+function continuousWordIds(value: unknown, path: unknown) {
+  // The range is bounded by the 2,809 NGSL words and the 50 curated scene
+  // candidates. Hydration still checks membership against the loaded content.
+  return Array.isArray(value) && value.length > 0 && value.length <= 2809 + 50
+    && value.every((id) => positiveId(id) && (Number(id) <= 2809 || (path !== "frequency" && Number(id) >= 10001 && Number(id) <= 10050)));
+}
+
+function continuousSentenceIds(value: unknown, band: unknown) {
+  const minimum = band === "short" ? 1 : band === "medium" ? 1001 : 2001;
+  return Array.isArray(value) && value.length > 0 && value.length <= 1000
+    && value.every((id) => positiveId(id) && Number(id) >= minimum && Number(id) < minimum + 1000);
+}
 
 function studyDate(value: unknown) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -83,17 +97,21 @@ function validBackupRecord(key: string, value: unknown): boolean {
     case "wordflow-pattern-active-session-v1": {
       if (!isRecord(value) || value.version !== 1 || !nonnegative(value.updatedAt) || !optional(value, "index", integer) || !optional(value, "ratings", ratings)) return false;
       if (key === "wordflow-sentence-active-session-v1") {
-        return sentenceBand(value.band) && sentenceCategory(value.category) && sessionCount(value.count) && optional(value, "mode", sentenceMode)
-          && Array.isArray(value.sentenceIds) && value.sentenceIds.length > 0 && value.sentenceIds.every(positiveId);
+        return sentenceBand(value.band) && sentenceCategory(value.category) && sessionCount(value.count) && optional(value, "mode", sentenceMode) && continuous(value)
+          && optional(value, "reviewOnly", (flag) => flag === true)
+          && (value.continuous === true ? continuousSentenceIds(value.sentenceIds, value.band)
+            : Array.isArray(value.sentenceIds) && value.sentenceIds.length > 0 && value.sentenceIds.every(positiveId));
       }
       if (key === "wordflow-pattern-active-session-v1") {
         return patternCategory(value.category) && optional(value, "drillIndex", (item) => integer(item) && Number(item) <= 2)
           && Array.isArray(value.patternIds) && value.patternIds.length > 0 && value.patternIds.every(textId);
       }
       return wordPath(value.path) && wordMode(value.mode) && oneOf(value.stage, ["cards", "quiz"])
+        && continuous(value) && (value.continuous !== true || (value.mode === "free" && value.stage === "cards" && value.kind !== "lookup"))
         && optional(value, "kind", (kind) => kind === "group" || (kind === "lookup" && value.mode === "free" && Array.isArray(value.wordIds) && value.wordIds.length === 1))
         && (value.stage !== "quiz" || value.mode === "test")
-        && Array.isArray(value.wordIds) && value.wordIds.length > 0 && value.wordIds.every(positiveId)
+        && (value.continuous === true ? continuousWordIds(value.wordIds, value.path)
+          : Array.isArray(value.wordIds) && value.wordIds.length > 0 && value.wordIds.every(positiveId))
         && optional(value, "quizIndex", integer) && optional(value, "quizAnswer", (item) => typeof item === "string")
         && optional(value, "quizFeedback", (item) => oneOf(item, [null, "correct", "wrong"]))
         && optional(value, "quizResults", (item) => listOf(item, (result) => typeof result === "boolean"));

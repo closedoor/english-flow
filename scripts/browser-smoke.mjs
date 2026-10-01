@@ -1,3 +1,4 @@
+import { navigate } from './browser-navigation.mjs';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -13,11 +14,9 @@ const keys = { word: 'wordflow-active-session-v1', mastered: 'wordflow-ngsl-mast
 await mkdir(evidence, { recursive: true });
 async function ready(page) {
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
-  await page.locator('.bottom-nav, .quiz-page').first().waitFor({ timeout: 30000 });
+  await page.locator('.bottom-nav, .quiz-page, .word-card, .sentence-study-card, .pattern-prompt, .speak-prompt').first().waitFor({ timeout: 30000 });
 }
-async function nav(page, label) {
-  await page.locator('.bottom-nav button').filter({ hasText: label }).click();
-}
+const nav = navigate;
 async function stored(page, key) {
   return page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
 }
@@ -59,10 +58,10 @@ for (const engine of ['chromium', 'webkit']) {
   await check('all-modules-and-widths', async page => {
     await ready(page);
     assert.equal(await page.title(),'词流英语');
-    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(), ['今天','单词','句子','阅读','复习','进度']);
+    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(), ['首页','单词','句子','阅读']);
     for (const width of [320,375,390,480,1280]) {
       await page.setViewportSize({width,height:800});
-      for (const label of ['今天','单词','句子','阅读','复习','进度']) {
+      for (const label of ['首页','单词','句子','阅读','复习','进度']) {
         await nav(page,label);
         await page.locator('.page h1').first().waitFor();
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1), `${label} overflows at ${width}px`);
@@ -71,8 +70,8 @@ for (const engine of ['chromium', 'webkit']) {
   });
   await check('word-progress-reload', async page => {
     await ready(page); await nav(page,'单词');
-    await page.getByRole('button',{name:'自由学习',exact:false}).click();
-    await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
+
+    await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();
     await page.locator('.word-heading h2').waitFor();
     await page.locator('.learn-actions .secondary-action').click();
     await persisted(page,keys.word,v=>v && Object.keys(v.ratings).length===1);
@@ -151,7 +150,7 @@ for (const engine of ['chromium', 'webkit']) {
     assert.ok((await stored(page,keys.difficult)).includes(1));
   }, {[keys.difficult]:[1]});
   await check('sentence-speaking-reload', async page => {
-    await ready(page);
+    await ready(page); await nav(page,'句子');
     await page.getByRole('button',{name:'看中文说英文',exact:false}).click();
     const start=page.getByRole('button',{name:/开始.*学习|开始.*练习/}).last();
     await start.click();
@@ -166,8 +165,7 @@ for (const engine of ['chromium', 'webkit']) {
     assert.equal(await page.locator('.speak-answer').count(),0);
   });
   await check('pattern-drill-reload', async page => {
-    await ready(page); await page.getByRole('button',{name:'核心句型替换',exact:false}).click();
-    await page.getByRole('button',{name:/开始.*学习|开始.*练习/}).last().click();
+    await ready(page);
     await page.locator('.pattern-prompt').waitFor();
     await page.locator('.reveal-answer').click();
     await page.locator('.pattern-answer').waitFor();
@@ -176,21 +174,23 @@ for (const engine of ['chromium', 'webkit']) {
     await page.reload(); await page.locator('.pattern-drill-count').waitFor();
     assert.equal((await stored(page,keys.pattern)).drillIndex,1);
     assert.equal(await page.locator('.pattern-answer').count(),0);
-  });
+  }, {[keys.pattern]:{version:1,updatedAt:Date.now(),category:'all',patternIds:['p01','p02','p03'],index:0,drillIndex:0,ratings:{}}});
   await check('blocked-storage-usable', async (page,context) => {
     await context.addInitScript(()=>{Storage.prototype.setItem=function(){throw new DOMException('Blocked','QuotaExceededError');};});
     await ready(page); await nav(page,'单词');
     await page.locator('.storage-warning').waitFor();
-    await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
+    await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();
     await page.locator('.word-heading h2').waitFor();
+    const beforeWord = await page.locator('.word-heading h2').innerText();
     await page.locator('.learn-actions .secondary-action').click();
-    assert.ok((await page.locator('.card-count').innerText()).includes('已标记 1'));
+    await page.waitForFunction(previous => document.querySelector('.word-heading h2')?.textContent !== previous, beforeWord);
+    assert.equal(await page.locator('.storage-warning').isVisible(),true,'Unsaved in-memory study remains usable');
   });
   await check('two-windows-preserve-latest', async (page,context) => {
     await ready(page);
     const other=await context.newPage(); other.setDefaultTimeout(12000); await ready(other);
     await nav(page,'单词');
-    await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
+    await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();
     await page.locator('.learn-actions .secondary-action').click();
     await other.locator('.sync-dialog').waitFor();
     assert.equal(await other.locator('.sync-dialog').isVisible(),true);
@@ -224,7 +224,7 @@ for (const engine of ['chromium', 'webkit']) {
       await ready(page);
       if (kind === 'word') await nav(page, '单词');
       else await nav(page, '句子');
-      await page.getByRole('button', {name:'开始这组学习', exact:true}).click();
+      await page.getByRole('button', {name:/^开始学习(?:句子)?$/, exact:true}).click();
       const card = page.locator(kind === 'word' ? '.word-card' : '.sentence-study-card');
       const key = kind === 'word' ? keys.word : keys.sentence;
       await card.waitFor();

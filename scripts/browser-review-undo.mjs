@@ -1,3 +1,4 @@
+import { navigate } from './browser-navigation.mjs';
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -41,7 +42,7 @@ for (const engine of ["chromium", "webkit"]) {
     try {
       await page.goto(origin, { waitUntil: "domcontentloaded" });
       await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
-      await page.locator(".bottom-nav button").filter({ hasText: "复习" }).click();
+      await navigate(page,'复习');
       if (view === "wordbook") await page.getByRole("button", { name: "生词本", exact: false }).click();
       await page.getByRole("button", { name: "显示答案", exact: true }).click();
       const original = await records(page);

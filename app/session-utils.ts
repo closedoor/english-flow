@@ -6,6 +6,26 @@ export function takeRotatedSpread<T>(items: T[], count: number, rotation: number
   return Array.from({ length: count }, (_, index) => items[(Math.floor(index * step) + offset) % items.length]);
 }
 
+// A continuous session includes the entire selected range. Keep each partition
+// in its original order so new material advances naturally and saved prefixes
+// can be retained when an older grouped session is extended.
+export function selectContinuousSession<T extends { id: string | number }>(
+  items: readonly T[],
+  seenIds: ReadonlySet<T["id"]>,
+  difficultIds: ReadonlySet<T["id"]>,
+  masteredIds: ReadonlySet<T["id"]>,
+) {
+  const groups: T[][] = [[], [], [], []];
+  const included = new Set<T["id"]>();
+  for (const item of items) {
+    if (included.has(item.id)) continue;
+    included.add(item.id);
+    const group = difficultIds.has(item.id) ? 1 : masteredIds.has(item.id) ? 3 : seenIds.has(item.id) ? 2 : 0;
+    groups[group].push(item);
+  }
+  return groups.flat();
+}
+
 export function hasUnfinishedRatings<T extends string | number>(ids: T[], ratings: Partial<Record<T, unknown>>) {
   return ids.some((id) => !Object.prototype.hasOwnProperty.call(ratings, id));
 }

@@ -160,13 +160,14 @@ for (const engine of ['chromium', 'webkit']) {
     const before = await assertPaused(page);
     assert.equal(before.transientFailures, 1, 'A single simulated read error must pause startup');
     await page.getByRole('button', { name: retryLabel, exact: true }).click();
-    await page.locator('.bottom-nav').waitFor();
     await page.locator('.word-card').waitFor();
     await page.waitForFunction(keys => {
       const writes = window.__storageReadFault.writes;
       return [keys.mastered, keys.word, keys.sentence, keys.pattern].every(key => writes.some(write => write.key === key));
     }, keys);
-    assert.match(await page.locator('.card-count').innerText(), /第\s*5\s*张.*2\s*\/\s*10/, 'The original word position and ratings resume');
+    assert.equal(await page.locator('.word-heading h2').innerText(),'to','The original fifth word resumes');
+    const resumed = await page.evaluate(key => JSON.parse(localStorage.getItem(key)),keys.word);
+    assert.equal(resumed.index,4); assert.deepEqual(resumed.ratings,{1:'known',2:'difficult'});
     const after = await snapshot(page);
     assert.equal(after.documentId, before.documentId, 'Successful retry must not reload the page');
     assert.equal(after.transientFailures, 1);

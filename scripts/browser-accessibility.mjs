@@ -1,3 +1,4 @@
+import { navigate } from './browser-navigation.mjs';
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -68,25 +69,26 @@ for (const engine of ["chromium", "webkit"]) {
   await runCheck(engine, "folded-entry-and-expanded-practice-tools-remain-accessible", async (page) => {
     await page.goto(origin, { waitUntil: "domcontentloaded" });
     await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
-    await page.locator(".bottom-nav button").filter({ hasText: "单词" }).click();
+    await navigate(page,'单词');
     await checkAccessibility(page, "单词简洁入口");
     await openSetupDetails(page, ".word-range");
     await openSetupDetails(page, ".word-find");
     await checkAccessibility(page, "单词展开范围与查询");
-    await page.locator(".bottom-nav button").filter({ hasText: "句子" }).click();
+    await navigate(page,'句子');
     await page.waitForFunction(() => !document.querySelector(".sentence-page .setup-start")?.disabled);
-    await checkAccessibility(page, "句子三种练法入口");
+    await checkAccessibility(page, "句子两种练法入口");
+    assert.equal(await page.locator(".practice-methods button").count(),2);
+    assert.equal(await page.getByRole("button",{name:"核心句型",exact:true}).count(),0);
     await openSetupDetails(page, ".sentence-range");
     await openSetupDetails(page, ".sentence-find");
     await page.getByRole("searchbox", { name: "搜索长短句" }).fill("I");
     await page.locator(".sentence-result-list button[data-sentence-id]").first().waitFor();
     await page.locator(".setup-source>summary").click();
     await checkAccessibility(page, "句子展开筛选查询与来源");
-    await page.getByRole("button", { name: "核心句型", exact: true }).click();
-    await checkAccessibility(page, "句型简洁入口");
-    await openSetupDetails(page, ".pattern-range");
-    await openSetupDetails(page, ".pattern-preview");
-    await checkAccessibility(page, "句型展开范围与内容预览");
+    await navigate(page,"首页");
+    await checkAccessibility(page,"合并学习概览");
+    await navigate(page,"进度");
+    await checkAccessibility(page,"记录与设置");
   });
 }
 
@@ -117,10 +119,10 @@ await runCheck("chromium", "serious-accessibility-rules-pass-on-primary-screens"
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
   await page.addScriptTag({ content: axeSource });
-  const screens = ["今天", "单词", "句子", "阅读", "复习", "进度"];
+  const screens = ["首页", "单词", "句子", "阅读", "复习", "进度"];
   const violations = [];
   for (const label of screens) {
-    await page.locator(".bottom-nav button").filter({ hasText: label }).click();
+    await navigate(page,label);
     await page.locator(".page").first().waitFor();
     if (label === "句子") await page.waitForFunction(() => { const button = document.querySelector(".sentence-page .sticky-start"); return button && !button.disabled; });
     if (label === "阅读") await page.locator(".reading-card").first().waitFor({ timeout: 30_000 });
@@ -145,16 +147,19 @@ await runCheck("chromium", "serious-accessibility-rules-pass-on-primary-screens"
 await runCheck("chromium", "word-cards-and-progress-dialogs-remain-readable", async (page) => {
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
-  await page.locator(".bottom-nav button").filter({ hasText: "单词" }).click();
-  await page.getByRole("button", { name: "开始这组学习", exact: true }).click();
+  await navigate(page,'单词');
+  await page.getByRole("button", { name: /^开始学习(?:句子)?$/, exact: true }).click();
   await page.locator(".word-card").waitFor();
   await checkAccessibility(page, "单词词卡");
   await page.locator(".learn-actions .secondary-action").click();
-  await page.getByRole("button", { name: "退出本组", exact: true }).click();
+  await page.getByRole("button", { name: "退出学习并保留进度", exact: true }).click();
+  await openSetupDetails(page,".word-range");
+  await page.locator(".scene-list button").first().click();
+  await page.getByRole("button", { name: "开始学习", exact: true }).click();
   await page.locator(".discard-dialog").waitFor();
   await checkAccessibility(page, "结束学习确认");
   await page.getByRole("button", { name: "保留进度", exact: true }).click();
-  await page.locator(".bottom-nav button").filter({ hasText: "进度" }).click();
+  await navigate(page,'进度');
   await page.getByRole("button", { name: "重置", exact: true }).click();
   await page.locator(".reset-dialog").waitFor();
   await checkAccessibility(page, "重置确认");
@@ -202,7 +207,7 @@ await runCheck("chromium", "sentence-listening-speaking-and-results-remain-reada
   await checkAccessibility(page, "句子学习结果");
   await page.getByRole("button", { name: "返回句库", exact: true }).click();
   await page.locator(".sentence-mode-grid button").filter({ hasText: "看中文说英文" }).click();
-  await page.getByRole("button", { name: "开始这组学习", exact: true }).click();
+  await page.getByRole("button", { name: /^开始学习(?:句子)?$/, exact: true }).click();
   await page.locator(".speak-prompt").waitFor();
   await checkAccessibility(page, "中文回忆提示");
   await page.locator(".reveal-answer").click();
@@ -216,6 +221,12 @@ await runCheck("chromium", "pattern-recall-answer-and-results-remain-readable", 
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.locator(".pattern-card").waitFor({ timeout: 30_000 });
   await checkAccessibility(page, "句型回忆提示");
+  await page.getByRole("button", { name: "返回句型设置并保留进度", exact: true }).click();
+  await openSetupDetails(page,".pattern-range");
+  await openSetupDetails(page,".pattern-preview");
+  await checkAccessibility(page,"旧版句型范围与预览");
+  await page.getByRole("button",{name:"开始句型替换练习",exact:true}).click();
+  await page.locator(".pattern-card").waitFor();
   for (let index = 0; index < 3; index += 1) {
     await page.locator(".reveal-answer").click();
     await checkAccessibility(page, `句型答案 ${index + 1}`);
@@ -230,11 +241,11 @@ await runCheck("chromium", "reading-and-review-recall-feedback-remain-readable",
   await context.addInitScript(() => localStorage.setItem("wordflow-ngsl-difficult-v1", "[1]"));
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
-  await page.locator(".bottom-nav button").filter({ hasText: "复习" }).click();
+  await navigate(page,'复习');
   await checkAccessibility(page, "复习回忆提示");
   await page.locator(".review-reveal").click();
   await checkAccessibility(page, "复习答案揭晓");
-  await page.locator(".bottom-nav button").filter({ hasText: "阅读" }).click();
+  await navigate(page,'阅读');
   await page.locator(".reading-card").first().click();
   await checkAccessibility(page, "阅读详情与速度设置");
   await page.locator(".translation-toggle").click();

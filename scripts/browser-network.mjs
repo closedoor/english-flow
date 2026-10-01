@@ -1,3 +1,4 @@
+import { navigate } from './browser-navigation.mjs';
 import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -21,7 +22,7 @@ for(const engine of ['chromium','webkit']) {
     try {
       await page.goto(origin,{waitUntil:'domcontentloaded'});
       await page.locator('.bottom-nav').waitFor();
-      await page.locator('.bottom-nav button').filter({hasText:'句子'}).click();
+      await navigate(page,'句子');
       await page.waitForFunction(()=>{const start=document.querySelector('.sentence-page .sticky-start');return start && !start.disabled;});
       await body(page,context);
       assert.deepEqual(errors,[],'Uncaught page errors');
@@ -50,13 +51,13 @@ for(const engine of ['chromium','webkit']) {
   });
   await check('selected-pack-can-start-while-global-search-is-loading',async(page,context)=>{
     await slowSearch(page,context);
-    const start=page.getByRole('button',{name:'开始这组学习',exact:true});
+    const start=page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true});
     assert.equal(await start.isEnabled(),true,'A loaded short pack must not be blocked by unrelated slow packs');
     await start.click(); await page.locator('.sentence-study-card').waitFor();
     await page.locator('.learn-actions .secondary-action').click();
     await page.waitForFunction(()=>Object.keys(JSON.parse(localStorage.getItem('wordflow-sentence-active-session-v1')||'{}').ratings||{}).length===1);
     const before=await page.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-sentence-active-session-v1')));
-    assert.equal(before.sentenceIds.length,10); assert.ok(before.sentenceIds.every(id=>id<=1000));
+    assert.equal(before.continuous,true); assert.equal(before.sentenceIds.length,1000); assert.ok(before.sentenceIds.every(id=>id<=1000));
     await page.reload({waitUntil:'domcontentloaded'}); await page.locator('.sentence-study-card').waitFor();
     const after=await page.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-sentence-active-session-v1')));
     assert.deepEqual(after.sentenceIds,before.sentenceIds); assert.deepEqual(after.ratings,before.ratings);

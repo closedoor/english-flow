@@ -192,19 +192,17 @@ test("undoing an accidental wordbook removal restores the word and removes an in
   assert.equal(app.state.reviewIndex, 0);
 });
 
-test("home practice shortcuts resume unfinished work and only offer setup when nothing is pending", () => {
-  const code = compile(`${extract("const openSentencePracticeFromHome =", "const renderSentenceSetup =")}\n({ openSentencePracticeFromHome, openPatternPracticeFromHome });`);
+test("the legacy pattern entry resumes preserved work and only offers setup when nothing is pending", () => {
+  const code = compile(`${extract("const openPatternPracticeFromHome =", "const renderSentenceSetup =")}\n({ openPatternPracticeFromHome });`);
   for (const unfinished of [false, true]) {
     const calls = [];
     const handlers = vm.runInNewContext(code, {
-      hasUnfinishedSentence: unfinished, hasUnfinishedPattern: unfinished,
-      resumeSentenceSession: () => calls.push("resume sentence"), resumePatternSession: () => calls.push("resume pattern"),
-      restoreSentenceSetupPreferences: () => calls.push("sentence setup"), restorePatternSetupPreferences: () => calls.push("pattern setup"),
-      setSentenceMode: (mode) => calls.push(mode), setSentenceSection: (section) => calls.push(section), setTab: (tab) => calls.push(tab),
+      hasUnfinishedPattern: unfinished,
+      resumePatternSession: () => calls.push("resume pattern"), restorePatternSetupPreferences: () => calls.push("pattern setup"),
+      setSentenceSection: (section) => calls.push(section), setTab: (tab) => calls.push(tab),
     });
-    handlers.openSentencePracticeFromHome();
     handlers.openPatternPracticeFromHome();
-    assert.deepEqual(calls, unfinished ? ["resume sentence", "sentences", "resume pattern", "sentences"] : ["sentence setup", "speak", "library", "sentences", "patterns", "pattern setup", "sentences"]);
+    assert.deepEqual(calls, unfinished ? ["resume pattern", "sentences"] : ["patterns", "pattern setup", "sentences"]);
   }
 });
 
@@ -241,7 +239,7 @@ test("entering word cards focuses the word rather than a reused rating button, a
 
 const speakingCode = compile([
   extract("const retryDifficultSentences =", "const beginPatternSession ="),
-  extract("const retryDifficultPatterns =", "const openSentencePracticeFromHome ="),
+  extract("const retryDifficultPatterns =", "const openPatternPracticeFromHome ="),
   extract("const renderPatternResult =", "const renderSentences ="),
   "({ retryDifficultSentences, retryDifficultPatterns, renderSentenceResult, renderPatternResult });",
 ].join("\n"));

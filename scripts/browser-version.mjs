@@ -1,3 +1,4 @@
+import { navigate } from './browser-navigation.mjs';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 const pw=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
@@ -17,7 +18,7 @@ for(const engine of ['chromium','webkit']){
   try{await action(page);assert.deepEqual(errors,[]);results.push({engine,name,status:'PASS'});}catch(e){results.push({engine,name,status:'FAIL',error:String(e),body:(await page.locator('body').innerText()).slice(-1600)});}
   console.log(JSON.stringify(results.at(-1)));await context.close();
  }
- const progress=page=>page.locator('.bottom-nav button').filter({hasText:'进度'}).click();
+ const progress=page=>navigate(page,'进度');
  await check('running-client-version-matches-built-document','current',async page=>{
   await progress(page);assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'),meta.commit);
   await page.getByText('当前已是最新版',{exact:true}).waitFor();assert.ok((await page.locator('.app-version-panel').innerText()).includes(meta.commit.slice(0,7)));
@@ -28,12 +29,12 @@ for(const engine of ['chromium','webkit']){
  });
  await check('failed-version-check-leaves-learning-usable','error',async page=>{
   await progress(page);await page.getByText('暂时无法检查更新；当前学习和记录不受影响。',{exact:true}).waitFor();
-  await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();
+  await navigate(page,'单词');await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();await page.locator('.word-card').waitFor();
  });
  await check('unsaved-or-concurrently-changed-records-block-update','new',async page=>{
   await progress(page);await page.getByRole('button',{name:'更新并保留进度',exact:true}).waitFor();
   await page.evaluate(()=>localStorage.setItem('wordflow-ngsl-mastered-v1','[1,2,3]'));
-  await page.getByRole('button',{name:'更新并保留进度',exact:true}).click();await page.getByText('请先到进度页再更新。若有记录尚未保存，请先导出备份；不会强制刷新。',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'更新并保留进度',exact:true}).click();await page.getByText('请先到首页的“记录与设置”再更新。若有记录尚未保存，请先导出备份；不会强制刷新。',{exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-ngsl-mastered-v1')),'[1,2,3]');
  });
  await check('stale-html-preflight-cannot-discard-current-page','new',async page=>{
@@ -60,12 +61,12 @@ for(const engine of ['chromium','webkit']){
   assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
  });
  await check('new-release-notice-keeps-the-active-word-group','new',async page=>{
-  await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();
-  assert.ok(await page.getByRole('button',{name:'更新并保留进度',exact:true}).isDisabled());assert.equal(await page.locator('.word-auto-controls').count(),1);assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
+  await navigate(page,'单词');await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();await page.locator('.word-card').waitFor();
+  assert.ok(await page.getByRole('button',{name:'更新并保留进度',exact:true}).isDisabled());assert.equal(await page.locator('.immersive-learning').count(),1);assert.equal(await page.locator('.bottom-nav').count(),0);assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
  });
  await check('reset-progress-keeps-version-update-snapshot-consistent','new',async page=>{
-  await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();
-  await page.getByRole('button',{name:'开始这组学习',exact:true}).click();
+  await navigate(page,'单词');
+  await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();
   await page.locator('.word-card').waitFor();
   await progress(page);
   await page.getByRole('button',{name:'重置',exact:true}).click();
@@ -74,7 +75,7 @@ for(const engine of ['chromium','webkit']){
   await page.getByRole('button',{name:'更新并保留进度',exact:true}).click();
   await page.getByText('新页面暂未就绪，或有记录尚未保存。已保留当前页面，请稍后重试或先导出备份。',{exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged','Stale HTML still cannot replace the current page');
-  assert.equal(await page.getByText('请先到进度页再更新。若有记录尚未保存，请先导出备份；不会强制刷新。',{exact:true}).count(),0,'Reset must not invent an unsaved record');
+  assert.equal(await page.getByText('请先到首页的“记录与设置”再更新。若有记录尚未保存，请先导出备份；不会强制刷新。',{exact:true}).count(),0,'Reset must not invent an unsaved record');
  });
  await browser.close();
 }

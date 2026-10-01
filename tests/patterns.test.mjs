@@ -46,8 +46,8 @@ test("every displayed pattern produces its reference answers without changing th
   }
 });
 
-test("pattern substitution practice reveals answers, rates progress and resumes locally", () => {
-  assert.match(page, /核心句型替换/);
+test("legacy pattern substitution practice reveals answers, rates progress and resumes locally", () => {
+  assert.match(page, /继续旧版句型练习/);
   assert.match(page, /替换练习 \{patternDrillIndex \+ 1\} \/ 3/);
   assert.match(page, /我说好了，查看参考答案/);
   assert.match(page, /finishPattern/);

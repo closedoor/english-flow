@@ -95,16 +95,16 @@ test("adding a reading completion records study, but undoing an old mark does no
   assert.deepEqual(markReading([], ["2026-09-05"]), { completed: ["r1"], days: ["2026-09-05"] });
 });
 
-const mastery = compile(`${extract("const masteredNgslCount =", "const streak =")}\nprogress;`);
+const percentageSource = page.match(/const percentFor = [^\n]+/)?.[0];
+assert.ok(percentageSource, "the real dashboard percentage calculation must be available");
+const mastery = compile(`${percentageSource}\npercentFor(count, 2809);`);
 function percent(count) {
   return vm.runInNewContext(mastery, {
-    mastered: Array.from({ length: count }, (_, index) => index + 1),
-    words: { length: 2809 }, ngslMeta: { count: 2809 },
-    studyDays: [], todayKey: "2026-09-05", useMemo: (calculate) => calculate(),
+    count,
   });
 }
 
-test("mastery reaches 100 percent only after the final NGSL word", () => {
+test("studied progress reaches 100 percent only after the final NGSL word", () => {
   assert.equal(percent(0), 0);
   assert.equal(percent(1), 0.04);
   for (const count of [2794, 2795, 2808]) assert.ok(percent(count) < 100, `${count}/2809 is unfinished`);
@@ -113,15 +113,17 @@ test("mastery reaches 100 percent only after the final NGSL word", () => {
   assert.equal(percent(2809), 100);
 });
 
-test("home speaking shortcut resumes the interrupted sentence and returning to setup preserves chosen settings", () => {
-  assert.match(page, /className="quick-practice-grid"><button onClick=\{openSentencePracticeFromHome\}/);
-  const code = compile(`${extract("const restoreSentenceSetupPreferences =", "const confirmDiscardSession =")}\n${extract("const resumeSentenceSession =", "const finishSentenceCard =")}\n${extract("const openSentencePracticeFromHome =", "const openPatternPracticeFromHome =")}\n({ openSentencePracticeFromHome, restoreSentenceSetupPreferences });`);
-  const state = { band: "short", category: "all", count: 10, mode: "bilingual", stage: "cards" };
+test("resuming an interrupted sentence and returning to setup preserves chosen settings", () => {
+  assert.match(page, /onClick=\{\(\) => startSentenceSession\(\)\}/);
+  const code = compile(`${extract("const restoreSentenceSetupPreferences =", "const confirmDiscardSession =")}\n${extract("const startSentenceSession =", "const finishSentenceCard =")}\n({ startSentenceSession, restoreSentenceSetupPreferences });`);
+  const state = { band: "short", category: "all", count: 10, mode: "bilingual", stage: "setup", continuous: false, sessionReview: false, tab: "sentences" };
   const saved = { band: "long", category: "travel", count: 20, mode: "bilingual" };
   const snapshot = { band: "short", category: "daily", count: 10, mode: "bilingual", sentenceIds: [1, 2, 3], index: 1, ratings: { 1: "known" } };
   const resume = { current: snapshot };
   const actions = vm.runInNewContext(code, {
-    hasUnfinishedSentence: true, STORAGE: { sentenceActiveSession: "session" },
+    sentenceStage: "setup", sentenceBand: "short", sentenceCategory: "daily", sentenceMode: "bilingual", sentenceCount: 10,
+    beginSentenceSession() { assert.fail("same-range start must resume its preserved snapshot"); }, setDiscardRequest() { assert.fail("same-range start must not ask to discard"); },
+    STORAGE: { sentenceActiveSession: "session" },
     readJson: () => snapshot, cleanSentenceSession: (value) => value, newestSnapshot: (stored) => stored,
     sentenceSetupPreferencesRef: { current: saved }, sentenceResumeSnapshotRef: resume,
     sentenceSessionIds: snapshot.sentenceIds,
@@ -131,6 +133,8 @@ test("home speaking shortcut resumes the interrupted sentence and returning to s
     setSentenceCategory: (value) => { state.category = value; },
     setSentenceCount: (value) => { state.count = value; },
     setSentenceMode: (value) => { state.mode = value; },
+    setSentenceContinuous: (value) => { state.continuous = value; },
+    setSentenceSessionReview: (value) => { state.sessionReview = value; },
     setSentenceStage: (value) => { state.stage = value; },
     setSentenceSessionIds: (value) => { state.ids = value; },
     setSentenceIndex: (value) => { state.index = value; },
@@ -139,10 +143,10 @@ test("home speaking shortcut resumes the interrupted sentence and returning to s
     setSentenceSection: (value) => { state.section = value; },
     setTab: (value) => { state.tab = value; },
   });
-  actions.openSentencePracticeFromHome();
-  assert.deepEqual(state, { band: "short", category: "daily", count: 10, mode: "bilingual", stage: "cards", ids: snapshot.sentenceIds, index: 1, ratings: snapshot.ratings, section: "library", tab: "sentences" });
+  actions.startSentenceSession();
+  assert.deepEqual(state, { band: "short", category: "daily", count: 10, mode: "bilingual", stage: "cards", continuous: false, sessionReview: false, ids: snapshot.sentenceIds, index: 1, ratings: snapshot.ratings, section: "library", tab: "sentences" });
   actions.restoreSentenceSetupPreferences();
-  assert.deepEqual(state, { ...saved, stage: "setup", ids: snapshot.sentenceIds, index: 1, ratings: snapshot.ratings, section: "library", tab: "sentences" });
+  assert.deepEqual(state, { ...saved, stage: "setup", continuous: false, sessionReview: false, ids: snapshot.sentenceIds, index: 1, ratings: snapshot.ratings, section: "library", tab: "sentences" });
   assert.equal(resume.current, snapshot);
   assert.deepEqual(snapshot.sentenceIds, [1, 2, 3]);
 });

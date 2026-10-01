@@ -34,7 +34,7 @@ const wordFilterCallback = initializers.get("bandWords").arguments[0].getText(as
 const compilerOptions = { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext };
 const javascript = (source) => ts.transpileModule(source, { compilerOptions }).outputText;
 const utilities = javascript(readFileSync(new URL("../app/session-utils.ts", import.meta.url), "utf8"));
-const { takeRotatedSpread } = await import(`data:text/javascript;base64,${Buffer.from(utilities).toString("base64")}`);
+const { takeRotatedSpread, selectContinuousSession, newestSnapshot } = await import(`data:text/javascript;base64,${Buffer.from(utilities).toString("base64")}`);
 
 function harness(patch = {}) {
   const items = Array.from({ length: 95 }, (_, index) => ({
@@ -47,13 +47,14 @@ function harness(patch = {}) {
     sentenceBand: "short", sentenceCategory: "all", sentenceCount: 10, sentenceMode: "bilingual",
     sentenceSearch: "train", sentenceSavedOnly: false, sentenceReviewOnly: false, sentenceResultLimit: 90,
     wordBrowserOpen: false, sentenceBrowserOpen: false, patternCategory: "all",
-    sentenceMastered: [], sentenceDifficult: [], sentenceSaved: items.map((item) => item.id),
+    sentenceMastered: [], sentenceDifficult: [], sentenceSeen: [], sentenceSaved: items.map((item) => item.id),
+    sentenceContinuous: false, sentenceSessionReview: false, wordContinuous: false,
     sentenceIndex: 0, sentenceSessionIds: [], sentenceRatings: {}, sentenceTranslationOpen: false,
     index: 0, learnStage: "setup", patternDrillIndex: 0, patternIndex: 0, patternStage: "setup",
     quizIndex: 0, readingId: null, readingLevel: "A1", readingNavigation: 0, reviewIndex: 0, reviewView: "due",
     librarySearch: "word", libraryBand: 1, libraryLimit: 72, sessionWords: [], sessionMode: "test", sessionPath: "frequency",
     cardRatings: {}, quizAnswer: "", quizFeedback: null, quizResults: [], path: "frequency", mode: "test", count: 10, wordSessionKind: "group",
-    mastered: [], difficult: [],
+    mastered: [], difficult: [], schedule: {}, discardRequest: null,
     ...patch,
   };
   const frames = new Map();
@@ -105,14 +106,17 @@ function harness(patch = {}) {
     words, wordBrowserRef, wordBrowserOriginRef, wordBrowserReturnRef,
     playAutomaticWordExample() {},
     playAutomaticSentenceExample() {},
+    stopSpeech() {},
+    cleanActiveSession(value) { return value; }, readJson() { return null; },
+    activeSessionResumeSnapshotRef: { current: null }, newestSnapshot,
     saveSessionPreferences(value) { writes.push(["wordPreferences", { ...value }]); },
     selectPath(value) { state.path = value; },
     sentencePacks: { 1: items.slice(0, 50), 2: [], 3: items.slice(50) },
     SENTENCE_PACK_BY_BAND: { short: 1, medium: 2, long: 3 },
     practiceRotationRef: { current: { word: 0, sentence: 0, pattern: 0 } },
-    STORAGE: { practiceRotation: "rotation", sentencePreferences: "preferences" },
+    STORAGE: { practiceRotation: "rotation", sentencePreferences: "preferences", activeSession: "active" },
     writeJson(key, value) { writes.push([key, JSON.parse(JSON.stringify(value))]); },
-    takeRotatedSpread,
+    takeRotatedSpread, selectContinuousSession,
   });
   for (const key of Object.keys(state)) {
     context[`set${key[0].toUpperCase()}${key.slice(1)}`] = (value) => {
@@ -207,7 +211,7 @@ test("returning from an unsaved favorite preserves the favorites view and focuse
   assert.equal(app.sentenceBrowserOriginRef.current, null);
 });
 
-test("normal grouped study clears search or favorites and never reuses an old browsing origin", () => {
+test("continuous study clears search or favorites and never reuses an old browsing origin", () => {
   for (const patch of [
     { sentenceSearch: "train", sentenceSavedOnly: false },
     { sentenceSearch: "", sentenceSavedOnly: true },
@@ -221,7 +225,8 @@ test("normal grouped study clears search or favorites and never reuses an old br
     assert.equal(app.state.sentenceSavedOnly, false);
     assert.equal(app.state.sentenceReviewOnly, false);
     assert.equal(app.sentenceBrowserOriginRef.current, null);
-    assert.equal(app.state.sentenceSessionIds.length, 10);
+    assert.equal(app.state.sentenceSessionIds.length, 50);
+    assert.equal(app.state.sentenceContinuous, true);
     app.invoke("restoreSentenceSetupPreferences");
     assert.equal(app.window.scrollY, 0);
     assert.equal(app.focusCalls.length, 0, "an ordinary group has no browser-result focus target");

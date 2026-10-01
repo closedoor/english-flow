@@ -119,6 +119,16 @@ for (const engine of ["chromium", "webkit"]) {
   ]) {
     const context = await browser.newContext({ viewport: { width: item.width, height: item.height }, hasTouch: true, serviceWorkers: "block" });
     await context.addInitScript(() => {
+      // Old v1 snapshots remain usable without exposing core patterns in the
+      // normal two-method sentence setup. Seed this disposable profile once.
+      if (!sessionStorage.getItem("pattern-layout-seeded")) {
+        sessionStorage.setItem("pattern-layout-seeded", "1");
+        localStorage.setItem("wordflow-pattern-active-session-v1", JSON.stringify({
+          version: 1, updatedAt: Date.now(), category: "all",
+          patternIds: Array.from({ length: 10 }, (_, index) => `p${String(index + 1).padStart(2, "0")}`),
+          index: 0, drillIndex: 0, ratings: {},
+        }));
+      }
       const speech = { log: [], active: null };
       window.__patternLayoutSpeech = speech;
       Object.defineProperty(window, "SpeechSynthesisUtterance", { configurable: true, value: class { constructor(text) { this.text = text; } } });
@@ -131,9 +141,6 @@ for (const engine of ["chromium", "webkit"]) {
     const errors = []; page.on("pageerror", error => errors.push(error.message));
     try {
       await page.goto(origin); await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
-      await page.locator(".bottom-nav button").filter({ hasText: "句子" }).click();
-      await page.getByRole("button", { name: "核心句型", exact: true }).click();
-      await page.getByRole("button", { name: "开始句型替换练习", exact: true }).click();
       await page.locator(".pattern-prompt").waitFor();
       await navigationPaint(page);
       if (item.stress) await page.addStyleTag({ content: "html{font-size:24px}.learn-page{padding-top:83px}.bottom-nav{height:108px;padding-bottom:34px}.learn-page>.word-card-actions{bottom:108px}.speech-warning{font-size:18px}" });
