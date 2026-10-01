@@ -1,3 +1,4 @@
+import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 
@@ -22,6 +23,7 @@ async function setup(page, category = "全部") {
   await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
   await nav(page, "句子");
   await page.getByRole("button", { name: "核心句型", exact: true }).click();
+  await openSetupDetails(page, '.pattern-range');
   await page.locator(".pattern-category-grid button").filter({ hasText: category }).click();
 }
 async function cards(page) {
@@ -129,6 +131,7 @@ for (const engine of ["chromium", "webkit"]) {
     await setup(page); await start(page); await cards(page); await toSecondSubstitution(page);
     const before = await stored(page);
     await exit(page);
+    await openSetupDetails(page, '.pattern-range');
     await page.locator(".pattern-category-grid button").filter({ hasText: "出行" }).click();
     await start(page); await page.locator("#discard-title").waitFor();
     await page.getByRole("button", { name: "保留进度", exact: true }).click();
@@ -164,6 +167,7 @@ for (const engine of ["chromium", "webkit"]) {
 
   await check("untouched-first-substitution-can-change-scene-without-warning", async page => {
     await setup(page); await start(page); await cards(page); await exit(page);
+    await openSetupDetails(page, '.pattern-range');
     await page.locator(".pattern-category-grid button").filter({ hasText: "出行" }).click();
     await start(page); await cards(page);
     assert.equal(await page.locator("#discard-title").count(), 0);

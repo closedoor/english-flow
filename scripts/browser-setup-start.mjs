@@ -1,3 +1,4 @@
+import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 if(!process.env.PLAYWRIGHT_MODULE) throw Error('Set PLAYWRIGHT_MODULE; see TESTING.md.');
@@ -78,8 +79,9 @@ for(const engine of ['chromium','webkit']){
   });
   await check('top-sentence-start-uses-selected-mode-length-and-count',async page=>{
     await nav(page,'句子');await enabled(page);
-    await page.locator('.sentence-mode-grid button').last().click();
+    await page.locator('.sentence-mode-grid button').filter({hasText:'看中文说英文'}).click();
     await page.getByRole('button',{name:'20 句',exact:true}).click();
+    await openSetupDetails(page, '.sentence-range');
     await page.locator('.sentence-band-switch button').nth(1).click();await enabled(page);
     await page.evaluate(()=>window.scrollTo(0,0));
     const summary=await page.locator('#sentence-session-choice').innerText();assert.match(summary,/看中文说英文/);assert.match(summary,/常用句/);assert.match(summary,/20 句/);
@@ -92,6 +94,7 @@ for(const engine of ['chromium','webkit']){
     await context.route(/tatoeba-sentences-2\.json/,async route=>{await gate;await route.continue().catch(()=>{});});
     try{
       const request=page.waitForRequest(r=>r.url().includes('tatoeba-sentences-2.json'));
+      await openSetupDetails(page, '.sentence-range');
       await page.locator('.sentence-band-switch button').nth(1).click();await request;
       await page.evaluate(()=>window.scrollTo(0,0));
       assert.equal(await start(page).isDisabled(),true);
@@ -113,6 +116,7 @@ for(const engine of ['chromium','webkit']){
   });
   await check('top-pattern-start-uses-selected-scene-with-hidden-recall-answer',async page=>{
     await nav(page,'句子');await page.getByRole('button',{name:'核心句型',exact:true}).click();
+    await openSetupDetails(page, '.pattern-range');
     await page.locator('.pattern-category-grid button').filter({hasText:'购物'}).click();
     await page.evaluate(()=>window.scrollTo(0,0));await enabled(page,patternStartLabel);
     assert.match(await page.locator('#pattern-session-choice').innerText(),/购物/);
@@ -136,6 +140,7 @@ for(const engine of ['chromium','webkit']){
     assert.equal(await page.locator('.pattern-answer').count(),0);
     assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-practice-rotation-v1')),rotation);
     await page.getByRole('button',{name:'返回句型设置并保留进度',exact:true}).click();
+    await openSetupDetails(page, '.pattern-range');
     await page.locator('.pattern-category-grid button').filter({hasText:'出行'}).click();
     await page.evaluate(()=>window.scrollTo(0,0));
     await tapStart(page,patternStartLabel);await page.locator('[aria-modal="true"]').waitFor();
@@ -145,6 +150,89 @@ for(const engine of ['chromium','webkit']){
     await page.getByRole('button',{name:'结束并开始新练习',exact:true}).click();await page.locator('.pattern-prompt').waitFor();
     assert.equal((await saved(page,patternKey)).category,'travel');
     assert.equal(await page.locator('.pattern-answer').count(),0);
+  });
+  for(const [name,width,height,largeText] of [['small',320,568,false],['phone',390,844,false],['large-text',430,932,true]]){
+    await check(`simple-setup-${name}-keeps-secondary-tools-folded-and-all-three-methods-reachable`,async page=>{
+      await nav(page,'单词');
+      assert.equal(await page.locator('h1').innerText(),'单词');
+      for(const selector of ['.word-range','.word-find'])assert.equal(await page.locator(selector).evaluate(e=>e.open),false);
+      assert.equal(await page.locator('.scene-list button').first().isVisible(),false);
+      assert.equal(await page.getByRole('searchbox',{name:'搜索词库'}).isVisible(),false);
+      await topStart(page);
+      const summary=page.locator('.word-range>summary');await summary.focus();await page.keyboard.press('Enter');
+      await page.locator('.scene-list button').first().waitFor();
+      await page.locator('.scene-list button').first().click();
+      assert.match(await page.locator('#word-session-choice').innerText(),/日常/);
+      await summary.click();assert.equal(await page.locator('.word-range').evaluate(e=>e.open),false);
+      await openSetupDetails(page,'.word-find');await page.getByRole('searchbox',{name:'搜索词库'}).fill('the');
+      await page.locator('.library-list button').first().waitFor();
+      await page.locator('.word-find>summary').click();await openSetupDetails(page,'.word-find');
+      assert.equal(await page.getByRole('searchbox',{name:'搜索词库'}).inputValue(),'the');
+      await nav(page,'句子');await enabled(page);
+      assert.equal(await page.locator('h1').innerText(),'句子');
+      for(const selector of ['.sentence-range','.sentence-find'])assert.equal(await page.locator(selector).evaluate(e=>e.open),false);
+      assert.equal(await page.locator('.sentence-section-switch').count(),0,'Practice choices have one level');
+      assert.equal(await page.locator('.practice-methods button').count(),3);
+      assert.equal(await page.locator('.practice-methods button[aria-pressed="true"]').count(),1);
+      await page.locator('.practice-methods button').filter({hasText:'看中文说英文'}).click();
+      assert.match(await page.locator('#sentence-session-choice').innerText(),/看中文说英文/);
+      await page.getByRole('button',{name:'核心句型',exact:true}).click();
+      assert.equal(await page.locator('h1').innerText(),'句子');
+      assert.equal(await page.locator('.practice-methods button[aria-pressed="true"]').count(),1);
+      assert.equal(await page.locator('.pattern-preview-list').isVisible(),false);
+      await page.locator('.pattern-preview>summary').click();await page.locator('.pattern-preview-list').waitFor();
+      assert.equal(await page.locator('.pattern-preview-list>div').count(),6);
+      await page.locator('.practice-methods button').filter({hasText:'英文卡片'}).click();
+      await openSetupDetails(page,'.sentence-find');await page.locator('.sentence-summary button').last().click();
+      await page.getByText('还没有收藏句子。学习时点 ☆ 就能在这里找到。',{exact:true}).waitFor();
+      await page.locator('.browser-switch').click();await page.getByRole('searchbox',{name:'搜索长短句'}).fill('I');
+      await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();
+      await page.locator('.setup-source>summary').click();assert.equal(await page.getByRole('link',{name:'Tatoeba 数据与授权'}).isVisible(),true);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+      for(const selector of ['.setup-disclosure>summary','.practice-methods button']){
+        for(const target of await page.locator(selector).all())assert.ok(await target.evaluate(e=>e.getBoundingClientRect().height>=44));
+      }
+    },{width,height},largeText);
+  }
+  await check('switching-the-three-methods-preserves-both-paused-sessions-and-real-replacement-guards',async page=>{
+    await nav(page,'句子');await enabled(page);await start(page).click();await page.locator('.sentence-study-card').waitFor();
+    await page.locator('.learn-actions .secondary-action').click();
+    await page.waitForFunction(key=>Object.keys(JSON.parse(localStorage.getItem(key)).ratings).length===1,sentenceKey);
+    const sentence=await saved(page,sentenceKey);
+    await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
+    await page.getByRole('button',{name:'核心句型',exact:true}).click();await start(page,patternStartLabel).click();
+    await page.getByRole('button',{name:'我说好了，查看参考答案',exact:true}).click();
+    await page.getByRole('button',{name:'下一组 ›',exact:true}).click();
+    await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).drillIndex===1,patternKey);
+    const pattern=await saved(page,patternKey);
+    await page.getByRole('button',{name:'返回句型设置并保留进度',exact:true}).click();
+    await page.locator('.practice-methods button').filter({hasText:'看中文说英文'}).click();
+    assert.deepEqual(await saved(page,sentenceKey),sentence);assert.deepEqual(await saved(page,patternKey),pattern);
+    await start(page).click();await page.locator('#discard-title').waitFor();
+    await page.getByRole('button',{name:'保留进度',exact:true}).click();
+    assert.deepEqual(await saved(page,sentenceKey),sentence);assert.deepEqual(await saved(page,patternKey),pattern);
+    await page.locator('.resume-session-card').click();await page.locator('.sentence-study-card').waitFor();
+    assert.equal(await page.locator('.speak-prompt').count(),0,'Resume uses the saved listening mode');
+    assert.deepEqual(await saved(page,sentenceKey),sentence);
+    await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
+    await page.getByRole('button',{name:'核心句型',exact:true}).click();await page.locator('.resume-session-card').click();
+    await page.locator('.pattern-prompt').waitFor();assert.equal(await page.locator('.pattern-answer').count(),0);
+    assert.deepEqual(await saved(page,patternKey),pattern);assert.deepEqual(await saved(page,sentenceKey),sentence);
+  });
+  await check('choosing-a-new-method-after-a-lookup-shows-setup-at-the-top-instead-of-the-old-result',async page=>{
+    await nav(page,'句子');await enabled(page);await openSetupDetails(page,'.sentence-find');
+    await page.getByRole('searchbox',{name:'搜索长短句'}).fill('I');
+    const result=page.locator('.sentence-result-list button[data-sentence-id]').nth(5);
+    await result.click();await page.locator('.sentence-study-card').waitFor();
+    const before=await saved(page,sentenceKey);
+    await nav(page,'今天');
+    await page.locator('.quick-practice-grid button').filter({hasText:'核心句型替换'}).click();
+    await page.locator('.practice-methods button').filter({hasText:'看中文说英文'}).click();
+    await page.waitForFunction(()=>scrollY===0);
+    await topStart(page);
+    assert.deepEqual(await saved(page,sentenceKey),before);
+    assert.equal(await page.getByRole('searchbox',{name:'搜索长短句'}).inputValue(),'I','Keep the query available under its own disclosure');
+    assert.equal(await page.locator('button[data-sentence-id]:focus').count(),0);
   });
   await browser.close();
 }

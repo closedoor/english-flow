@@ -383,6 +383,42 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .setup-start-panel>.setup-start{position:static;bottom:auto;width:100%;min-height:53px;margin:0;padding:12px 16px;white-space:normal}
 .setup-start-panel>.session-choice-summary{margin:8px 0 0;overflow-wrap:anywhere}
 
+/* Practice first; ranges and full-library tools open only when needed. */
+.simple-setup .setup-start-panel{margin-bottom:18px}
+.simple-setup .setup-block{margin-top:20px}
+.simple-setup .setup-block h2{margin-bottom:10px;font-size:1rem}
+.simple-setup .mode-grid button{min-height:106px;padding:12px;border-radius:16px}
+.simple-setup .mode-grid button.selected{padding:11px}
+.simple-setup .mode-grid span{width:28px;height:28px;margin-bottom:0;border-radius:9px;font-size:16px}
+.simple-setup .mode-grid b{margin-top:9px}
+.simple-setup .mode-grid small{font-size:.75rem}
+.simple-setup .practice-methods{grid-template-columns:1fr;gap:8px;margin:0}
+.simple-setup .practice-methods button{min-height:64px;padding:11px 12px;gap:12px}
+.simple-setup .practice-methods button>div{flex:1;min-width:0}
+.simple-setup .practice-methods b{font-size:.875rem;line-height:1.5}
+.simple-setup .practice-methods small{margin-top:2px;font-size:.75rem;line-height:1.5}
+.simple-setup .practice-methods button.selected::after{content:"✓";color:var(--green-dark);font-weight:850}
+.setup-disclosure{margin-top:16px;border:1px solid #dde2dc;border-radius:18px;background:#fff;min-width:0}
+.setup-disclosure>summary{display:flex;align-items:center;gap:12px;min-height:72px;padding:13px 15px;cursor:pointer;list-style:none;border-radius:18px}
+.setup-disclosure>summary::-webkit-details-marker{display:none}
+.setup-disclosure>summary>div{flex:1;min-width:0}
+.setup-disclosure>summary b,.setup-disclosure>summary small{display:block;overflow-wrap:anywhere}
+.setup-disclosure>summary b{font-size:.875rem;line-height:1.5}
+.setup-disclosure>summary small{margin-top:3px;font-size:.75rem;line-height:1.5;color:#526071}
+.setup-disclosure>summary>span{font-size:20px;color:#526071}
+.setup-disclosure[open]>summary>span{transform:rotate(180deg)}
+.setup-disclosure[open]>summary{border-bottom:1px solid #e6e9e3;border-radius:18px 18px 0 0}
+.setup-disclosure-body{padding:0 14px 16px;min-width:0}
+.simple-setup .setup-disclosure-body>.setup-block:first-child{margin-top:16px}
+.simple-setup .setup-disclosure-body>.sentence-summary{margin:16px 0 0}
+.setup-disclosure-body .pattern-preview-list{margin-bottom:0}
+.setup-footnote{margin:20px 0 0;color:#526071;font-size:.75rem;line-height:1.6;text-align:center}
+.setup-source>summary{min-height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.75rem;color:#526071}
+.setup-source .source-card{margin-top:0}
+.simple-setup .sentence-result-list small,.simple-setup .sentence-result-count{color:#526071}
+.simple-setup .sentence-result-count{font-size:.75rem;line-height:1.5}
+.setup-disclosure>summary:focus-visible,.setup-source>summary:focus-visible{outline:3px solid var(--green-dark);outline-offset:3px}
+
 /* Sentence study: visible translation, optional audio below primary actions. */
 .sentence-translation{display:block;width:100%;margin-top:16px;padding:15px 14px;border:1px solid #dbe6e1;border-radius:17px;background:#eef7f4;color:#355f52;font-size:.875rem;line-height:1.7;text-align:center;overflow-wrap:anywhere}
 .sentence-auto-controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}

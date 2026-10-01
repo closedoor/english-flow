@@ -20,7 +20,7 @@ test("reading UI exposes completion, recent reading and aggregate progress", () 
   assert.match(page, /继续上次阅读/);
   assert.match(page, /标记本篇已读/);
   assert.match(page, /本篇已完成 · 点击取消/);
-  assert.match(page, /分级阅读/);
+  assert.match(page, /commonHeader\("阅读", "读文章，练听力"\)/);
   assert.match(page, /readingCompleted\.length\}\/\{READING_TOTAL\} 篇已读/);
   assert.match(styles, /\.reading-overview\{/);
   assert.match(styles, /\.reading-resume\{/);

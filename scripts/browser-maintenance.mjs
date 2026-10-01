@@ -1,3 +1,4 @@
+import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -71,6 +72,7 @@ async function runSentenceMaintenanceChecks(check, origin) {
         'wordflow-sentence-saved-v1': [1, 1001, 2001],
         'wordflow-sentence-difficult-v1': [1, 1001, 2001],
       });
+      await openSetupDetails(page, '.sentence-find');
       await page.locator('.sentence-summary button').filter({ hasText: view }).click();
       await page.waitForFunction(() => document.querySelectorAll('.sentence-result-list button[data-sentence-id]').length === 3);
       await retainedChoices(page);
@@ -92,6 +94,7 @@ async function runSentenceMaintenanceChecks(check, origin) {
   }
   await check('sentence-full-library-English-Chinese-search-keeps-next-practice-choices', async page => {
     await setup(page);
+    await openSetupDetails(page, '.sentence-find');
     const search = page.getByRole('searchbox', { name: '搜索长短句' });
     for (const query of ['airport', '机场']) {
       await search.fill(query);
@@ -186,6 +189,7 @@ for (const engine of ['chromium', 'webkit']) {
   await check('word-new-search-and-band-start-at-first-result-without-losing-lookup-return', async page => {
     await ready(page);
     await nav(page, '单词');
+    await openSetupDetails(page, '.word-find');
     const list = page.locator('.library-list');
     await list.evaluate(element => { element.scrollTop = 1000; });
     await page.locator('.rank-switch button').nth(1).click();
@@ -211,6 +215,7 @@ for (const engine of ['chromium', 'webkit']) {
     await page.waitForFunction(({ top, list }) => Math.abs(scrollY - top) <= 2 && document.querySelector('.library-list')?.scrollTop === list, before);
     assert.equal(await page.locator('button:focus').getAttribute('data-word-id'), id, 'Returning from a lookup must retain the originating result');
     assert.equal(await list.locator('button').count(), 48, 'A lookup must not reset the expanded result count');
+    assert.equal(await page.locator('.word-find').evaluate(element => element.open), true, 'A lookup returns with its search tools open');
     await page.getByRole('searchbox', { name: '搜索词库' }).fill('   ');
     await page.waitForFunction(() => document.querySelector('.library-list').scrollTop === 0);
     assert.equal(await page.locator('.rank-switch button').nth(1).getAttribute('aria-pressed'), 'true', 'Whitespace is an empty search in both filtering and selection labels');
@@ -221,6 +226,7 @@ for (const engine of ['chromium', 'webkit']) {
   await check('sentence-new-query-starts-at-first-result-without-resetting-more-or-return', async page => {
     await ready(page);
     await nav(page, '句子');
+    await openSetupDetails(page, '.sentence-find');
     const search = page.getByRole('searchbox', { name: '搜索长短句' });
     await search.fill('I');
     await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();
@@ -259,6 +265,7 @@ for (const engine of ['chromium', 'webkit']) {
     const heldMedium = new Promise(resolve => { mediumRequested = resolve; });
     await context.route(/tatoeba-sentences-2\.json/, route => { mediumRoute = route; mediumRequested(); });
     await context.route(/tatoeba-sentences-3\.json/, () => {});
+    await openSetupDetails(page, '.sentence-find');
     await page.getByRole('searchbox', { name: '搜索长短句' }).fill('I');
     await heldMedium;
     await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();

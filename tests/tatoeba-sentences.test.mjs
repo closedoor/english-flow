@@ -55,7 +55,7 @@ test("sentence module loads packs on demand and exposes card learning, search, s
   assert.match(contentLoader, /parseValidatedJson/);
   assert.match(sentenceData, /SENTENCE_CORRECTIONS/);
   assert.match(sentenceData, /items\.map\(\(item\) => \{[\s\S]*?const correction = SENTENCE_CORRECTIONS\[item\.id\]/);
-  assert.match(page, /学习长短句/);
+  assert.match(page, /commonHeader\("句子", "听懂一句，再开口说一句"\)/);
   assert.match(page, /句子卡片/);
   assert.match(page, /还不熟悉/);
   assert.match(page, /我学会了/);

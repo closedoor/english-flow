@@ -1,3 +1,4 @@
+import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 if (!process.env.PLAYWRIGHT_MODULE) throw new Error('Set PLAYWRIGHT_MODULE; see TESTING.md.');
@@ -152,9 +153,10 @@ for(const engine of ['chromium','webkit']){
     assert.equal((await logs(page))[0].gesture,true);
   },snapshot());
   await check('scene-groups-and-single-word-lookups-keep-manual-audio',async page=>{
-    await ready(page);await nav(page,'单词');await page.locator('.scene-list button').first().click();
+    await ready(page);await nav(page,'单词');await openSetupDetails(page, '.word-range');await page.locator('.scene-list button').first().click();
     await page.getByRole('button',{name:'开始这组学习',exact:true}).click();await page.locator('.word-card').waitFor();assert.equal((await logs(page)).length,0);
-    await page.getByRole('button',{name:'退出本组',exact:true}).click();await page.locator('.library-list button').first().click();
+    await page.getByRole('button',{name:'退出本组',exact:true}).click();
+    await openSetupDetails(page, '.word-find');await page.locator('.library-list button').first().click();
     await page.locator('.word-card').waitFor();assert.equal((await logs(page)).length,0);assert.equal(await page.locator('.word-auto-controls').count(),0);
   });
   await check('blocked-autoplay-does-not-rate-words-and-manual-retry-works',async page=>{

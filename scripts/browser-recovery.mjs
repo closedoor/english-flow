@@ -1,3 +1,4 @@
+import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -41,6 +42,7 @@ for (const engine of ['chromium', 'webkit']) {
   }
   async function failSearch(page, context, term) {
     await context.route(blockedPacks, route => route.abort('failed'));
+    await openSetupDetails(page, '.sentence-find');
     await page.getByRole('searchbox', { name: '搜索长短句' }).fill(term);
     await page.locator('.sentence-load-error').waitFor();
   }
@@ -52,6 +54,7 @@ for (const engine of ['chromium', 'webkit']) {
   });
   await check('failed-favorites-load-preserves-and-explains-records', async (page, context) => {
     await context.route(blockedPacks, route => route.abort('failed'));
+    await openSetupDetails(page, '.sentence-find');
     await page.locator('.sentence-summary button').last().click();
     await page.locator('.sentence-load-error').waitFor();
     assert.equal(await page.getByText('还没有收藏句子。学习时点 ☆ 就能在这里找到。', { exact: true }).count(), 0);
@@ -60,6 +63,7 @@ for (const engine of ['chromium', 'webkit']) {
   }, { [keys.saved]: [target.id] });
   await check('failed-review-load-is-not-an-empty-review-list', async (page, context) => {
     await context.route(blockedPacks, route => route.abort('failed'));
+    await openSetupDetails(page, '.sentence-find');
     await page.getByRole('button', { name: '查看 1 个待加强句子', exact: true }).click();
     await page.locator('.sentence-load-error').waitFor();
     assert.equal(await page.getByText('当前没有待加强的句子。以后标记“还不熟悉”的句子会出现在这里。', { exact: true }).count(), 0);
@@ -102,6 +106,7 @@ for (const engine of ['chromium', 'webkit']) {
     assert.deepEqual(after.ratings, before.ratings);
   });
   await check('completed-search-retains-genuine-empty-state', async page => {
+    await openSetupDetails(page, '.sentence-find');
     await page.getByRole('searchbox', { name: '搜索长短句' }).fill('qzxv_unmatched_complete_912');
     await page.getByText('没有找到相关句子，请换一个关键词。', { exact: true }).waitFor();
     assert.equal(await page.locator('.sentence-load-error').count(), 0);
@@ -109,6 +114,7 @@ for (const engine of ['chromium', 'webkit']) {
   });
   await check('leaving-failed-search-clears-unrelated-error', async (page, context) => {
     await failSearch(page, context, target.text);
+    await openSetupDetails(page, '.sentence-range');
     await page.locator('.sentence-band-switch button').first().click();
     await page.locator('.sentence-load-error').waitFor({ state: 'detached' });
     assert.equal(await page.getByRole('button', { name: '开始这组学习', exact: true }).isEnabled(), true);

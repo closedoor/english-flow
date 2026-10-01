@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import { openSetupDetails } from "./browser-disclosures.mjs";
 
 if (!process.env.PLAYWRIGHT_MODULE) throw new Error("PLAYWRIGHT_MODULE is required");
 if (!process.env.AXE_SOURCE) throw new Error("AXE_SOURCE is required");
@@ -63,6 +64,29 @@ for (const engine of ["chromium", "webkit"]) {
     await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
     assert.equal(await page.evaluate(() => window.__deepAuditDocument), marker, "Retry must preserve the current document");
     assert.equal(await page.getByText("核心词库暂时没有加载成功", { exact: true }).count(), 0);
+  });
+  await runCheck(engine, "folded-entry-and-expanded-practice-tools-remain-accessible", async (page) => {
+    await page.goto(origin, { waitUntil: "domcontentloaded" });
+    await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
+    await page.locator(".bottom-nav button").filter({ hasText: "单词" }).click();
+    await checkAccessibility(page, "单词简洁入口");
+    await openSetupDetails(page, ".word-range");
+    await openSetupDetails(page, ".word-find");
+    await checkAccessibility(page, "单词展开范围与查询");
+    await page.locator(".bottom-nav button").filter({ hasText: "句子" }).click();
+    await page.waitForFunction(() => !document.querySelector(".sentence-page .setup-start")?.disabled);
+    await checkAccessibility(page, "句子三种练法入口");
+    await openSetupDetails(page, ".sentence-range");
+    await openSetupDetails(page, ".sentence-find");
+    await page.getByRole("searchbox", { name: "搜索长短句" }).fill("I");
+    await page.locator(".sentence-result-list button[data-sentence-id]").first().waitFor();
+    await page.locator(".setup-source>summary").click();
+    await checkAccessibility(page, "句子展开筛选查询与来源");
+    await page.getByRole("button", { name: "核心句型", exact: true }).click();
+    await checkAccessibility(page, "句型简洁入口");
+    await openSetupDetails(page, ".pattern-range");
+    await openSetupDetails(page, ".pattern-preview");
+    await checkAccessibility(page, "句型展开范围与内容预览");
   });
 }
 

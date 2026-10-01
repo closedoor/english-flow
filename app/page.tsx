@@ -463,6 +463,11 @@ export default function Home() {
   const [sentenceSearch, setSentenceSearch] = useState("");
   const [sentenceSavedOnly, setSentenceSavedOnly] = useState(false);
   const [sentenceReviewOnly, setSentenceReviewOnly] = useState(false);
+  const [wordRangeOpen, setWordRangeOpen] = useState(false);
+  const [wordBrowserOpen, setWordBrowserOpen] = useState(false);
+  const [sentenceRangeOpen, setSentenceRangeOpen] = useState(false);
+  const [sentenceBrowserOpen, setSentenceBrowserOpen] = useState(false);
+  const [patternRangeOpen, setPatternRangeOpen] = useState(false);
   const [sentenceIndex, setSentenceIndex] = useState(0);
   const [sentenceSessionIds, setSentenceSessionIds] = useState<number[]>([]);
   const [sentenceRatings, setSentenceRatings] = useState<Record<number, SentenceRating>>({});
@@ -1455,6 +1460,7 @@ export default function Home() {
       setLibraryLimit(24);
     }
     wordBrowserReturnRef.current = true;
+    setWordBrowserOpen(true);
     setLearnStage("setup");
     setTab("learn");
   };
@@ -1466,6 +1472,7 @@ export default function Home() {
 
   const openSentenceBrowser = (savedOnly: boolean, reviewOnly = false) => {
     sentenceBrowserOriginRef.current = null;
+    setSentenceBrowserOpen(true);
     setSentenceSavedOnly(savedOnly);
     setSentenceReviewOnly(!savedOnly && reviewOnly);
     setSentenceSearch("");
@@ -1491,6 +1498,19 @@ export default function Home() {
   const restorePatternSetupPreferences = () => {
     setPatternCategory(patternSetupCategoryRef.current);
     setPatternStage("setup");
+  };
+
+  const selectSentencePractice = (practice: SentenceLearningMode | "patterns") => {
+    // Switch setup choices without changing either paused session's snapshot.
+    sentenceBrowserOriginRef.current = null;
+    if (practice === "patterns") {
+      restorePatternSetupPreferences();
+      setSentenceSection("patterns");
+    } else {
+      restoreSentenceSetupPreferences();
+      setSentenceMode(practice);
+      setSentenceSection("library");
+    }
   };
 
   const selectPatternCategory = (category: "all" | PatternCategory) => {
@@ -2390,35 +2410,46 @@ export default function Home() {
     setTab("sentences");
   };
 
+  const renderSentencePracticeMethods = () => (
+    <div className="setup-block"><h2>练习方式</h2><div className="sentence-mode-grid practice-methods" role="group" aria-label="句子练习方式">
+      <button className={sentenceSection === "library" && sentenceMode === "bilingual" ? "selected" : ""} aria-pressed={sentenceSection === "library" && sentenceMode === "bilingual"} onClick={() => selectSentencePractice("bilingual")}><span aria-hidden="true">EN</span><div><b>英文卡片</b><small>直接看中英 · 英文三遍，中文一遍</small></div></button>
+      <button className={sentenceSection === "library" && sentenceMode === "speak" ? "selected" : ""} aria-pressed={sentenceSection === "library" && sentenceMode === "speak"} onClick={() => selectSentencePractice("speak")}><span aria-hidden="true">中</span><div><b>看中文说英文</b><small>先自己说，再揭晓答案</small></div></button>
+      <button className={sentenceSection === "patterns" ? "selected" : ""} aria-label="核心句型" aria-pressed={sentenceSection === "patterns"} onClick={() => selectSentencePractice("patterns")}><span aria-hidden="true">↔</span><div><b>核心句型</b><small>一个句型，练三次替换</small></div></button>
+    </div></div>
+  );
+
   const renderSentenceSetup = () => {
     const currentPack = sentencePacks[SENTENCE_PACK_BY_BAND[sentenceBand]] ?? [];
     const availableCount = currentPack.filter((item) => sentenceCategory === "all" || item.category === sentenceCategory).length;
     const difficultInSelection = currentPack.filter((item) => sentenceDifficult.includes(item.id) && (sentenceCategory === "all" || item.category === sentenceCategory)).length;
-    return <section className="page sentence-page">{commonHeader("学习长短句", "BUILD A SENTENCE SESSION")}
+    return <section className="page sentence-page simple-setup">{commonHeader("句子", "听懂一句，再开口说一句")}
       <div className="setup-start-panel">
         <button aria-describedby="sentence-session-choice" className="sticky-start primary-action setup-start" disabled={sentenceSelectionLoading || availableCount === 0} onClick={() => startSentenceSession()}>开始这组学习</button>
         <p id="sentence-session-choice" className="session-choice-summary" aria-live="polite"><span>“”</span> 当前：{sentenceMode === "speak" ? "看中文说英文" : "英文卡片"} · {sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label} · {Math.min(sentenceCount, availableCount)} 句</p>
       </div>
-      <p className="page-intro">选择直接学习英文，或者先看中文、自己说出英文。每张卡的进度都会自动保存在本机。</p>
-      <div className="sentence-section-switch" role="group" aria-label="句子学习内容"><button className="selected" aria-pressed="true">日常长短句</button><button aria-pressed="false" onClick={() => setSentenceSection("patterns")}>核心句型</button></div>
       {canResumeSentence && <button className="resume-session-card" onClick={resumeSentenceSession}><span>继续上次</span><div><b>未完成的句子练习</b><small>第 {Math.min(sentenceIndex + 1, sentenceSessionIds.length)} 张 · 已标记 {ratedSentenceCount} / {sentenceSessionIds.length}</small></div><i>›</i></button>}
       {canResumeSentence && <button className="sentence-new-group text-button" onClick={() => startSentenceSession(false, undefined, true)}>另开新一组</button>}
       {sentenceLoadError && sentencePacksIncomplete && <div className="sentence-load-error" role="alert"><span>{networkOnline ? "部分句库尚未载入，已有内容和本机记录仍保留。可以先重试；仍失败时再重新载入页面。" : "当前处于离线状态，已缓存的句子仍可使用；联网后会自动补全。"}</span><div className="sentence-load-actions"><button onClick={retrySentenceContent}>重试缺少的句库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div></div>}
-      <div className="sentence-summary"><div><b>{sentenceMastered.length}</b><small>已掌握</small></div><button className={sentenceReviewOnly ? "selected" : ""} aria-pressed={sentenceReviewOnly} aria-label={`查看 ${sentenceDifficult.length} 个待加强句子`} onClick={() => openSentenceBrowser(false, true)}><b>{sentenceDifficult.length}</b><small>待加强</small></button><button className={sentenceSavedOnly ? "selected" : ""} aria-pressed={sentenceSavedOnly} onClick={() => openSentenceBrowser(true)}><b>{sentenceSaved.length}</b><small>{sentenceSavedOnly ? "正在看收藏" : "收藏句子"}</small></button></div>
-      <div className="setup-block"><h2>选择练习方式</h2><div className="sentence-mode-grid"><button className={sentenceMode === "bilingual" ? "selected" : ""} aria-pressed={sentenceMode === "bilingual"} onClick={() => setSentenceMode("bilingual")}><span>EN</span><div><b>英文卡片</b><small>中英直接显示 · 英文三遍、中文一遍</small></div></button><button className={sentenceMode === "speak" ? "selected" : ""} aria-pressed={sentenceMode === "speak"} onClick={() => setSentenceMode("speak")}><span>中</span><div><b>看中文说英文</b><small>先开口，再揭晓答案</small></div></button></div></div>
+      {renderSentencePracticeMethods()}
       <div className="setup-block"><div className="row-heading"><h2>每组句数</h2><small>学完逐句标记</small></div><div className="count-switch"><button className={sentenceCount === 10 ? "selected" : ""} aria-pressed={sentenceCount === 10} onClick={() => setSentenceCount(10)}>10 句</button><button className={sentenceCount === 20 ? "selected" : ""} aria-pressed={sentenceCount === 20} onClick={() => setSentenceCount(20)}>20 句</button></div></div>
+      <details className="setup-disclosure sentence-range" open={sentenceRangeOpen} onToggle={(event) => setSentenceRangeOpen(event.currentTarget.open)}><summary><div><b>练习范围</b><small>{sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label}</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
       <div className="setup-block"><h2>选择句子长度</h2><div className="sentence-band-switch">
         {(["short", "medium", "long"] as const).map((band) => <button key={band} className={sentenceBand === band ? "selected" : ""} aria-pressed={sentenceBand === band} onClick={() => { setSentenceBand(band); setSentenceSavedOnly(false); setSentenceReviewOnly(false); setSentenceSearch(""); setSentenceResultLimit(30); }}>{band === "short" ? "短句" : band === "medium" ? "常用句" : "长句"}<small>{band === "short" ? "2–7 词" : band === "medium" ? "8–12 词" : "13–18 词"}</small></button>)}
       </div></div>
       <div className="setup-block"><div className="row-heading"><h2>选择沟通场景</h2><small>{sentenceSelectionLoading ? "正在加载…" : !sentencePacks[SENTENCE_PACK_BY_BAND[sentenceBand]] ? "句库未载入" : `${availableCount} 句可学`}</small></div><div className="sentence-categories sentence-category-grid" role="group" aria-label="句子场景">{sentenceCategories.map((category) => <button key={category.id} className={sentenceCategory === category.id ? "selected" : ""} aria-pressed={sentenceCategory === category.id} onClick={() => { setSentenceCategory(category.id); setSentenceSavedOnly(false); setSentenceReviewOnly(false); setSentenceResultLimit(30); }}>{category.label}</button>)}</div></div>
       {difficultInSelection > 0 && <button className="sentence-review-start" onClick={() => startSentenceSession(true)}>复习当前范围内 {Math.min(sentenceCount, difficultInSelection)} 个待加强句子</button>}
+      </div></details>
+      <details className="setup-disclosure sentence-find" open={sentenceBrowserOpen} onToggle={(event) => setSentenceBrowserOpen(event.currentTarget.open)}><summary><div><b>找句子与收藏</b><small>搜索中英文 · 收藏 {sentenceSaved.length} · 待加强 {sentenceDifficult.length}</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
+      <div className="sentence-summary"><div><b>{sentenceMastered.length}</b><small>已掌握</small></div><button className={sentenceReviewOnly ? "selected" : ""} aria-pressed={sentenceReviewOnly} aria-label={`查看 ${sentenceDifficult.length} 个待加强句子`} onClick={() => openSentenceBrowser(false, true)}><b>{sentenceDifficult.length}</b><small>待加强</small></button><button className={sentenceSavedOnly ? "selected" : ""} aria-pressed={sentenceSavedOnly} onClick={() => openSentenceBrowser(true)}><b>{sentenceSaved.length}</b><small>{sentenceSavedOnly ? "正在看收藏" : "收藏句子"}</small></button></div>
       <div ref={sentenceBrowserRef} tabIndex={-1} className="setup-block sentence-browser"><div className="row-heading"><h2>{sentenceSavedOnly ? "收藏的句子" : sentenceReviewOnly ? "待加强的句子" : "查找完整句库"}</h2><small>{sentenceSavedOnly || sentenceReviewOnly ? `${sentencePacksIncomplete ? "已载入 " : ""}${filteredSentences.length} 句` : sentenceSearch ? `${sentencePacksIncomplete ? "已载入 " : ""}${filteredSentences.length} 个结果` : "支持中英文"}</small></div>
         {sentenceReviewOnly && <p className="browser-hint">这里包含所有句长和场景。点一句开始复习，标记学会后会从这里移除。</p>}
         {(sentenceSavedOnly || sentenceReviewOnly) && <button className="browser-switch" onClick={() => openSentenceBrowser(false)}>‹ 返回句库搜索</button>}
         {!sentenceSavedOnly && !sentenceReviewOnly && <label className="sentence-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="搜索长短句" value={sentenceSearch} onChange={(event) => { setSentenceSearch(event.target.value); setSentenceResultLimit(30); }} placeholder="搜索英文或中文" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="search" /></label>}
         {(sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly) && <div className="sentence-result-list">{sentencePacksIncomplete && !filteredSentences.length ? <p role="status">{sentenceLoading ? "正在加载完整句库…" : sentenceSavedOnly ? "收藏记录仍保留，相关句库尚未载入。请重试缺少的句库。" : sentenceReviewOnly ? "待加强记录仍保留，相关句库尚未载入。请重试缺少的句库。" : "句库尚未完整载入，暂时无法确认是否有匹配句子。请重试缺少的句库。"}</p> : filteredSentences.length ? <>{sentencePacksIncomplete && <p className="browser-hint" role="status">{sentenceLoading ? "其余句库仍在加载，先显示已载入的结果。" : "部分句库未载入，当前仅显示已载入的结果。"}</p>}{filteredSentences.slice(0, sentenceResultLimit).map((item) => <button key={item.id} data-sentence-id={item.id} onClick={() => startSentenceSession(false, item)}><div><b lang="en">{item.text}</b><small>{item.translation}</small></div><i>›</i></button>)}<p className="sentence-result-count">已显示 {Math.min(sentenceResultLimit, filteredSentences.length)} / {sentencePacksIncomplete ? "已载入 " : ""}{filteredSentences.length} 句</p>{sentenceResultLimit < filteredSentences.length && <button className="library-more" onClick={() => setSentenceResultLimit((value) => value + 30)}>再显示 30 句</button>}</> : <p>{sentenceSavedOnly ? "还没有收藏句子。学习时点 ☆ 就能在这里找到。" : sentenceReviewOnly ? "当前没有待加强的句子。以后标记“还不熟悉”的句子会出现在这里。" : "没有找到相关句子，请换一个关键词。"}</p>}</div>}
       </div>
-      <div className="source-card sentence-license"><b>句库说明</b><p>共 3,000 组 Tatoeba 英汉对应句，短句、常用句、长句各 1,000 句。学习状态和当前卡片位置只保存在当前设备。</p><div><a href="https://tatoeba.org/en/downloads" target="_blank" rel="noreferrer">Tatoeba 数据与授权</a></div></div>
+      </div></details>
+      <p className="setup-footnote">进度自动保存在本机，可在“进度”页备份。</p>
+      <details className="setup-source"><summary>句库说明与来源</summary><div className="source-card sentence-license"><b>句库说明</b><p>共 3,000 组 Tatoeba 英汉对应句，短句、常用句、长句各 1,000 句。学习状态和当前卡片位置只保存在当前设备。</p><div><a href="https://tatoeba.org/en/downloads" target="_blank" rel="noreferrer">Tatoeba 数据与授权</a></div></div></details>
     </section>;
   };
 
@@ -2445,16 +2476,19 @@ export default function Home() {
 
   const renderPatternSetup = () => {
     const difficultInSelection = availablePatterns.filter((pattern) => patternDifficult.includes(pattern.id)).length;
-    return <section className="page sentence-page pattern-page">{commonHeader("核心句型替换", "30 CORE SPEAKING PATTERNS")}
+    return <section className="page sentence-page pattern-page simple-setup">{commonHeader("句子", "听懂一句，再开口说一句")}
       <div className="setup-start-panel"><button className="sticky-start primary-action setup-start" aria-describedby="pattern-session-choice" disabled={!availablePatterns.length} onClick={() => startPatternSession()}>开始句型替换练习</button><p id="pattern-session-choice" className="session-choice-summary" aria-live="polite"><span>↔</span> 当前：{patternCategories.find((category) => category.id === patternCategory)?.label} · 每组最多10个句型 · 每个3次替换</p></div>
-      <p className="page-intro">每个句型包含3组替换练习。先看中文自己说英文，再揭晓答案，练会同一个骨架的不同用法。</p>
-      <div className="sentence-section-switch" role="group" aria-label="句子学习内容"><button aria-pressed="false" onClick={() => setSentenceSection("library")}>日常长短句</button><button className="selected" aria-pressed="true">核心句型</button></div>
       {canResumePattern && <button className="resume-session-card" onClick={resumePatternSession}><span>继续上次</span><div><b>未完成的句型替换</b><small>第 {Math.min(patternIndex + 1, patternSessionIds.length)} 个句型 · 替换 {patternDrillIndex + 1} / 3</small></div><i>›</i></button>}
-      <div className="sentence-summary pattern-summary"><div><b>{corePatterns.length}</b><small>核心句型</small></div><div><b>{patternMastered.length}</b><small>已掌握</small></div><div><b>{patternDifficult.length}</b><small>待加强</small></div></div>
-      <div className="setup-block"><div className="row-heading"><h2>选择使用场景</h2><small>{availablePatterns.length} 个句型</small></div><div className="sentence-categories sentence-category-grid pattern-category-grid" role="group" aria-label="句型场景">{patternCategories.map((category) => <button key={category.id} className={patternCategory === category.id ? "selected" : ""} aria-pressed={patternCategory === category.id} onClick={() => selectPatternCategory(category.id)}>{category.label}</button>)}</div></div>
-      <div className="pattern-preview-list">{availablePatterns.slice(0, 6).map((pattern) => <div key={pattern.id}><span>{pattern.title}</span><b lang="en">{pattern.template}</b><small>{pattern.meaning}</small></div>)}</div>
       {canResumePattern && <button className="sentence-new-group" disabled={!availablePatterns.length} onClick={() => startPatternSession(false, true)}>另开新一组</button>}
+      {renderSentencePracticeMethods()}
+      <details className="setup-disclosure pattern-range" open={patternRangeOpen} onToggle={(event) => setPatternRangeOpen(event.currentTarget.open)}><summary><div><b>练习范围</b><small>{patternCategories.find((category) => category.id === patternCategory)?.label} · {availablePatterns.length} 个句型</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
+      <div className="setup-block"><div className="row-heading"><h2>选择使用场景</h2><small>{availablePatterns.length} 个句型</small></div><div className="sentence-categories sentence-category-grid pattern-category-grid" role="group" aria-label="句型场景">{patternCategories.map((category) => <button key={category.id} className={patternCategory === category.id ? "selected" : ""} aria-pressed={patternCategory === category.id} onClick={() => selectPatternCategory(category.id)}>{category.label}</button>)}</div></div>
+      </div></details>
+      <details className="setup-disclosure pattern-preview"><summary><div><b>看看练习内容</b><small>{corePatterns.length} 个核心句型 · 已掌握 {patternMastered.length} · 待加强 {patternDifficult.length}</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body"><p className="browser-hint">每个句型有三次替换。练习时先看中文自己说，再揭晓英文。</p>
+      <div className="pattern-preview-list">{availablePatterns.slice(0, 6).map((pattern) => <div key={pattern.id}><span>{pattern.title}</span><b lang="en">{pattern.template}</b><small>{pattern.meaning}</small></div>)}</div>
+      </div></details>
       {difficultInSelection > 0 && <button className="sentence-review-start" onClick={() => startPatternSession(true)}>复习当前范围内 {Math.min(10, difficultInSelection)} 个待加强句型</button>}
+      <p className="setup-footnote">进度自动保存在本机，可在“进度”页备份。</p>
     </section>;
   };
 
@@ -2538,20 +2572,23 @@ export default function Home() {
   );
 
   const renderLearnSetup = () => (
-    <section className="page setup-page">
-      {commonHeader("开始一组学习", "BUILD A SESSION")}
+    <section className="page setup-page simple-setup">
+      {commonHeader("单词", "每天一组，轻松积累")}
       <div className="setup-start-panel">
         <button aria-describedby="word-session-choice" className="sticky-start primary-action setup-start" onClick={() => startSession()}>开始这组学习</button>
         <p id="word-session-choice" className="session-choice-summary" aria-live="polite"><span>{currentPathIcon}</span> 当前：{currentPathLabel} · {currentSessionCount} 个 · {currentModeLabel}</p>
       </div>
-      <div className="setup-block"><h2>选择学习模式</h2><div className="mode-grid">
+      <div className="setup-block"><h2>练习方式</h2><div className="mode-grid">
         <button className={mode === "free" ? "selected" : ""} aria-pressed={mode === "free"} onClick={() => selectMode("free")}><span>∞</span><b>自由学习</b><small>自由滑动，不安排考试</small></button>
         <button className={mode === "test" ? "selected" : ""} aria-pressed={mode === "test"} onClick={() => selectMode("test")}><span>✎</span><b>学习＋考试</b><small>学完进行英文填空</small></button>
       </div></div>
       <div className="setup-block"><div className="row-heading"><h2>每组词数</h2><small>场景不足时学习全部</small></div><div className="count-switch"><button className={count === 10 ? "selected" : ""} aria-pressed={count === 10} onClick={() => selectCount(10)}>10 个</button><button className={count === 20 ? "selected" : ""} aria-pressed={count === 20} onClick={() => selectCount(20)}>20 个</button></div></div>
+      <details className="setup-disclosure word-range" open={wordRangeOpen} onToggle={(event) => setWordRangeOpen(event.currentTarget.open)}><summary><div><b>学习范围</b><small>{currentPathLabel}</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
       <div className="setup-block"><h2>选择词汇路线</h2><button className={`path-card ${path === "frequency" ? "selected" : ""}`} aria-pressed={path === "frequency"} onClick={() => selectPath("frequency")}><span className="path-icon">NG</span><div><b>NGSL 高频顺序</b><small>官方 1.2 版 · 共 {ngslMeta.count.toLocaleString()} 个通用词</small></div><i>{path === "frequency" ? "✓" : "›"}</i></button>
         <div className="scene-list">{scenes.map((scene) => <button key={scene.id} className={path === scene.id ? "selected" : ""} aria-pressed={path === scene.id} onClick={() => selectPath(scene.id)}><span style={{ background: scene.color }}>{scene.icon}</span><div><b>{scene.name}</b><small>{scene.subtitle}</small></div><i>{path === scene.id ? "✓" : "›"}</i></button>)}</div>
       </div>
+      </div></details>
+      <details className="setup-disclosure word-find" open={wordBrowserOpen} onToggle={(event) => setWordBrowserOpen(event.currentTarget.open)}><summary><div><b>查单词</b><small>搜索中英文 · 浏览完整 NGSL 词库</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
       <div ref={wordBrowserRef} tabIndex={-1} className="setup-block library-block"><div className="row-heading"><h2>浏览完整词库</h2><small>{normalized(librarySearch) ? `全库 · ${bandWords.length} 个结果` : `${bandWords.length} 个结果`}</small></div>
         <div className="rank-switch">{([1, 2, 3] as const).map((band) => <button key={band} className={!normalized(librarySearch) && libraryBand === band ? "selected" : ""} aria-pressed={!normalized(librarySearch) && libraryBand === band} onClick={() => { setLibraryBand(band); setLibrarySearch(""); setLibraryLimit(24); }}>{band === 1 ? "1–1000" : band === 2 ? "1001–2000" : "2001–2809"}</button>)}</div>
         <label className="library-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="搜索词库" value={librarySearch} onChange={(event) => { setLibrarySearch(event.target.value); setLibraryLimit(24); }} placeholder="搜索英文或中文释义" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="search" /></label>
@@ -2559,6 +2596,8 @@ export default function Home() {
         {bandWords.length > libraryLimit && <button className="library-more" onClick={() => setLibraryLimit((currentLimit) => currentLimit + 24)}>再显示 {Math.min(24, bandWords.length - libraryLimit)} 个</button>}
         {bandWords.length > 0 && <p className="library-note">已显示 {Math.min(libraryLimit, bandWords.length)} / {bandWords.length} 个；也可以输入关键词直接定位。</p>}
       </div>
+      </div></details>
+      <p className="setup-footnote">进度自动保存在本机，可在“进度”页备份。</p>
     </section>
   );
 
@@ -2624,7 +2663,7 @@ export default function Home() {
 
   const renderRead = () => (
     <section className={`page reading-page ${activeReading ? "reading-detail-page" : ""}`}>
-      {!activeReading && <>{commonHeader("分级阅读", "READ & LISTEN")}<p className="page-intro">15 篇完整原创文章，从基础叙事逐步升级，同时练习阅读能力和整段听力。</p></>}
+      {!activeReading && <>{commonHeader("阅读", "读文章，练听力")}<p className="page-intro">15 篇完整原创文章，从基础叙事逐步升级，同时练习阅读能力和整段听力。</p></>}
       {readingLoadError ? <div className="content-load-state" role="alert"><b>阅读内容暂时没有加载成功</b><span>{networkOnline ? "重新载入页面即可重试；已加载过的内容会保留在离线缓存中。" : "当前处于离线状态，联网后会自动重试。"}</span><button onClick={() => window.location.reload()}>重新载入页面</button></div> : !readings.length ? <div className="content-load-state" role="status" aria-live="polite"><b>正在载入分级阅读…</b><span>首次打开后会自动保存，之后离线也能阅读。</span></div> : activeReading ? <article className="reading-detail">
         <button className="back-line" onClick={returnToReadings}>‹ {readingFilter === "review" ? "返回待巩固文章" : `返回 Level ${activeReading.level}`}</button>
         <p className="eyebrow">LEVEL {activeReading.level} · COMPLETE STORY</p>
@@ -2662,7 +2701,7 @@ export default function Home() {
     const safeReviewIndex = Math.min(reviewIndex, Math.max(reviewWords.length - 1, 0));
     const reviewWord = reviewWords[safeReviewIndex] ?? null;
     const answerOpen = reviewWord ? reviewRevealedWordId === reviewWord.id : false;
-    return <section className="page review-page">{commonHeader("复习中心", "SPACED REPETITION")}
+    return <section className="page review-page">{commonHeader("复习", "把不熟悉的再练一次")}
       <p className="page-intro">按记忆强度安排间隔，容易忘的词会更早出现。</p>
       {reviewUndo && <div className="review-undo"><div role="status" aria-live="polite"><b lang="en">{reviewUndo.word}</b><span>{reviewUndo.label}</span></div><button onClick={undoReviewAction}>撤销上次</button></div>}
       <div className="segment-control" role="group" aria-label="复习内容"><button className={reviewView === "due" ? "selected" : ""} aria-pressed={reviewView === "due"} onClick={() => { setReviewView("due"); setReviewIndex(0); setReviewRevealedWordId(null); }}>今日复习 <span>{dueWords.length}</span></button><button className={reviewView === "wordbook" ? "selected" : ""} aria-pressed={reviewView === "wordbook"} onClick={() => { setReviewView("wordbook"); setReviewIndex(0); setReviewRevealedWordId(null); }}>生词本 <span>{wordbookWords.length}</span></button></div>
@@ -2678,7 +2717,7 @@ export default function Home() {
   };
 
   const renderProgress = () => (
-    <section className="page progress-page">{commonHeader("学习进度", "YOUR PROGRESS")}
+    <section className="page progress-page">{commonHeader("进度", "查看学习记录与备份")}
       <div className="progress-hero"><div><span>NGSL 1.2 掌握度</span><strong>{progress}<small>%</small></strong><p>{masteredNgslCount} / {words.length} 个通用高频词</p></div><div className="progress-ring" aria-hidden="true" style={{ "--value": `${progress * 3.6}deg` } as React.CSSProperties}><span>{progress}%</span></div></div>
       <div className="progress-mini-grid"><article><span>🔥</span><b>{visibleStudyDays.length}</b><small>学习天数</small></article><article><span>✎</span><b>{difficult.length}</b><small>需要加强</small></article><article><span>↻</span><b>{dueWords.length}</b><small>今日复习</small></article></div>
       <button className="sentence-progress-panel" onClick={() => setTab("sentences")}><span>“”</span><div><p><b>句子与核心句型</b><small>{sentenceMastered.length}/3,000 句 · {patternMastered.length}/{corePatterns.length} 句型</small></p><i><em style={{ width: `${Math.min(sentenceMastered.length / 30, 100)}%` }} /></i></div><strong>›</strong></button>

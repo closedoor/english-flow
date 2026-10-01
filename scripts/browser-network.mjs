@@ -1,3 +1,4 @@
+import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -33,6 +34,7 @@ for(const engine of ['chromium','webkit']) {
   async function slowSearch(page,context,term='I',blockBoth=true) {
     await context.route(blockBoth ? /tatoeba-sentences-[23]\.json/ : /tatoeba-sentences-3\.json/,()=>{});
     const started=page.waitForRequest(request=>request.url().includes('tatoeba-sentences-3.json'));
+    await openSetupDetails(page, '.sentence-find');
     await page.getByRole('searchbox',{name:'搜索长短句'}).fill(term);
     await started;
   }

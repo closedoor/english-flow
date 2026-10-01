@@ -27,7 +27,7 @@ function visit(node) {
 visit(ast);
 assert.ok(scrollEffect, "missing the real sentence browsing scroll effect");
 assert.ok(normalizedSource);
-const functions = ["beginSentenceSession", "restoreSentenceSetupPreferences", "openSentenceBrowser", "startSingleWord", "returnToWordLibrary", "startSession", "finishOpeningLearningSetup"];
+const functions = ["beginSentenceSession", "restoreSentenceSetupPreferences", "restorePatternSetupPreferences", "selectSentencePractice", "openSentenceBrowser", "startSingleWord", "returnToWordLibrary", "startSession", "finishOpeningLearningSetup"];
 for (const name of functions) assert.ok(initializers.has(name), `missing ${name}`);
 const filteredCallback = initializers.get("filteredSentences").arguments[0].getText(ast);
 const wordFilterCallback = initializers.get("bandWords").arguments[0].getText(ast);
@@ -46,6 +46,7 @@ function harness(patch = {}) {
     hydrated: true, tab: "sentences", sentenceSection: "library", sentenceStage: "setup",
     sentenceBand: "short", sentenceCategory: "all", sentenceCount: 10, sentenceMode: "bilingual",
     sentenceSearch: "train", sentenceSavedOnly: false, sentenceReviewOnly: false, sentenceResultLimit: 90,
+    wordBrowserOpen: false, sentenceBrowserOpen: false, patternCategory: "all",
     sentenceMastered: [], sentenceDifficult: [], sentenceSaved: items.map((item) => item.id),
     sentenceIndex: 0, sentenceSessionIds: [], sentenceRatings: {}, sentenceTranslationOpen: false,
     index: 0, learnStage: "setup", patternDrillIndex: 0, patternIndex: 0, patternStage: "setup",
@@ -100,7 +101,7 @@ function harness(patch = {}) {
     band: state.sentenceBand, category: state.sentenceCategory, count: state.sentenceCount, mode: state.sentenceMode,
   } };
   const context = vm.createContext({
-    window, sentenceBrowserRef, sentenceBrowserOriginRef, sentenceSetupPreferencesRef, readingPositionRef: { current: new Map() }, readingPositionReadyRef: { current: false },
+    window, sentenceBrowserRef, sentenceBrowserOriginRef, sentenceSetupPreferencesRef, patternSetupCategoryRef: { current: "travel" }, readingPositionRef: { current: new Map() }, readingPositionReadyRef: { current: false },
     words, wordBrowserRef, wordBrowserOriginRef, wordBrowserReturnRef,
     playAutomaticWordExample() {},
     playAutomaticSentenceExample() {},
@@ -117,6 +118,9 @@ function harness(patch = {}) {
     context[`set${key[0].toUpperCase()}${key.slice(1)}`] = (value) => {
       state[key] = typeof value === "function" ? value(state[key]) : value;
     };
+  }
+  for (const name of ["restoreSentenceSetupPreferences", "restorePatternSetupPreferences"]) {
+    context[name] = vm.runInContext(javascript(`(${initializers.get(name).getText(ast)})`), context);
   }
   vm.runInContext(javascript(normalizedSource), context);
   let previousDependencies;
@@ -373,4 +377,48 @@ test("switching between difficult, saved and search views cannot leave intersect
   assert.equal(app.state.sentenceSavedOnly, false);
   assert.equal(app.state.sentenceReviewOnly, false);
   assert.equal(app.state.sentenceSearch, "");
+});
+
+test("favorite and reinforcement shortcuts open the folded sentence browser before focus", () => {
+  for (const [savedOnly, reviewOnly] of [[true, false], [false, true], [false, false]]) {
+    const app = harness();
+    app.invoke("openSentenceBrowser", savedOnly, reviewOnly);
+    assert.equal(app.state.sentenceBrowserOpen, true);
+    assert.deepEqual(app.focusCalls.at(-1), { target: "browser", preventScroll: true });
+  }
+});
+
+test("returning from a word lookup opens its browser without changing saved practice choices", () => {
+  const app = harness({ tab: "learn", learnStage: "cards", sessionWords: [{ id: 7, word: "word7" }] });
+  app.invoke("returnToWordLibrary");
+  assert.equal(app.state.wordBrowserOpen, true);
+  assert.equal(app.state.learnStage, "setup");
+  assert.equal(app.state.librarySearch, "word7");
+  assert.equal(app.state.mode, "test");
+  assert.equal(app.state.path, "frequency");
+  assert.deepEqual(app.focusCalls.at(-1), { target: "words", preventScroll: true });
+});
+
+test("one-level sentence practice choices keep paused sentences and patterns intact", () => {
+  const app = harness({ sentenceStage: "cards", sentenceSection: "patterns", sentenceSessionIds: [1, 2, 3], sentenceIndex: 2, sentenceRatings: { 1: "known" }, patternStage: "cards", patternCategory: "food", patternIndex: 4, patternDrillIndex: 2 });
+  app.sentenceBrowserOriginRef.current = { id: 75, scrollY: 1800, listScrollTop: 4100 };
+  app.invoke("selectSentencePractice", "speak");
+  assert.equal(app.sentenceBrowserOriginRef.current, null, "choosing a practice method must not restore an unrelated lookup position");
+  assert.equal(app.window.scrollY, 0);
+  assert.equal(app.state.sentenceSection, "library");
+  assert.equal(app.state.sentenceStage, "setup", "stop snapshot writes before changing the next group's mode");
+  assert.equal(app.state.sentenceMode, "speak");
+  assert.deepEqual(app.state.sentenceSessionIds, [1, 2, 3]);
+  assert.equal(app.state.sentenceIndex, 2);
+  assert.deepEqual(app.state.sentenceRatings, { 1: "known" });
+  app.invoke("selectSentencePractice", "patterns");
+  assert.equal(app.state.sentenceSection, "patterns");
+  assert.equal(app.state.patternStage, "setup");
+  assert.equal(app.state.patternCategory, "travel", "restore the chosen range before showing pattern setup");
+  assert.equal(app.state.patternIndex, 4);
+  assert.equal(app.state.patternDrillIndex, 2);
+  app.invoke("selectSentencePractice", "bilingual");
+  assert.equal(app.state.sentenceMode, "bilingual");
+  assert.equal(app.state.sentenceSection, "library");
+  assert.deepEqual(app.writes, [], "changing setup choices does not directly replace either saved session");
 });

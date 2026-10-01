@@ -1,3 +1,4 @@
+import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 if(!process.env.PLAYWRIGHT_MODULE)throw Error('Set PLAYWRIGHT_MODULE; see TESTING.md.');
@@ -7,7 +8,7 @@ if(!['localhost','127.0.0.1','[::1]'].includes(new URL(origin).hostname))throw E
 const key='wordflow-sentence-active-session-v1';const results=[];
 async function ready(page){await page.goto(origin,{waitUntil:'domcontentloaded'});await page.locator('.bottom-nav').waitFor();}
 async function nav(page,label){await page.locator('.bottom-nav button').filter({hasText:label}).click();}
-async function begin(page,{mode='英文卡片',band='短句'}={}){await ready(page);await nav(page,'句子');await page.getByRole('button',{name:mode,exact:false}).click();await page.locator('.sentence-band-switch button').filter({hasText:band}).click();const start=page.getByRole('button',{name:'开始这组学习',exact:true});await page.waitForFunction(()=>!document.querySelector('.sentence-page .setup-start').disabled);await start.click();await page.locator('.sentence-study-card').waitFor();}
+async function begin(page,{mode='英文卡片',band='短句'}={}){await ready(page);await nav(page,'句子');await page.getByRole('button',{name:mode,exact:false}).click();await openSetupDetails(page, '.sentence-range');await page.locator('.sentence-band-switch button').filter({hasText:band}).click();const start=page.getByRole('button',{name:'开始这组学习',exact:true});await page.waitForFunction(()=>!document.querySelector('.sentence-page .setup-start').disabled);await start.click();await page.locator('.sentence-study-card').waitFor();}
 const log=page=>page.evaluate(()=>window.__sentenceSpeech.log);
 const stored=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),key);
 const exit=page=>page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();

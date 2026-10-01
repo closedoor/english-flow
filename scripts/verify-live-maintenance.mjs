@@ -1,3 +1,4 @@
+import { openSetupDetails } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -45,7 +46,7 @@ async function tapVisible(page, locator, quizMode = null) {
       return { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom,
         hit: element === hit || element.contains(hit) };
     };
-    const measure = () => ({ ...rectangle(button), disabled: button.disabled, label: button.textContent,
+    const measure = () => ({ ...rectangle(button), disabled: button.tagName === 'SUMMARY' ? button.getAttribute('aria-disabled') === 'true' : button.disabled, label: button.textContent,
       limit: document.querySelector('.bottom-nav')?.getBoundingClientRect().top ?? innerHeight, viewportWidth: innerWidth,
       ...(quizMode ? { quiz: {
         scrollY, overflow: document.documentElement.scrollWidth > innerWidth + 1,
@@ -199,10 +200,37 @@ for (const engine of ['chromium', 'webkit']) {
     }
   }
 
+  await check('simple-practice-entry-and-visible-disclosure-controls', async page => {
+    await nav(page, '单词');
+    assert.equal(await page.locator('h1').innerText(), '单词');
+    for (const selector of ['.word-range', '.word-find']) assert.equal(await page.locator(selector).evaluate(e => e.open), false);
+    assert.equal(await page.getByRole('searchbox', { name: '搜索词库' }).isVisible(), false);
+    await tapVisible(page, page.locator('.word-range>summary'));
+    assert.equal(await page.locator('.scene-list button').first().isVisible(), true);
+    await page.locator('.word-range>summary').click();
+    await openSetupDetails(page, '.word-find');
+    await page.getByRole('searchbox', { name: '搜索词库' }).fill('the');
+    await page.locator('.library-list button').first().waitFor();
+    await nav(page, '句子');
+    await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
+    assert.equal(await page.locator('h1').innerText(), '句子');
+    for (const selector of ['.sentence-range', '.sentence-find']) assert.equal(await page.locator(selector).evaluate(e => e.open), false);
+    assert.equal(await page.locator('.sentence-section-switch').count(), 0);
+    assert.equal(await page.locator('.practice-methods button').count(), 3);
+    await page.getByRole('button', { name: '核心句型', exact: true }).click();
+    assert.equal(await page.locator('h1').innerText(), '句子');
+    assert.equal(await page.locator('.practice-methods button[aria-pressed="true"]').count(), 1);
+    assert.equal(await page.locator('.pattern-preview-list').isVisible(), false);
+    await page.locator('.practice-methods button').filter({ hasText: '看中文说英文' }).click();
+    assert.match(await page.locator('#sentence-session-choice').innerText(), /看中文说英文/);
+    return { secondaryToolsInitiallyFolded: true, threePracticeMethodsAtOneLevel: true, wordSearchUsable: true };
+  });
+
   await check('cross-range-sentence-lists-search-and-practice-preferences', async page => {
     await nav(page, '句子');
     await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
     for (const label of ['收藏句子', '待加强']) {
+      await openSetupDetails(page, '.sentence-find');
       await page.locator('.sentence-summary button').filter({ hasText: label }).click();
       await page.waitForFunction(() => document.querySelectorAll('.sentence-result-list button[data-sentence-id]').length === 3);
       assert.deepEqual(await page.locator('.sentence-result-list button[data-sentence-id]').evaluateAll(
@@ -210,6 +238,7 @@ for (const engine of ['chromium', 'webkit']) {
       await retainChoices(page);
       await page.getByRole('button', { name: '‹ 返回句库搜索', exact: true }).click();
     }
+    await openSetupDetails(page, '.sentence-find');
     const search = page.getByRole('searchbox', { name: '搜索长短句' });
     for (const query of ['airport', '机场']) {
       await search.fill(query);
@@ -231,6 +260,7 @@ for (const engine of ['chromium', 'webkit']) {
   await check('pattern-start-resumes-rated-group-and-substitution-with-hidden-answer', async page => {
     await nav(page, '句子');
     await page.getByRole('button', { name: '核心句型', exact: true }).click();
+    await openSetupDetails(page, '.pattern-range');
     await page.locator('.pattern-category-grid button').filter({ hasText: '全部' }).click();
     const start = () => page.getByRole('button', { name: '开始句型替换练习', exact: true }).click();
     const reveal = () => page.getByRole('button', { name: '我说好了，查看参考答案', exact: true }).click();
@@ -425,6 +455,7 @@ for (const engine of ['chromium', 'webkit']) {
 
   await check('word-and-sentence-new-search-reset-results-with-more-and-lookup-return-preserved', async page => {
     await nav(page, '单词');
+    await openSetupDetails(page, '.word-find');
     const words = page.locator('.library-list');
     await words.evaluate(element => { element.scrollTop = 1000; });
     await page.locator('.rank-switch button').nth(1).click();
@@ -456,6 +487,7 @@ for (const engine of ['chromium', 'webkit']) {
     assert.ok(!(await page.locator('.library-block .row-heading small').innerText()).includes('全库'));
 
     await nav(page, '句子');
+    await openSetupDetails(page, '.sentence-find');
     const search = page.getByRole('searchbox', { name: '搜索长短句' });
     await search.fill('I');
     await page.locator('.sentence-result-list button[data-sentence-id]').first().waitFor();
