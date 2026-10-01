@@ -1,0 +1,66 @@
+name: Verify sentence resume and bilingual listening
+on:
+  push:
+    branches: [maintenance/sentence-daily-20261001]
+permissions:
+  contents: write
+concurrency:
+  group: sentence-daily-audit
+  cancel-in-progress: true
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RENDER_EXTERNAL_URL: http://127.0.0.1:4173
+      PLAYWRIGHT_MODULE: /tmp/ef-sentence/node_modules/playwright/index.mjs
+      AXE_SOURCE: /tmp/ef-sentence/node_modules/axe-core/axe.min.js
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci
+      - name: Install isolated browser tools
+        run: |
+          npm install --prefix /tmp/ef-sentence --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
+          node /tmp/ef-sentence/node_modules/playwright/cli.js install --with-deps chromium webkit >/tmp/install.log 2>&1 || { tail -50 /tmp/install.log; exit 1; }
+      - name: Reproduce reported sentence behavior before changing production code
+        run: |
+          npm run build:render >/tmp/before.log 2>&1 || { tail -40 /tmp/before.log; exit 1; }
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client >/tmp/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          SENTENCE_BASELINE=1 node scripts/browser-sentence-daily.mjs
+      - name: Apply targeted sentence repair
+        run: python3 .audit/sentence-daily.py
+      - name: Unit regressions and typecheck
+        run: |
+          npm test >/tmp/tests.log 2>&1 && UNIT=0 || UNIT=$?
+          grep -A16 '^not ok' /tmp/tests.log || true
+          tail -10 /tmp/tests.log
+          npm run typecheck
+          npm run lint
+          exit "$UNIT"
+      - name: Browser behavior and full regression suite
+        run: |
+          npm run build:render >/tmp/build.log 2>&1 || { tail -40 /tmp/build.log; exit 1; }
+          tail -4 /tmp/build.log
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client >/tmp/http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          node scripts/browser-sentence-daily.mjs >/tmp/sentence.log 2>&1 && NEW=0 || NEW=$?
+          cat /tmp/sentence.log
+          npm run test:browser >/tmp/browser.log 2>&1 && ALL=0 || ALL=$?
+          grep -E 'SUMMARY|"FAIL"|AXE_SERIOUS|Error:' /tmp/browser.log || true
+          test "$NEW" = 0 && test "$ALL" = 0
+      - name: Save verified product blobs to isolated branch
+        run: |
+          git diff --exit-code package-lock.json render.yaml app/backup-data.ts app/session-utils.ts public .github/workflows/validate.yml
+          git add app/page.tsx app/speech-playback.ts app/globals.css package.json tests scripts TESTING.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Resume matching sentence sessions and read each bilingual card English three times then Chinese once'
+          git push origin HEAD:refs/heads/maintenance/sentence-daily-20261001
+          git rev-parse HEAD
