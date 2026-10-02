@@ -12,17 +12,22 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
     async function check(name,action){
       const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,serviceWorkers:local?'block':'allow'});
       await context.addInitScript(()=>{
-        const state={attempts:[],started:[],active:null,gesture:false,lateCancel:false,drop:false,failVoices:[],voices:[],cancels:0,
+        const state={attempts:[],started:[],active:null,gesture:false,lateCancel:false,drop:false,failVoices:[],voices:[],cancels:0,apple:false,stallNext:0,failAll:null,
           end(){const u=this.active;this.active=null;synth.pending=false;synth.speaking=false;u?.onend?.();}};
         window.__speechRecovery=state;
+        // Only voice-route selection is simulated here. Both rendering engines
+        // and real DOM gestures remain unchanged; this is not native iOS audio.
+        Object.defineProperty(navigator,'userAgent',{configurable:true,get:()=>state.apple?'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)':'English Flow isolated speech fixture'});
         document.addEventListener('click',()=>state.gesture=true,true);window.addEventListener('click',()=>state.gesture=false);
         Object.defineProperty(window,'SpeechSynthesisUtterance',{configurable:true,value:class{constructor(text){this.text=text;}}});
         const synth={paused:false,pending:false,speaking:false,getVoices(){return state.voices;},resume(){this.paused=false;},
           cancel(){state.cancels++;state.active=null;this.pending=false;this.speaking=false;
             if(state.lateCancel)setTimeout(()=>{state.active=null;this.pending=false;this.speaking=false;},0);},
           speak(u){state.attempts.push({text:u.text,lang:u.lang,voice:u.voice?.name,gesture:state.gesture});
+            if(state.failAll){u.onerror?.({error:state.failAll});return;}
             if(state.failVoices.includes(u.voice?.name)){u.onerror?.({error:'voice-unavailable'});u.onend?.();u.onstart?.();return;}
             if(state.drop)return;
+            if(state.stallNext>0){state.stallNext--;state.active=u;this.speaking=true;this.pending=false;return;}
             state.active=u;this.pending=true;
             setTimeout(()=>{if(state.active!==u)return;this.pending=false;this.speaking=true;state.started.push({text:u.text,lang:u.lang,voice:u.voice?.name});u.onstart?.();},30);
           }};
@@ -88,6 +93,57 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
       await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
       const attempts=await page.evaluate(()=>window.__speechRecovery.attempts.length);await page.waitForTimeout(500);
       assert.equal(await page.evaluate(()=>window.__speechRecovery.attempts.length),attempts);assert.equal(await page.evaluate(()=>window.__speechRecovery.started.length),1);
+    });
+    await check('Apple-uses-system-language-resolution-instead-of-the-first-listed-voice',async page=>{
+      await page.evaluate(()=>{const s=window.__speechRecovery;s.apple=true;s.voices=[{name:'First listed broken English',lang:'en-US',localService:true},{name:'First listed broken Chinese',lang:'zh-CN',localService:true}];s.failVoices=s.voices.map(v=>v.name);});
+      await beginSentence(page);await completeSentence(page,0);
+      assert.ok((await page.evaluate(()=>window.__speechRecovery.attempts)).every(u=>u.voice===undefined));
+    });
+    await check('word-start-recovers-a-speaking-flag-without-an-actual-start-and-next-keeps-three',async page=>{
+      await page.evaluate(()=>{const s=window.__speechRecovery;s.stallNext=1;s.voices=[{name:'Stalled installed voice',lang:'en-US',localService:true}];});
+      await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();await page.getByRole('button',{name:'开始学习',exact:true}).click();await page.locator('.word-card').waitFor();
+      const before=await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1'));
+      const english=await page.locator('.example-box p').innerText();
+      for(let i=0;i<3;i++){await page.waitForFunction(n=>window.__speechRecovery.started.length===n,i+1);await page.evaluate(()=>window.__speechRecovery.end());}
+      assert.deepEqual(await page.evaluate(()=>window.__speechRecovery.started.map(u=>u.text)),Array(3).fill(english));
+      assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1')),before);
+      assert.equal(await page.locator('.speech-warning').count(),0);
+      await page.locator('[aria-label="切换词卡"] button').last().click();
+      const next=await page.locator('.example-box p').innerText();
+      for(let i=0;i<3;i++){await page.waitForFunction(n=>window.__speechRecovery.started.length===n,i+4);await page.evaluate(()=>window.__speechRecovery.end());}
+      assert.deepEqual(await page.evaluate(()=>window.__speechRecovery.started.slice(3).map(u=>u.text)),Array(3).fill(next));
+    });
+    await check('Apple-stalled-sentence-start-falls-back-without-skipping-English-or-Chinese',async page=>{
+      await page.evaluate(()=>{const s=window.__speechRecovery;s.apple=true;s.stallNext=1;s.voices=[{name:'Installed alternative English',lang:'en-US',localService:true}];});
+      await beginSentence(page);
+      const before=await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1'));
+      await completeSentence(page,0);
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.started[0].voice),'Installed alternative English');
+      assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1')),before);
+      await page.getByRole('button',{name:'下一句 ›',exact:true}).click();await completeSentence(page,4);
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.started[4].voice),'Installed alternative English');
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.started[7].voice),undefined);
+    });
+    await check('voice-check-exposes-native-feedback-and-an-explicit-alternative-without-changing-records',async page=>{
+      await page.setViewportSize({width:320,height:780});
+      await page.evaluate(()=>{const s=window.__speechRecovery;s.apple=true;s.voices=[{name:'Installed English',lang:'en-US',localService:true}];});
+      await page.locator('.home-settings-entry').click();await page.locator('.speech-check summary').click();
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+      for(const button of await page.locator('.speech-check button').all()){const r=await button.boundingBox();assert.ok(r.height>=44&&r.x>=0&&r.x+r.width<=320);}
+      const before=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage)));
+      await page.getByRole('button',{name:'试听英文',exact:true}).click();await page.waitForFunction(()=>window.__speechRecovery.started.length===1);
+      assert.match(await page.locator('.speech-check [role="status"]').innerText(),/系统报告已开始/);
+      await page.evaluate(()=>window.__speechRecovery.end());
+      assert.match(await page.locator('.speech-check [role="status"]').innerText(),/系统报告朗读结束/);
+      await page.getByRole('button',{name:'换个声音试播',exact:true}).click();await page.waitForFunction(()=>window.__speechRecovery.started.length===2);
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.started.at(-1).voice),'Installed English');
+      await page.getByRole('button',{name:'停止试听',exact:true}).click();
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.active),null);
+      assert.equal(await page.evaluate(()=>JSON.stringify(Object.entries(localStorage))),before);
+      await page.evaluate(()=>window.__speechRecovery.failAll='not-allowed');await page.getByRole('button',{name:'试听中文',exact:true}).click();
+      assert.match(await page.locator('.speech-check').innerText(),/not-allowed/);
+      assert.match(await page.locator('.speech-check [role="status"]').innerText(),/浏览器阻止了朗读/);
+      await page.locator('.speech-check summary').click();assert.equal(await page.evaluate(()=>window.__speechRecovery.active),null);
     });
     await browser.close();
   }

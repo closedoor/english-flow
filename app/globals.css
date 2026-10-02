@@ -481,6 +481,10 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .legacy-resume-list>p{margin:0;color:#526071;font-size:.875rem;line-height:1.65;overflow-wrap:anywhere}
 .legacy-resume-list>button{padding:10px 12px;border-radius:14px;font-size:.875rem;line-height:1.5;white-space:normal}
 .records-page .setup-source .source-card{margin:0;padding:14px;border:0;border-radius:0;background:transparent}
+.speech-check .source-card{margin:0;padding:14px;border:0;border-radius:0;background:transparent}
+.speech-check .speech-check-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:14px}
+.speech-check-actions button{min-height:46px;padding:10px;border:1px solid #bcd8ce;border-radius:14px;background:#fff;color:var(--green-dark);font-size:.875rem;font-weight:750}
+.speech-check-actions button:first-child{border-color:var(--green-dark);background:var(--green-dark);color:#fff}
 @media(max-width:360px){
   .dashboard-progress-row,.dashboard-review-grid>button{gap:9px;padding-left:12px;padding-right:12px}
 }

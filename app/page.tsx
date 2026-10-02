@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import VersionNotice from "./version-notice";
+import SpeechCheck, { speechFailureMessage } from "./speech-check";
 import { isSnapshotPersisted } from "./version-utils";
 import { scenes, type SceneId, type WordItem } from "./data";
 import { corePatterns, patternCategories, type PatternCategory } from "./pattern-data";
@@ -649,9 +650,7 @@ export default function Home() {
     };
     const handleSpeechError = (event: Event) => {
       const error = (event as CustomEvent<string>).detail;
-      setSpeechNotice(error?.startsWith("chinese-")
-        ? "中文语音未能完成，译文仍可直接阅读。请检查设备的中文语音后重播。"
-        : "系统语音没有成功播放，请检查设备的语音与音量设置，或点一次重播。");
+      setSpeechNotice(speechFailureMessage(error || "unavailable"));
     };
     window.addEventListener(SPEECH_PLAYBACK_EVENT, handleSpeechPlayback);
     window.addEventListener(SPEECH_ERROR_EVENT, handleSpeechError);
@@ -2702,6 +2701,7 @@ export default function Home() {
   const renderProgress = () => (
     <section className="page progress-page records-page">{commonHeader("记录与设置", "保管本机学习记录")}
       <div className="backup-management"><div><b>累计学习</b><small>按实际学习日期统计，同一天只记一天。</small></div><div className="record-study-days"><b>{visibleStudyDays.length}</b><small>学习天数</small></div></div>
+      <SpeechCheck />
       {((pausedWordSession && !pausedWordSession.continuous && pausedWordSession.kind !== "lookup") || hasUnfinishedPattern || patternMastered.length > 0 || patternDifficult.length > 0) && <details className="setup-details legacy-practice"><summary>旧版练习记录</summary><div className="legacy-resume-list">
         {(pausedWordSession && !pausedWordSession.continuous && pausedWordSession.kind !== "lookup") && <button className="secondary-action full-button legacy-word-resume" onClick={resumeWordSession}>继续旧版单词练习</button>}
         {(patternMastered.length > 0 || patternDifficult.length > 0 || hasUnfinishedPattern) && <p>已保留 {patternMastered.length} 个掌握句型、{patternDifficult.length} 个待加强句型及未完成位置。</p>}

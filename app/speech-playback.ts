@@ -2,6 +2,23 @@ export type SpeechPlaybackState = "idle" | "loading" | "playing" | "paused";
 
 export const SPEECH_PLAYBACK_EVENT = "english-flow-speech-playback";
 export const SPEECH_ERROR_EVENT = "english-flow-speech-error";
+export const SPEECH_DIAGNOSTIC_EVENT = "english-flow-speech-diagnostic";
+
+export type SpeechDiagnostic = {
+  phase: "idle" | "requested" | "started" | "ended" | "recovering" | "failed";
+  language: string;
+  voice: string;
+  error: string | null;
+};
+let diagnostic: SpeechDiagnostic = { phase: "idle", language: "en-US", voice: "系统默认", error: null };
+const voiceOverrides = new Map<string, boolean>();
+
+export function getSpeechDiagnostic() { return { ...diagnostic }; }
+
+function reportSpeech(phase: SpeechDiagnostic["phase"], utterance?: SpeechSynthesisUtterance, error: string | null = null) {
+  diagnostic = { phase, language: utterance?.lang || diagnostic.language, voice: utterance?.voice?.name || "系统默认", error };
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(SPEECH_DIAGNOSTIC_EVENT, { detail: getSpeechDiagnostic() }));
+}
 
 let activeUtterance: SpeechSynthesisUtterance | null = null;
 let activeUtteranceStarted = false;
@@ -37,13 +54,15 @@ function emitSpeechError(error: string) {
   }
 }
 
-function watchSpeechStartup(run: number, utterance: SpeechSynthesisUtterance) {
+function watchSpeechStartup(run: number, utterance: SpeechSynthesisUtterance, recover?: () => boolean) {
   clearStartupTimer();
   // A queue can be accepted silently for any segment, including a single word.
   // User-paused queues are watched only after the user resumes playback.
   if (playbackState === "paused") return;
   startupTimer = setTimeout(() => {
     if (run !== playbackRun || activeUtterance !== utterance || activeUtteranceStarted) return;
+    if (recover?.()) return;
+    reportSpeech("failed", utterance, "start-timeout");
     emitSpeechError(utterance.lang === "zh-CN" ? "chinese-start-timeout" : "start-timeout");
     stopSpeech();
   }, 8_000);
@@ -67,10 +86,19 @@ function preferredVoice(language: string) {
   } catch { return undefined; }
 }
 
-function createUtterance(text: string, rate: number, language = "en-US", usePlatformVoice = false) {
+function usesPlatformVoice(language: string) {
+  const override = voiceOverrides.get(language);
+  if (override !== undefined) return override;
+  // Apple enumerates voices that need not be usable yet, including custom and
+  // novelty voices. Let AVSpeechSynthesizer resolve the requested language.
+  return /iP(?:hone|ad|od)|Macintosh/.test(window.navigator?.userAgent ?? "");
+}
+
+function createUtterance(text: string, rate: number, language = "en-US", usePlatformVoice = usesPlatformVoice(language)) {
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = language;
   utterance.rate = rate;
+  utterance.volume = 1;
   const voice = usePlatformVoice ? undefined : preferredVoice(language);
   if (voice) utterance.voice = voice;
   return utterance;
@@ -140,6 +168,7 @@ export function stopSpeech() {
       if (window.speechSynthesis.paused) window.speechSynthesis.resume();
     } catch {
       stopped = false;
+      reportSpeech("failed", undefined, "unavailable");
       emitSpeechError("unavailable");
     }
   }
@@ -149,7 +178,7 @@ export function stopSpeech() {
 
 function queueUtterance(run: number, text: string, rate: number, language: string,
   onStart: () => void, onEnd: () => void, onFailure: (error: string) => void,
-  recovery = { used: false }, usePlatformVoice = false) {
+  recovery = { used: false }, usePlatformVoice = usesPlatformVoice(language)) {
   if (!isSpeechSupported() || run !== playbackRun) return false;
   let utterance: SpeechSynthesisUtterance;
   try {
@@ -160,8 +189,9 @@ function queueUtterance(run: number, text: string, rate: number, language: strin
   }
   activeUtterance = utterance;
   activeUtteranceStarted = false;
+  reportSpeech("requested", utterance);
   const current = () => run === playbackRun && activeUtterance === utterance;
-  const recover = (platformVoice: boolean) => {
+  const recover = (platformVoice: boolean, cancelStalledQueue = false) => {
     if (!current() || activeUtteranceStarted || recovery.used) return false;
     recovery.used = true;
     clearStartupTimer();
@@ -169,6 +199,17 @@ function queueUtterance(run: number, text: string, rate: number, language: strin
     // them before scheduling the replacement so they cannot skip a repeat.
     activeUtterance = null;
     activeUtteranceStarted = false;
+    reportSpeech("recovering", utterance);
+    if (cancelStalledQueue) {
+      try {
+        window.speechSynthesis.cancel();
+        if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+      } catch {
+        reportSpeech("failed", utterance, "unavailable");
+        onFailure("unavailable");
+        return true;
+      }
+    }
     // The first speak stays in the input handler, preserving iOS activation.
     // Retry only an unstarted, lost/failed utterance, after native cancellation.
     recoveryTimer = setTimeout(() => {
@@ -181,36 +222,51 @@ function queueUtterance(run: number, text: string, rate: number, language: strin
     if (!current()) return;
     activeUtteranceStarted = true;
     clearStartupTimer();
+    if (recovery.used) voiceOverrides.set(language, usePlatformVoice);
+    reportSpeech("started", utterance);
     onStart();
   };
   utterance.onend = () => {
     if (!current()) return;
     clearStartupTimer();
     activeUtterance = null;
+    reportSpeech("ended", utterance);
     onEnd();
   };
   utterance.onerror = (event) => {
     if (!current()) return;
     const error = event.error || "unavailable";
     if (!activeUtteranceStarted) {
-      if ((error === "canceled" || error === "interrupted") && recover(false)) return;
-      if (utterance.voice && ["voice-unavailable", "language-unavailable", "synthesis-unavailable", "synthesis-failed"].includes(error)) {
-        unavailableVoices.add(voiceKey(utterance.voice));
-        if (recover(true)) return;
+      if ((error === "canceled" || error === "interrupted") && recover(usePlatformVoice)) return;
+      if (["voice-unavailable", "language-unavailable", "synthesis-unavailable", "synthesis-failed"].includes(error)) {
+        if (utterance.voice) {
+          unavailableVoices.add(voiceKey(utterance.voice));
+          if (recover(true)) return;
+        } else if (usePlatformVoice && preferredVoice(language) && recover(false)) return;
       }
     }
     clearStartupTimer();
     activeUtterance = null;
+    reportSpeech("failed", utterance, error);
     onFailure(error);
   };
-  watchSpeechStartup(run, utterance);
+  watchSpeechStartup(run, utterance, () => {
+    // WebKit sets speaking=true before AVSpeechSynthesizer's start callback.
+    // Flags alone cannot distinguish a usable voice from a stuck native queue.
+    // Only the existing eight-second deadline permits canceling this startup;
+    // a genuine start/pause/stop/card change always invalidates this recovery.
+    if (recovery.used) return false;
+    if (utterance.voice) unavailableVoices.add(voiceKey(utterance.voice));
+    if (!utterance.voice && !preferredVoice(language)) return false;
+    return recover(Boolean(utterance.voice), true);
+  });
   if (!recovery.used && playbackState !== "paused") {
     const checkNativeQueue = () => {
       recoveryTimer = null;
       if (!current() || activeUtteranceStarted || playbackState === "paused") return;
       const engine = window.speechSynthesis;
       if (engine.speaking === false && engine.pending === false) {
-        recover(Boolean(utterance.voice));
+        recover(usePlatformVoice);
       } else if (typeof engine.speaking === "boolean" && typeof engine.pending === "boolean") {
         // A native cancel may finish after the first check. The existing
         // eight-second startup deadline bounds these checks as well.
@@ -225,6 +281,7 @@ function queueUtterance(run: number, text: string, rate: number, language: strin
     if (current()) {
       clearStartupTimer();
       activeUtterance = null;
+      reportSpeech("failed", utterance, "unavailable");
       onFailure("unavailable");
     }
     return false;
@@ -236,6 +293,27 @@ export function speak(text: string, rate = 0.82) {
   if (!isSpeechSupported() || !text.trim()) return false;
   if (!stopSpeech()) return false;
   return queueUtterance(playbackRun, text, rate, "en-US", () => {}, () => {}, emitSpeechError);
+}
+
+// Diagnostic controls use the same native queue as all learning modules. A
+// learner can explicitly try the other voice route when native callbacks claim
+// playback but the speaker remains silent. The choice lasts only this visit.
+export function testSpeech(language: "en-US" | "zh-CN", alternate = false) {
+  diagnostic = { ...diagnostic, language };
+  if (!isSpeechSupported()) {
+    reportSpeech("failed", undefined, "unsupported");
+    return false;
+  }
+  if (alternate) {
+    if (usesPlatformVoice(language) && !preferredVoice(language)) {
+      reportSpeech("failed", undefined, "voice-unavailable");
+      return false;
+    }
+    voiceOverrides.set(language, !usesPlatformVoice(language));
+  }
+  if (!stopSpeech()) return false;
+  const text = language === "zh-CN" ? "你好，这是中文语音测试。" : "Hello. This is an English sound test.";
+  return queueUtterance(playbackRun, text, .82, language, () => {}, () => {}, emitSpeechError);
 }
 
 function playCurrentSegment(run: number) {
@@ -257,7 +335,7 @@ function playCurrentSegment(run: number) {
     if (playbackIndex >= playbackSegments.length) stopSpeech();
     else playCurrentSegment(run);
   }, (error) => {
-    emitSpeechError(language === "zh-CN" ? "chinese-unavailable" : error);
+    emitSpeechError(language === "zh-CN" ? `chinese-${error}` : error);
     stopSpeech();
   });
 }

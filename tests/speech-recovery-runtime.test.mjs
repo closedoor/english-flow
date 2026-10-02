@@ -3,10 +3,10 @@ import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 import ts from 'typescript';
 
-const source=await readFile(new URL('../app/speech-playback.ts',import.meta.url),'utf8');
+const source=await readFile(process.env.SPEECH_SOURCE_FILE || new URL('../app/speech-playback.ts',import.meta.url),'utf8');
 const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
 let fixtureId=0;
-async function fixture(t,{voices=[],lateCancel=false,lateCancelDelay=0}={}){
+async function fixture(t,{voices=[],lateCancel=false,lateCancelDelay=0,apple=false}={}){
   t.mock.timers.enable({apis:['setTimeout']});
   const speech=await import(`data:text/javascript;base64,${Buffer.from(js+`\n// fixture ${fixtureId++}`).toString('base64')}`);
   const win=new EventTarget(),attempts=[],started=[],errors=[];
@@ -22,6 +22,7 @@ async function fixture(t,{voices=[],lateCancel=false,lateCancelDelay=0}={}){
     end(){const u=this.active;this.active=null;this.pending=false;this.speaking=false;u?.onend?.();}
   };
   win.speechSynthesis=engine;
+  win.navigator={userAgent:apple?'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)':'test'};
   win.addEventListener(speech.SPEECH_ERROR_EVENT,e=>errors.push(e.detail));
   globalThis.window=win;globalThis.SpeechSynthesisUtterance=class{constructor(text){this.text=text;}};
   t.after(()=>{speech.stopSpeech();delete globalThis.window;delete globalThis.SpeechSynthesisUtterance;});
@@ -128,4 +129,63 @@ test('reading recovery records activity only at actual start and retains pause, 
   assert.equal(speech.toggleSegmentedSpeech(),'paused');assert.equal(speech.toggleSegmentedSpeech(),'playing');
   engine.end();engine.start();assert.equal(activity,1);speech.stopSpeech();
   const n=attempts.length;t.mock.timers.tick(8000);assert.equal(attempts.length,n);assert.equal(engine.active,null);
+});
+
+test('Apple first playback delegates English and Mandarin voice resolution to the system',async t=>{
+  const voices=[{lang:'en-US',name:'First listed novelty voice',localService:true},{lang:'zh-CN',name:'First listed Chinese',localService:true}];
+  const {speech,engine,attempts,started}=await fixture(t,{voices,apple:true});
+  speech.startBilingualSentenceSpeech('Hello.','你好。');
+  for(let i=0;i<4;i++){engine.start();engine.end();}
+  assert.ok(attempts.every(u=>u.voice===undefined),'A browser list is not proof that a voice is installed and ready');
+  assert.ok(attempts.every(u=>u.volume===1));
+  assert.deepEqual(started.map(u=>u.lang),['en-US','en-US','en-US','zh-CN']);
+});
+
+test('a WebKit queue reporting speaking before a real start recovers at the startup deadline',async t=>{
+  const {speech,engine,attempts,started,errors}=await fixture(t,{voices:[{lang:'en-US',name:'Stuck voice',localService:true}]});
+  speech.startRepeatedSpeech('Keep the full example.');const stalled=attempts[0];
+  engine.speaking=true;engine.pending=false; // WebKit sets this before native didStartSpeaking.
+  t.mock.timers.tick(7999);assert.equal(attempts.length,1);
+  t.mock.timers.tick(1);t.mock.timers.tick(0);
+  assert.equal(attempts.length,2);assert.equal(attempts[1].voice,undefined);assert.equal(engine.cancels,1);
+  stalled.onend();stalled.onstart();stalled.onerror({error:'interrupted'});
+  for(let i=0;i<3;i++){engine.start();engine.end();}
+  assert.deepEqual(started.map(u=>u.text),Array(3).fill('Keep the full example.'));assert.deepEqual(errors,[]);
+});
+
+test('a failed system voice on Apple falls back once without losing a bilingual repetition',async t=>{
+  const voices=[{lang:'en-US',name:'Installed English',localService:true},{lang:'zh-CN',name:'Installed Chinese',localService:true}];
+  const {speech,engine,attempts,started}=await fixture(t,{voices,apple:true});
+  speech.startBilingualSentenceSpeech('Current sentence.','当前句子。');
+  engine.active=null;engine.pending=false;engine.speaking=false;attempts[0].onerror({error:'synthesis-failed'});
+  t.mock.timers.tick(0);assert.equal(attempts[1].voice,voices[0]);
+  for(let i=0;i<4;i++){engine.start();engine.end();}
+  assert.deepEqual(started.map(u=>u.lang),['en-US','en-US','en-US','zh-CN']);
+  assert.equal(attempts[2].voice,voices[0],'Subsequent English uses the confirmed working route');
+  assert.equal(attempts.at(-1).voice,undefined,'Mandarin retains independent voice resolution');
+});
+
+test('a stuck Apple system startup can use an installed voice and a second stall terminates',async t=>{
+  const {speech,engine,attempts,errors}=await fixture(t,{voices:[{lang:'en-US',name:'Installed',localService:true}],apple:true});
+  speech.speak('An unstarted word.');engine.speaking=true;engine.pending=false;
+  t.mock.timers.tick(8000);t.mock.timers.tick(0);assert.equal(attempts.length,2);assert.equal(attempts[1].voice.name,'Installed');
+  engine.speaking=true;engine.pending=false;t.mock.timers.tick(8000);
+  assert.equal(attempts.length,2);assert.deepEqual(errors,['start-timeout']);assert.equal(engine.active,null);
+});
+
+test('navigation before stalled-startup recovery invalidates all retries and diagnostic callbacks',async t=>{
+  const {speech,engine,attempts}=await fixture(t,{voices:[{lang:'en-US',name:'Installed',localService:true}]});
+  speech.startRepeatedSpeech('Old card.');engine.speaking=true;
+  t.mock.timers.tick(7999);speech.stopSpeech();const before=speech.getSpeechDiagnostic();
+  t.mock.timers.tick(16000);attempts[0].onstart();attempts[0].onend();
+  assert.equal(attempts.length,1);assert.deepEqual(speech.getSpeechDiagnostic(),before);
+});
+
+test('explicit alternate voice testing affects later study without changing language or repeat count',async t=>{
+  const {speech,engine,attempts,started}=await fixture(t,{voices:[{lang:'en-US',name:'Installed',localService:true}],apple:true});
+  speech.testSpeech('en-US',true);assert.equal(attempts[0].voice.name,'Installed');engine.start();engine.end();
+  speech.startRepeatedSpeech('The next example.');for(let i=0;i<3;i++){engine.start();engine.end();}
+  assert.deepEqual(started.slice(1).map(u=>[u.text,u.lang,u.voice.name]),Array(3).fill(['The next example.','en-US','Installed']));
+  assert.equal(speech.getSpeechDiagnostic().phase,'ended');
+  speech.testSpeech('zh-CN');engine.start();engine.end();assert.equal(attempts.at(-1).voice,undefined);
 });

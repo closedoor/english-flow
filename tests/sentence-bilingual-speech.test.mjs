@@ -40,7 +40,7 @@ test('manual English playback and existing NGSL repetition discard bilingual que
 });
 test('a missing Chinese voice produces a useful failure without replaying English or advancing cards',t=>{
  const{spoken,errors}=setup(t);speech.startBilingualSentenceSpeech('Hello.','你好。');for(let i=0;i<3;i++)spoken[i].onend();
- spoken[3].onerror({error:'language-unavailable'});spoken[3].onend();assert.equal(spoken.length,4);assert.deepEqual(errors,['chinese-unavailable']);
+ spoken[3].onerror({error:'language-unavailable'});spoken[3].onend();assert.equal(spoken.length,4);assert.deepEqual(errors,['chinese-language-unavailable']);
 });
 test('hidden-page cancellation and silent startup cannot produce late Chinese speech',t=>{
  const{spoken,errors}=setup(t,{start:false});speech.startBilingualSentenceSpeech('Hello.','你好。');t.mock.timers.tick(8000);spoken[0].onend();assert.equal(spoken.length,1);assert.deepEqual(errors,['start-timeout']);
