@@ -7,6 +7,11 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
   const local=['localhost','127.0.0.1','[::1]'].includes(base.hostname);
   if(!local){assert.equal(base.origin,'https://english-flow-mwnn.onrender.com');assert.match(expectedCommit||'',/^[a-f0-9]{40}$/);}
   const results=[];
+  // Native callbacks schedule React updates; wait for the visible result rather
+  // than reading before the render commit, especially in the live WebKit run.
+  async function waitForDiagnostic(page,message){
+    await page.waitForFunction(text=>document.querySelector('.speech-check [role="status"]')?.textContent?.includes(text),message);
+  }
   for(const engine of ['chromium','webkit']){
     const browser=await playwright[engine].launch({headless:true});
     async function check(name,action){
@@ -132,17 +137,17 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
       for(const button of await page.locator('.speech-check button').all()){const r=await button.boundingBox();assert.ok(r.height>=44&&r.x>=0&&r.x+r.width<=320);}
       const before=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage)));
       await page.getByRole('button',{name:'试听英文',exact:true}).click();await page.waitForFunction(()=>window.__speechRecovery.started.length===1);
-      assert.match(await page.locator('.speech-check [role="status"]').innerText(),/系统报告已开始/);
+      await waitForDiagnostic(page,'系统报告已开始');
       await page.evaluate(()=>window.__speechRecovery.end());
-      assert.match(await page.locator('.speech-check [role="status"]').innerText(),/系统报告朗读结束/);
+      await waitForDiagnostic(page,'系统报告朗读结束');
       await page.getByRole('button',{name:'换个声音试播',exact:true}).click();await page.waitForFunction(()=>window.__speechRecovery.started.length===2);
       assert.equal(await page.evaluate(()=>window.__speechRecovery.started.at(-1).voice),'Installed English');
       await page.getByRole('button',{name:'停止试听',exact:true}).click();
       assert.equal(await page.evaluate(()=>window.__speechRecovery.active),null);
       assert.equal(await page.evaluate(()=>JSON.stringify(Object.entries(localStorage))),before);
       await page.evaluate(()=>window.__speechRecovery.failAll='not-allowed');await page.getByRole('button',{name:'试听中文',exact:true}).click();
+      await waitForDiagnostic(page,'浏览器阻止了朗读');
       assert.match(await page.locator('.speech-check').innerText(),/not-allowed/);
-      assert.match(await page.locator('.speech-check [role="status"]').innerText(),/浏览器阻止了朗读/);
       await page.locator('.speech-check summary').click();assert.equal(await page.evaluate(()=>window.__speechRecovery.active),null);
     });
     await browser.close();
