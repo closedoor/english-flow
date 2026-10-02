@@ -60,6 +60,44 @@ for(const engine of ['chromium','webkit']){
   assert.deepEqual(await page.evaluate(()=>({...localStorage})),before);
   assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
  });
+ await check('matching-incomplete-update-documents-retain-learning-and-valid-retry-navigates','new',async page=>{
+  // A future release and its failed documents are simulated. Retain the real
+  // current entry/assets so the accepted retry can actually run the same app.
+  const futureHtml=(await (await fetch(origin)).text()).replaceAll(meta.commit,later);
+  const identity=`<title>词流英语</title><meta name="english-flow-build" content="${later}">`;
+  const invalidDocuments=[
+   `<!doctype html>${identity}<h1>Update pending</h1>`,
+   `<!doctype html>${identity}<script type="application/json" src="/assets/future.js"></script>`,
+   `<!doctype html>${identity}<script type="module" src="https://other.test/assets/future.js"></script>`,
+   futureHtml.replace('</head>',`<meta name="english-flow-build" content="${later}"></head>`),
+  ];
+  let attempt=0;let navigations=0;
+  await page.context().route(url=>url.origin===origin&&url.pathname==='/'&&url.searchParams.get('ef-update')===later,async route=>{
+   if(route.request().isNavigationRequest())navigations+=1;
+   else attempt+=1;
+   await route.fulfill({contentType:'text/html',body:invalidDocuments[attempt-1]??futureHtml});
+  });
+  await navigate(page,'单词');await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();
+  await page.locator('.word-card').waitFor();await page.locator('.learn-actions .primary-action').click();
+  await progress(page);
+  const before=await page.evaluate(()=>({...localStorage}));
+  assert.ok(JSON.parse(before['wordflow-active-session-v1']).index>0,'A real paused learning position must survive failed updates');
+  for(let index=0;index<invalidDocuments.length;index++){
+   await page.getByRole('button',{name:'更新并保留进度',exact:true}).click();
+   await page.getByRole('button',{name:'更新并保留进度',exact:true}).waitFor();
+   await page.getByText('新页面暂未就绪，或有记录尚未保存。已保留当前页面，请稍后重试或先导出备份。',{exact:true}).waitFor();
+   assert.equal(attempt,index+1);assert.equal(navigations,0);
+   assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');
+   assert.deepEqual(await page.evaluate(()=>({...localStorage})),before);
+  }
+  await Promise.all([
+   page.waitForURL(url=>url.searchParams.get('ef-update')===later),
+   page.getByRole('button',{name:'更新并保留进度',exact:true}).click(),
+  ]);
+  await page.locator('.word-card').waitFor({timeout:30000});
+  assert.equal(navigations,1);assert.equal(await page.evaluate(()=>window.__versionDocument),undefined);
+  assert.deepEqual(await page.evaluate(()=>({...localStorage})),before,'Accepted retry restores all saved learning records');
+ });
  await check('new-release-notice-keeps-the-active-word-group','new',async page=>{
   await navigate(page,'单词');await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();await page.locator('.word-card').waitFor();
   assert.ok(await page.getByRole('button',{name:'更新并保留进度',exact:true}).isDisabled());assert.equal(await page.locator('.immersive-learning').count(),1);assert.equal(await page.locator('.bottom-nav').count(),0);assert.equal(await page.evaluate(()=>window.__versionDocument),'unchanged');

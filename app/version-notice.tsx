@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { APP_BUILD_COMMIT, isPublishedVersion, versionPreflightUrl } from "./version-utils";
+import { APP_BUILD_COMMIT, isAppDocument, isPublishedVersion, versionPreflightUrl } from "./version-utils";
 
 type Props = { showDetails: boolean; beforeReload: () => boolean };
 
@@ -79,7 +79,7 @@ export default function VersionNotice({ showDetails, beforeReload }: Props) {
       const response = await fetch(href, { cache: "no-store", signal: controller.signal });
       if (response.status !== 200) throw new Error("Unable to obtain updated page");
       const html = new DOMParser().parseFromString(await response.text(), "text/html");
-      if (html.title !== "词流英语" || html.querySelector('meta[name="english-flow-build"]')?.getAttribute("content") !== latest) throw new Error("Old or incomplete document");
+      if (!isAppDocument(html, latest, window.location.origin)) throw new Error("Old or incomplete document");
       if (!guard.current()) throw new Error("Progress changed during update");
       // Never force activation, clear storage, or reload another open window.
       window.location.replace(href);

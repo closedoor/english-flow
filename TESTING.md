@@ -1,5 +1,11 @@
 # English Flow testing
 
+## Explicit update completeness and canceled voice checks
+
+Explicit update preflight requires one matching full build identity and a runnable same-origin application entry. `version-utils.test.mjs` covers malformed identity and script forms; `browser-version.mjs` rejects matching but incomplete future HTML, retains a real paused word position and all saved records, and accepts a retry using the actual built shell. Future releases and response faults are explicitly simulated.
+
+Stopping or closing a voice check clears waiting, playing and recovery diagnostics while preserving completed/error feedback and language/voice metadata. `speech-recovery-runtime.test.mjs` checks canceled callbacks, recovery and unavailable alternate samples; `speech-recovery-checks.mjs` uses visible controls to close/reopen, stop/remount and retry. Its speech engine is injected: these checks do not verify physical iPhone or headphone sound.
+
 Run the repository's locked dependencies and standard checks:
 
 ```sh

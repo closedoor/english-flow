@@ -4,12 +4,44 @@ import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 const source=await readFile(new URL('../app/version-utils.ts',import.meta.url),'utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-const {isPublishedVersion,versionReloadUrl,versionPreflightUrl,isSnapshotPersisted}=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const {isAppDocument,isPublishedVersion,versionReloadUrl,versionPreflightUrl,isSnapshotPersisted}=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const origin='https://english-flow-mwnn.onrender.com';
 const valid={app:'english-flow',title:'词流英语',origin,commit:'a'.repeat(40)};
 test('version checks validate the application, origin and full commit identity',()=>{
  assert.ok(isPublishedVersion(valid,origin));
  for(const value of [null,[],{...valid,app:'other'},{...valid,origin:'https://other.test'},{...valid,commit:'abc'},{...valid,title:'other'}])assert.equal(isPublishedVersion(value,origin),false);
+});
+function documentFixture({title='词流英语',identities=[valid.commit],scripts=[]}={}){
+ const element=attributes=>({getAttribute:name=>attributes[name]??null,textContent:attributes.text??''});
+ return {title,querySelectorAll:selector=>selector==='meta[name="english-flow-build"]'
+  ?identities.map(content=>element({content})):scripts.map(element)};
+}
+test('explicit update documents require one matching identity and a runnable same-origin app entry',()=>{
+ for(const entry of [
+  {src:'/assets/app.js',type:'module'},
+  {src:origin+'/assets/app.js'},
+  {src:'assets/app.js',type:'application/javascript'},
+  {text:'import("/assets/app.js");',type:'module'},
+  {text:" import ( '/assets/app.js' ) "},
+ ])assert.equal(isAppDocument(documentFixture({scripts:[entry]}),valid.commit,origin),true);
+ const appEntry={src:'/assets/app.js',type:'module'};
+ for(const document of [
+  documentFixture(),
+  documentFixture({identities:[],scripts:[appEntry]}),
+  documentFixture({identities:[valid.commit,valid.commit],scripts:[appEntry]}),
+  documentFixture({identities:['b'.repeat(40)],scripts:[appEntry]}),
+  documentFixture({title:'Update pending',scripts:[appEntry]}),
+  ...[
+   {src:'https://other.test/assets/app.js',type:'module'},
+   {src:'/app.js',type:'module'},
+   {src:'/assets/app.css',type:'module'},
+   {src:'/assets/app.js',type:'application/json'},
+   {src:'/assets/app.js',type:'text/plain'},
+   {text:'import("https://other.test/assets/app.js")',type:'module'},
+   {text:'import("/assets/app.js"); updatePending();',type:'module'},
+  ].map(entry=>documentFixture({scripts:[entry]})),
+ ])assert.equal(isAppDocument(document,valid.commit,origin),false);
+ assert.equal(isAppDocument(documentFixture({scripts:[appEntry]}),'abc',origin),false);
 });
 test('explicit update navigation retains the origin and replaces rather than stacks version queries',()=>{
  const href=versionReloadUrl(origin+'/?test=1&ef-update=old#learn',valid.commit);

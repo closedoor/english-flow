@@ -189,3 +189,52 @@ test('explicit alternate voice testing affects later study without changing lang
   assert.equal(speech.getSpeechDiagnostic().phase,'ended');
   speech.testSpeech('zh-CN');engine.start();engine.end();assert.equal(attempts.at(-1).voice,undefined);
 });
+
+test('stopping preparation publishes idle and preserves the last language and voice',async t=>{
+  const {speech,engine,attempts}=await fixture(t,{voices:[{lang:'en-US',name:'Installed English',localService:true}]});
+  const diagnostics=[];window.addEventListener(speech.SPEECH_DIAGNOSTIC_EVENT,e=>diagnostics.push(e.detail));
+  speech.testSpeech('en-US');const requested=speech.getSpeechDiagnostic();
+  assert.equal(requested.phase,'requested');assert.equal(requested.voice,'Installed English');
+  speech.stopSpeech();t.mock.timers.tick(16000);attempts[0].onstart();attempts[0].onend();
+  assert.equal(engine.active,null);assert.deepEqual(speech.getSpeechDiagnostic(),{...requested,phase:'idle'});
+  assert.equal(diagnostics.at(-1).phase,'idle','Reopened speech checks must not keep reporting a canceled request');
+});
+
+test('stopping an active diagnostic publishes idle without a false completion',async t=>{
+  const {speech,engine,attempts}=await fixture(t,{apple:true});
+  speech.testSpeech('zh-CN');engine.start();const started=speech.getSpeechDiagnostic();
+  assert.equal(started.phase,'started');assert.equal(started.language,'zh-CN');
+  speech.stopSpeech();attempts[0].onend();attempts[0].onerror({error:'interrupted'});
+  assert.equal(engine.active,null);assert.deepEqual(speech.getSpeechDiagnostic(),{...started,phase:'idle'});
+});
+
+test('stopping during voice recovery retains its metadata and cancels the replacement',async t=>{
+  const broken={lang:'en-US',name:'Broken installed voice',localService:true};
+  const {speech,engine,attempts}=await fixture(t,{voices:[broken]});
+  engine.failVoices.add(broken.name);speech.testSpeech('en-US');
+  const recovering=speech.getSpeechDiagnostic();assert.equal(recovering.phase,'recovering');
+  speech.stopSpeech();t.mock.timers.tick(16000);
+  assert.equal(attempts.length,1);assert.equal(engine.active,null);
+  assert.deepEqual(speech.getSpeechDiagnostic(),{...recovering,phase:'idle'});
+});
+
+test('completed and failed speech feedback survives subsequent cleanup',async t=>{
+  const {speech,engine,attempts}=await fixture(t);
+  speech.startBilingualSentenceSpeech('Hello.','你好。');for(let i=0;i<4;i++){engine.start();engine.end();}
+  const ended=speech.getSpeechDiagnostic();assert.equal(ended.phase,'ended');assert.equal(ended.language,'zh-CN');
+  speech.stopSpeech();assert.deepEqual(speech.getSpeechDiagnostic(),ended);
+  speech.startRepeatedSpeech('Blocked.');attempts.at(-1).onerror({error:'not-allowed'});
+  const failed=speech.getSpeechDiagnostic();assert.equal(failed.phase,'failed');assert.equal(failed.error,'not-allowed');
+  speech.stopSpeech();assert.deepEqual(speech.getSpeechDiagnostic(),failed);
+});
+
+test('an unavailable alternate voice stops old playback and reports the intended language',async t=>{
+  const {speech,engine,attempts}=await fixture(t,{apple:true});
+  speech.testSpeech('en-US');engine.start();
+  assert.equal(speech.testSpeech('zh-CN',true),false);
+  assert.equal(engine.active,null);assert.equal(attempts.length,1);
+  const failed=speech.getSpeechDiagnostic();assert.equal(failed.phase,'failed');
+  assert.equal(failed.language,'zh-CN');assert.equal(failed.error,'voice-unavailable');
+  attempts[0].onend();attempts[0].onstart();t.mock.timers.tick(16000);
+  assert.deepEqual(speech.getSpeechDiagnostic(),failed);
+});

@@ -172,6 +172,12 @@ export function stopSpeech() {
       emitSpeechError("unavailable");
     }
   }
+  // A deliberate stop cancels preparation and speech, so a reopened diagnostic
+  // must not continue to report either as active. Keep completed/error feedback.
+  if (diagnostic.phase === "requested" || diagnostic.phase === "recovering" || diagnostic.phase === "started") {
+    diagnostic = { ...diagnostic, phase: "idle", error: null };
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(SPEECH_DIAGNOSTIC_EVENT, { detail: getSpeechDiagnostic() }));
+  }
   emitPlaybackState("idle");
   return stopped;
 }
@@ -299,11 +305,13 @@ export function speak(text: string, rate = 0.82) {
 // learner can explicitly try the other voice route when native callbacks claim
 // playback but the speaker remains silent. The choice lasts only this visit.
 export function testSpeech(language: "en-US" | "zh-CN", alternate = false) {
-  diagnostic = { ...diagnostic, language };
   if (!isSpeechSupported()) {
+    diagnostic = { ...diagnostic, language };
     reportSpeech("failed", undefined, "unsupported");
     return false;
   }
+  if (!stopSpeech()) return false;
+  diagnostic = { ...diagnostic, language };
   if (alternate) {
     if (usesPlatformVoice(language) && !preferredVoice(language)) {
       reportSpeech("failed", undefined, "voice-unavailable");
@@ -311,7 +319,6 @@ export function testSpeech(language: "en-US" | "zh-CN", alternate = false) {
     }
     voiceOverrides.set(language, !usesPlatformVoice(language));
   }
-  if (!stopSpeech()) return false;
   const text = language === "zh-CN" ? "你好，这是中文语音测试。" : "Hello. This is an English sound test.";
   return queueUtterance(playbackRun, text, .82, language, () => {}, () => {}, emitSpeechError);
 }

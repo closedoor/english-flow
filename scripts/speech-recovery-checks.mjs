@@ -150,6 +150,38 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
       assert.match(await page.locator('.speech-check').innerText(),/not-allowed/);
       await page.locator('.speech-check summary').click();assert.equal(await page.evaluate(()=>window.__speechRecovery.active),null);
     });
+    await check('voice-check-cancellation-clears-status-across-reopen-and-remount',async page=>{
+      await page.evaluate(()=>window.__speechRecovery.apple=true);
+      await page.locator('.home-settings-entry').click();await page.locator('.speech-check summary').click();
+      await page.getByRole('button',{name:'试听英文',exact:true}).click();
+      await page.waitForFunction(()=>window.__speechRecovery.started.length===1);
+      await waitForDiagnostic(page,'系统报告已开始');
+      await page.locator('.speech-check summary').click();
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.active),null);
+      await page.locator('.speech-check summary').click();
+      await waitForDiagnostic(page,'点下面的按钮试听');
+      await page.getByRole('button',{name:'试听英文',exact:true}).click();
+      await page.waitForFunction(()=>window.__speechRecovery.started.length===2);
+      await waitForDiagnostic(page,'系统报告已开始');
+      await page.getByRole('button',{name:'停止试听',exact:true}).click();
+      await page.getByRole('button',{name:'返回首页',exact:true}).click();
+      await page.locator('.home-settings-entry').click();await page.locator('.speech-check summary').click();
+      await waitForDiagnostic(page,'点下面的按钮试听');
+      await page.evaluate(()=>window.__speechRecovery.drop=true);
+      await page.getByRole('button',{name:'试听中文',exact:true}).click();
+      await waitForDiagnostic(page,'正在等待系统语音启动');
+      await page.locator('.speech-check summary').click();await page.locator('.speech-check summary').click();
+      await waitForDiagnostic(page,'点下面的按钮试听');
+      const canceledAttempts=await page.evaluate(()=>window.__speechRecovery.attempts.length);
+      await page.waitForTimeout(500);
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.attempts.length),canceledAttempts,'Closing a waiting diagnostic cancels its recovery');
+      await page.evaluate(()=>window.__speechRecovery.drop=false);
+      await page.getByRole('button',{name:'试听英文',exact:true}).click();
+      await page.waitForFunction(()=>window.__speechRecovery.started.length===3);
+      await page.getByRole('button',{name:'换个声音试播',exact:true}).click();
+      await waitForDiagnostic(page,'音色不可用');
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.active),null,'An unavailable alternate must stop the previous sample');
+    });
     await browser.close();
   }
   const failed=results.filter(r=>r.status==='FAIL').length;
