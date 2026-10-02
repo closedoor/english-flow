@@ -119,13 +119,12 @@ await runCheck("chromium", "serious-accessibility-rules-pass-on-primary-screens"
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
   await page.addScriptTag({ content: axeSource });
-  const screens = ["首页", "单词", "句子", "阅读", "复习", "进度"];
+  const screens = ["首页", "单词", "句子", "复习", "进度"];
   const violations = [];
   for (const label of screens) {
     await navigate(page,label);
     await page.locator(".page").first().waitFor();
     if (label === "句子") await page.waitForFunction(() => { const button = document.querySelector(".sentence-page .sticky-start"); return button && !button.disabled; });
-    if (label === "阅读") await page.locator(".reading-card").first().waitFor({ timeout: 30_000 });
     const current = await page.evaluate(async () => {
       const report = await window.axe.run(document, {
         runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
@@ -237,7 +236,7 @@ await runCheck("chromium", "pattern-recall-answer-and-results-remain-readable", 
   await checkAccessibility(page, "句型学习结果");
 });
 
-await runCheck("chromium", "reading-and-review-recall-feedback-remain-readable", async (page, context) => {
+await runCheck("chromium", "review-recall-feedback-remains-readable", async (page, context) => {
   await context.addInitScript(() => localStorage.setItem("wordflow-ngsl-difficult-v1", "[1]"));
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await page.locator(".bottom-nav").waitFor({ timeout: 30_000 });
@@ -245,16 +244,7 @@ await runCheck("chromium", "reading-and-review-recall-feedback-remain-readable",
   await checkAccessibility(page, "复习回忆提示");
   await page.locator(".review-reveal").click();
   await checkAccessibility(page, "复习答案揭晓");
-  await navigate(page,'阅读');
-  await page.locator(".reading-card").first().click();
-  await checkAccessibility(page, "阅读详情与速度设置");
-  await page.locator(".translation-toggle").click();
-  await checkAccessibility(page, "阅读中文翻译");
-  await page.locator(".reading-question-options button").first().click();
-  await checkAccessibility(page, "阅读理解错题反馈");
-  await page.getByRole("button", { name: "重新作答", exact: true }).click();
-  await page.locator(".reading-question-options button").nth(1).click();
-  await checkAccessibility(page, "阅读理解正确反馈");
+
 });
 
 const summary = { passed: results.filter((item) => item.status === "PASS").length, failed: results.filter((item) => item.status === "FAIL").length, total: results.length };

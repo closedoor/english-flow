@@ -44,7 +44,7 @@ for(const name of ['chromium','webkit']){
     assert.equal(response.status(),200);assert.equal(await page.title(),'词流英语');
     assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'),expected);
     await page.locator('.bottom-nav').waitFor();
-    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(), ['首页','单词','句子','阅读']);
+    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(), ['首页','单词','句子']);
     // Resolve the asynchronous registration lookup in Node, rather than
     // allowing a truthy Promise or an installing worker to satisfy a poll.
     const deadline=Date.now()+30000;

@@ -1,4 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
+import { legacyReadingRecords, verifyReadingRemoval } from './reading-removal-checks.mjs';
 import { selectSentenceMethod } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
@@ -59,10 +60,10 @@ for (const engine of ['chromium', 'webkit']) {
   await check('all-modules-and-widths', async page => {
     await ready(page);
     assert.equal(await page.title(),'词流英语');
-    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(), ['首页','单词','句子','阅读']);
+    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(), ['首页','单词','句子']);
     for (const width of [320,375,390,480,1280]) {
       await page.setViewportSize({width,height:800});
-      for (const label of ['首页','单词','句子','阅读','复习','进度']) {
+      for (const label of ['首页','单词','句子','复习','进度']) {
         await nav(page,label);
         await page.locator('.page h1').first().waitFor();
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1), `${label} overflows at ${width}px`);
@@ -108,31 +109,34 @@ for (const engine of ['chromium', 'webkit']) {
     assert.ok(boxes[0].right<=boxes[1].left+1,JSON.stringify(boxes));
     assert.ok(boxes[1].right<=boxes[2].left+1,JSON.stringify(boxes));
   }, {[keys.word]:quizSnapshot()});
-  await check('reading-answer-and-backup', async page => {
-    await ready(page); await nav(page,'阅读');
-    await page.locator('.reading-card').first().click();
-    await page.locator('.reading-question-options button').first().click();
-    await persisted(page,keys.reading,v=>v && Object.keys(v).length===1);
-    await page.locator('.translation-toggle').click();
-    await page.locator('.reading-translation').waitFor();
-    const answer=await stored(page,keys.reading);
+  const readingHistory = legacyReadingRecords();
+  await check('removed-reading-history-backup-reset-and-restore', async page => {
+    await ready(page);
+    await verifyReadingRemoval(page, readingHistory);
     await page.reload(); await page.locator('.bottom-nav').waitFor();
-    assert.deepEqual(await stored(page,keys.reading),answer);
+    await verifyReadingRemoval(page, readingHistory);
     await nav(page,'进度');
     const pending=page.waitForEvent('download');
     await page.getByRole('button',{name:'导出备份',exact:true}).click();
     const download=await pending;
-    const filepath=await download.path();
-    const backup=JSON.parse(await readFile(filepath,'utf8'));
+    const backup=JSON.parse(await readFile(await download.path(),'utf8'));
     assert.equal(backup.formatVersion,1);
-    assert.deepEqual(backup.data[keys.reading],answer);
+    for(const [key,value] of Object.entries(readingHistory)) assert.deepEqual(backup.data[key],value);
+    // A real reset in this disposable profile makes the subsequent restore
+    // observable; restoring the same unchanged records could hide a no-op.
+    await page.getByRole('button',{name:'重置',exact:true}).click();
+    await page.locator('.reset-confirm').click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('wordflow-reading-completed-v1') || '[]').length === 0
+      && localStorage.getItem('wordflow-reading-last-v1') === null
+      && Object.keys(JSON.parse(localStorage.getItem('wordflow-reading-answers-v1') || '{}')).length === 0);
+    await nav(page,'进度');
     await page.locator('input[type=file]').setInputFiles({name:'backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(backup))});
     await page.locator('.restore-dialog').waitFor();
     await page.locator('.restore-confirm').click();
     await page.waitForLoadState('domcontentloaded');
     await page.locator('.bottom-nav').waitFor();
-    assert.deepEqual(await stored(page,keys.reading),answer);
-  });
+    await verifyReadingRemoval(page, readingHistory);
+  }, readingHistory);
   await check('invalid-backup-preserves-progress', async page => {
     await ready(page); await nav(page,'进度');
     const before=await page.evaluate(()=>({...localStorage}));
@@ -202,17 +206,15 @@ for (const engine of ['chromium', 'webkit']) {
     await ready(page);
     await nav(page,'句子');
     await page.waitForFunction(()=>performance.getEntriesByType('resource').some(x=>x.name.includes('tatoeba-sentences-1')));
-    await nav(page,'阅读'); await page.locator('.reading-card').first().waitFor();
+    await nav(page,'首页');
     await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistration())?.active?.state === 'activated', null, {timeout:30000});
     await page.reload(); await page.locator('.bottom-nav').waitFor();
     await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
     if (engine === 'webkit') {
-      // WebKit covers content loaded in this document. The preceding reload
-      // discarded the reading module from memory; load it again before going
-      // offline rather than claiming unsupported offline module navigation.
+      // WebKit covers sentence content loaded in this document; reload drops
+      // its in-memory packs, so load the selected pack before going offline.
       await nav(page,'句子');
       await page.waitForFunction(()=>!document.querySelector('.sentence-page .setup-start')?.disabled);
-      await nav(page,'阅读'); await page.locator('.reading-card').first().waitFor();
       await nav(page,'首页');
     }
     const documentId = await page.evaluate(() => { window.__auditDocumentId = Math.random(); return window.__auditDocumentId; });
@@ -223,11 +225,14 @@ for (const engine of ['chromium', 'webkit']) {
       assert.notEqual(await page.evaluate(() => window.__auditDocumentId), documentId, 'Offline test must create a new document');
     }
     await page.locator('.offline-status').waitFor();
-    for (const label of ['单词','句子','阅读','复习','进度']) {
+    for (const label of ['单词','句子','复习','进度']) {
       await nav(page,label); await page.locator('.page h1').first().waitFor();
     }
-    await nav(page,'阅读'); await page.locator('.reading-card').first().click();
-    await page.locator('.reading-text').waitFor();
+    await nav(page,'句子');
+    await page.waitForFunction(()=>!document.querySelector('.sentence-page .setup-start')?.disabled);
+    await page.getByRole('button',{name:'开始学习句子',exact:true}).click();
+    await page.locator('.sentence-study-card').waitFor();
+    assert.equal(await page.locator('.sentence-translation').count(),1);
   });
   for (const kind of ['word', 'sentence']) {
     await check(`${kind}-pinch-and-swipe`, async page => {

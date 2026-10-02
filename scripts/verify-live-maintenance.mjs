@@ -1,4 +1,5 @@
 import { navigate, openLegacyPatterns, openLegacyWords } from './browser-navigation.mjs';
+import { legacyReadingRecords, verifyReadingRemoval } from './reading-removal-checks.mjs';
 import { openSetupDetails, selectSentenceMethod, sentenceChoices } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -202,13 +203,14 @@ for (const engine of ['chromium', 'webkit']) {
 
   await check('merged-dashboard-progress-and-review-shortcuts', async page => {
     await nav(page,'首页');
-    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(),['首页','单词','句子','阅读']);
+    assert.deepEqual(await page.locator('.bottom-nav button small').allTextContents(),['首页','单词','句子']);
     assert.equal(await page.locator('.hero-card,.quick-practice-grid,.scene-strip').count(),0);
     assert.equal(await page.locator('.home-dashboard .week-card').count(),1);
     assert.match(await page.locator('.home-word-progress').innerText(),/已学习 4 \/ 2809 个/);
     assert.match(await page.locator('.home-sentence-progress').innerText(),/已学习 2 \/ 3,000 句/);
-    assert.match(await page.locator('.home-reading-progress').innerText(),/1\/15 篇已读/);
-    for(const selector of ['.home-word-progress','.home-sentence-progress','.home-reading-progress']) {
+    assert.equal(await page.locator('.home-reading-progress').count(),0);
+    assert.equal(await page.locator('.dashboard-progress-row').count(),2);
+    for(const selector of ['.home-word-progress','.home-sentence-progress']) {
       const value=await page.locator(selector).innerText();
       assert.match(value, /\d+(?:\.\d+)?%/);
     }
@@ -220,7 +222,7 @@ for (const engine of ['chromium', 'webkit']) {
     await page.locator('.review-card').waitFor();
     assert.deepEqual(await stored(page,keys.difficult),[10]);
     assert.equal(await page.locator('.review-card .review-reveal').count(),1,'Wordbook starts with recall');
-    return {fourMainTabs:true,weeklyRhythmFirst:true,wordSentenceAndReadingCountsVisible:true,reviewAndWordbookAccessible:true};
+    return {threeMainTabs:true,weeklyRhythmFirst:true,wordAndSentenceCountsVisible:true,reviewAndWordbookAccessible:true};
   },{[keys.mastered]:[1,2,3],[keys.difficult]:[10],'wordflow-sentence-mastered-v1':[1,1001],'wordflow-reading-completed-v1':['r1'],'wordflow-days':[new Date().toISOString().slice(0,10)]});
 
   await check('simple-practice-entry-and-visible-disclosure-controls' , async page => {
@@ -608,22 +610,9 @@ for (const engine of ['chromium', 'webkit']) {
     await page.getByRole('button', { name: '重试读取记录', exact: true }).click();
   });
 
-  await check('reading-module-return-restores-the-current-paragraph', async page => {
-    await nav(page, '阅读');
-    await page.locator('.level-switch button').filter({ hasText: 'Level 3' }).click();
-    await page.locator('.reading-card').first().click();
-    const title = await page.locator('.reading-detail h1').innerText();
-    await page.locator('.reading-question').scrollIntoViewIfNeeded();
-    const position = await page.evaluate(() => scrollY);
-    assert.ok(position > 500);
-    for (const label of ['今天', '进度']) {
-      await nav(page, label);
-      await nav(page, '阅读');
-      await page.waitForFunction(position => Math.abs(scrollY - position) <= 2, position);
-      assert.equal(await page.locator('.reading-detail h1').innerText(), title);
-    }
-    return { title, position, readingPositionPreserved: true };
-  });
+  const readingHistory = legacyReadingRecords();
+  await check('removed-reading-navigation-keeps-legacy-history',
+    page => verifyReadingRemoval(page, readingHistory), readingHistory);
 
   await check('speech-warning-keeps-the-next-word-directly-tappable', async page => {
     await beginWords(page);

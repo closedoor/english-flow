@@ -12,10 +12,10 @@ export const metadata: Metadata = {
   ),
   title: "词流英语",
   other: { "english-flow-build": APP_BUILD_COMMIT },
-  description: "用 NGSL 高频词、3,000 组日常长短句、核心句型替换和分级阅读，练习听懂、记住并主动说出英语。",
+  description: "用 NGSL 高频词和 3,000 组日常长短句，练习听懂、记住并主动说出英语。",
   openGraph: {
     title: "词流英语",
-    description: "高频词 · 日常长短句 · 核心句型 · 分级阅读",
+    description: "高频词 · 日常长短句 · 看中文说英文",
     url: "/",
     siteName: "词流英语",
     images: [{ url: "/og.png", width: 1731, height: 909, alt: "词流英语学习内容概览" }],
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "词流英语",
-    description: "高频词 · 日常长短句 · 核心句型 · 分级阅读",
+    description: "高频词 · 日常长短句 · 看中文说英文",
     images: ["/og.png"],
   },
   manifest: "/manifest.webmanifest",

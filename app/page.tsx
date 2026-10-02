@@ -112,7 +112,6 @@ const tabItems: { id: Tab; label: string; icon: string }[] = [
   { id: "home", label: "首页", icon: "⌂" },
   { id: "learn", label: "单词", icon: "▤" },
   { id: "sentences", label: "句子", icon: "“”" },
-  { id: "read", label: "阅读", icon: "◫" },
 ];
 let STUDY_WORD_IDS = new Set<number>();
 let STUDY_WORD_BY_ID = new Map<number, WordItem>();
@@ -2543,7 +2542,6 @@ export default function Home() {
     const percentFor = (done: number, total: number) => !total || !done ? 0 : done >= total ? 100 : Math.min(99.9, Number((done / total * 100).toFixed(2)));
     const wordPercent = percentFor(studiedWordCount, words.length);
     const sentencePercent = percentFor(studiedSentenceCount, 3000);
-    const readingPercent = percentFor(readingCompleted.length, READING_TOTAL);
     return <section className="page home-page home-dashboard">
       <header className="section-heading dashboard-heading" aria-label={`本周节奏，连续学习 ${streak} 天`}><h1>本周节奏</h1><span className="percent">{weeklyStudyCount}/7 天</span></header>
       <div className="week-card">
@@ -2554,7 +2552,6 @@ export default function Home() {
         <div className="dashboard-progress-list">
           <button className="dashboard-progress-row home-word-progress" onClick={() => setTab("learn")} aria-label={"单词，已学习 " + studiedWordCount + " / " + words.length + " 个，" + wordPercent + "%"}><span className="stat-icon mint" aria-hidden="true">▤</span><div className="dashboard-progress-copy"><p><b>单词</b><strong>{wordPercent}%</strong></p><small>已学习 {studiedWordCount} / {words.length} 个</small><i className="dashboard-progress-track" aria-hidden="true"><em style={{ width: wordPercent + "%" }} /></i></div><span aria-hidden="true">›</span></button>
           <button className="dashboard-progress-row home-sentence-progress" onClick={() => { setSentenceSection("library"); setTab("sentences"); }} aria-label={"句子，已学习 " + studiedSentenceCount + " / 3000 句，" + sentencePercent + "%"}><span className="stat-icon lilac" aria-hidden="true">“”</span><div className="dashboard-progress-copy"><p><b>句子</b><strong>{sentencePercent}%</strong></p><small>已学习 {studiedSentenceCount} / 3,000 句</small><i className="dashboard-progress-track" aria-hidden="true"><em style={{ width: sentencePercent + "%" }} /></i></div><span aria-hidden="true">›</span></button>
-          <button className="dashboard-progress-row home-reading-progress reading-progress-panel" onClick={() => setTab("read")} aria-label={"阅读，已读 " + readingCompleted.length + " / " + READING_TOTAL + " 篇，" + readingPercent + "%"}><span className="stat-icon peach" aria-hidden="true">◫</span><div className="dashboard-progress-copy"><p><b>阅读</b><strong>{readingPercent}%</strong></p><small>{readingCompleted.length}/{READING_TOTAL} 篇已读</small><i className="dashboard-progress-track" aria-hidden="true"><em style={{ width: readingPercent + "%" }} /></i></div><span aria-hidden="true">›</span></button>
         </div>
       </section>
       <div className="dashboard-review-grid">

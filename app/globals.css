@@ -426,8 +426,8 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .sentence-auto-controls button[aria-pressed="true"]{background:#e7f4ee;border-color:#6a9785}
 .sentence-auto-controls p{flex-basis:100%;margin:0;color:#526071;font-size:12px;line-height:1.6}
 
-/* Four everyday destinations; review and record tools now belong to home. */
-.bottom-nav{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+/* Three everyday destinations; review and record tools belong to home. */
+.bottom-nav{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
 .bottom-nav small{font-size:.75rem;line-height:1.5}
 
 /* Home follows one clear reading order: this week, progress, then practice. */

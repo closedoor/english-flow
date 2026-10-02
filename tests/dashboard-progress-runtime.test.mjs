@@ -50,7 +50,6 @@ test("home distinguishes an empty history from completion", () => {
   const home = renderHome();
   assert.equal(home.find("home-word-progress").props["aria-label"], "单词，已学习 0 / 2809 个，0%");
   assert.equal(home.find("home-sentence-progress").props["aria-label"], "句子，已学习 0 / 3000 句，0%");
-  assert.equal(home.find("home-reading-progress").props["aria-label"], "阅读，已读 0 / 15 篇，0%");
 });
 
 test("word progress includes older schedule-only practice without counting extra scene words", () => {
@@ -59,6 +58,13 @@ test("word progress includes older schedule-only practice without counting extra
     schedule: { 1: { stage: 1 }, 3: { stage: 2 }, 3003: { stage: 0 } },
   });
   assert.equal(home.find("home-word-progress").props["aria-label"], "单词，已学习 3 / 2809 个，0.11%");
+});
+
+test("legacy reading records do not add a reading module to home", () => {
+  const home = renderHome({ readingCompleted: ["r1", "r15"] });
+  assert.equal(home.find("home-reading-progress"), null);
+  assert.equal(home.find("home-word-progress").props["aria-label"], "单词，已学习 0 / 2809 个，0%");
+  assert.equal(home.find("home-sentence-progress").props["aria-label"], "句子，已学习 0 / 3000 句，0%");
 });
 
 test("sentence progress preserves seen history and merges older rating records once per sentence", () => {
@@ -77,22 +83,18 @@ test("no module rounds an unfinished course up to 100 percent", () => {
   const home = renderHome({
     mastered: Array.from({ length: 2808 }, (_, index) => index + 1),
     sentenceSeen: Array.from({ length: 2999 }, (_, index) => index + 1),
-    readingCompleted: Array.from({ length: 14 }, (_, index) => "r" + (index + 1)),
   });
   assert.equal(home.find("home-word-progress").props["aria-label"], "单词，已学习 2808 / 2809 个，99.9%");
   assert.equal(home.find("home-sentence-progress").props["aria-label"], "句子，已学习 2999 / 3000 句，99.9%");
-  assert.equal(home.find("home-reading-progress").props["aria-label"], "阅读，已读 14 / 15 篇，93.33%");
 });
 
 test("only the final recorded item makes each module complete", () => {
   const home = renderHome({
     mastered: Array.from({ length: 2809 }, (_, index) => index + 1),
     sentenceSeen: Array.from({ length: 3000 }, (_, index) => index + 1),
-    readingCompleted: Array.from({ length: 15 }, (_, index) => "r" + (index + 1)),
   });
   assert.equal(home.find("home-word-progress").props["aria-label"], "单词，已学习 2809 / 2809 个，100%");
   assert.equal(home.find("home-sentence-progress").props["aria-label"], "句子，已学习 3000 / 3000 句，100%");
-  assert.equal(home.find("home-reading-progress").props["aria-label"], "阅读，已读 15 / 15 篇，100%");
 });
 
 test("home review and wordbook entries clear a stale revealed answer and open their own list", () => {

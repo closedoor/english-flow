@@ -138,7 +138,7 @@ for (const engine of ['chromium','webkit']) {
       await ready(page);
       const before=await page.evaluate(()=>({...localStorage}));
       for(let cycle=0;cycle<6;cycle++){
-        for(const label of ['句子','阅读','今天','单词','复习','进度'])await nav(page,label);
+        for(const label of ['句子','生词本','今天','单词','复习','进度'])await nav(page,label);
       }
       await nav(page,'句子');
       await page.waitForFunction(()=>{const button=document.querySelector('.sentence-page .sticky-start');return button && !button.disabled;});

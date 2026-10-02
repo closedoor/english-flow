@@ -1,4 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
+import { legacyReadingRecords, verifyReadingRemoval } from './reading-removal-checks.mjs';
 import { openSetupDetails, sentenceChoices } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
@@ -21,15 +22,6 @@ async function ready(page) {
   await page.locator('.bottom-nav').waitFor({ timeout: 30_000 });
 }
 const nav = navigate;
-async function openLongReading(page, filter = '全部') {
-  await ready(page);
-  await nav(page, '阅读');
-  await page.locator('.reading-filters button').filter({ hasText: filter }).click();
-  await page.locator('.level-switch button').filter({ hasText: 'Level 3' }).click();
-  await page.locator('.reading-card').first().click();
-  await page.locator('.reading-detail h1').waitFor();
-  await page.waitForFunction(() => window.scrollY === 0);
-}
 const storedRecords = page => page.evaluate(() => Object.fromEntries(
   Object.keys(localStorage).filter(key => key.startsWith('wordflow-')).sort().map(key => [key, localStorage.getItem(key)]),
 ));
@@ -134,57 +126,20 @@ for (const engine of ['chromium', 'webkit']) {
   }
 
   for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 650 }]) {
-    await check(`reading-tab-return-keeps-place-${viewport.width}`, async page => {
-      await openLongReading(page);
-      const title = await page.locator('.reading-detail h1').innerText();
-      await page.getByRole('button', { name: '显示完整中文翻译', exact: true }).click();
-      await page.locator('.reading-question').scrollIntoViewIfNeeded();
-      const before = await page.evaluate(() => scrollY);
-      assert.ok(before > 500, 'The learner is deep in a long article');
-      await page.waitForFunction(() => Boolean(localStorage.getItem('wordflow-reading-last-v1')));
-      const records = await storedRecords(page);
-      for (const destination of ['今天', '复习', '进度']) {
-        await nav(page, destination);
-        await nav(page, '阅读');
-        await page.waitForFunction(position => Math.abs(scrollY - position) <= 2, before);
-        assert.equal(await page.locator('.reading-detail h1').innerText(), title);
-        assert.equal(await page.locator('.reading-translation').count(), 1, 'The expanded translation remains open');
-        assert.deepEqual(await storedRecords(page), records, 'Switching modules does not change learning records');
-      }
+    await check(`removed-reading-navigation-and-history-${viewport.width}`, async page => {
+      const history = legacyReadingRecords();
+      await page.addInitScript(values => {
+        if (sessionStorage.getItem('reading-removal-seeded')) return;
+        sessionStorage.setItem('reading-removal-seeded', '1');
+        for (const [key,value] of Object.entries(values)) localStorage.setItem(key, JSON.stringify(value));
+      }, history);
+      await ready(page);
+      await verifyReadingRemoval(page, history);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.locator('.bottom-nav').waitFor();
+      await verifyReadingRemoval(page, history);
     }, viewport);
   }
-
-  await check('reading-new-article-starts-at-top', async page => {
-    await openLongReading(page);
-    const firstTitle = await page.locator('.reading-detail h1').innerText();
-    await page.locator('.reading-question').scrollIntoViewIfNeeded();
-    await nav(page, '今天');
-    await nav(page, '阅读');
-    await page.locator('.reading-next').click();
-    await page.waitForFunction(title => document.querySelector('.reading-detail h1')?.textContent !== title, firstTitle);
-    await page.waitForFunction(() => scrollY <= 1);
-    assert.equal(await page.locator('.reading-translation').count(), 0, 'A new article starts with its own translation state');
-    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('wordflow-reading-completed-v1') || '[]')), [],
-      'Moving to another article does not invent completed readings');
-  });
-
-  await check('reading-list-return-focus-and-reopen-stay-intentional', async page => {
-    await openLongReading(page, '未读');
-    const title = await page.locator('.reading-detail h1').innerText();
-    await page.getByRole('button', { name: '标记本篇已读', exact: true }).click();
-    await page.getByRole('button', { name: '返回阅读列表', exact: true }).click();
-    await page.waitForFunction(() => document.activeElement?.classList.contains('reading-list'));
-    assert.equal(await page.locator('.reading-detail').count(), 0);
-    assert.equal(await page.locator('.reading-card').filter({ hasText: title }).count(), 0, 'The completed article leaves the unread list');
-    await page.locator('.reading-filters button').filter({ hasText: '全部' }).click();
-    await page.locator('.reading-card').filter({ hasText: title }).click();
-    await page.waitForFunction(() => scrollY <= 1);
-    assert.equal(await page.locator('.reading-detail h1').innerText(), title);
-    assert.equal(await page.getByRole('button', { name: '✓ 本篇已完成 · 点击取消', exact: true }).count(), 1);
-    await page.getByRole('button', { name: '返回阅读列表', exact: true }).click();
-    await page.waitForFunction(() => Boolean(document.activeElement?.getAttribute('data-reading-id')));
-    assert.ok((await page.locator('button:focus').innerText()).includes(title), 'Return focuses the actual originating article');
-  });
 
   await check('word-new-search-and-band-start-at-first-result-without-losing-lookup-return', async page => {
     await ready(page);
