@@ -15,9 +15,12 @@ const compile = (source) => ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const dateHelpers = extract("function localDateKey", "function blankSentence");
+const parsed = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const readJson = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "readJson");
+assert.ok(readJson, "exercise the real top-level safe JSON reader without unrelated component handlers");
 const hydrateDays = compile([
   dateHelpers,
-  extract("function readJson", "function writeJson"),
+  readJson.getText(parsed),
   extract("const readStored =", "// Client-only local progress"),
   extract("const storedDays =", "const storedMastered ="),
   "validDays;",

@@ -141,6 +141,59 @@ export function isLearningBackup<Key extends string>(value: unknown, keys: reado
   });
 }
 
+export type BackupContentValidators = {
+  word: (id: number) => boolean;
+  sentence: (id: number) => boolean;
+  pattern: (id: string) => boolean;
+  reading: (id: string) => boolean;
+};
+
+// Shape validation alone cannot promise a faithful restore: hydration discards
+// unknown content. Check compatibility before offering to replace good records.
+// The caller supplies its loaded IDs, keeping the backup module independent of
+// the content packs and retaining existing format-1/optional-field compatibility.
+export function isBackupContentCompatible(backup: LearningBackup, validators: BackupContentValidators) {
+  const knownWord = (id: unknown) => positiveId(id) && validators.word(Number(id));
+  const knownSentence = (id: unknown) => positiveId(id) && validators.sentence(Number(id));
+  const knownPattern = (id: unknown) => textId(id) && validators.pattern(String(id));
+  const knownReading = (id: unknown) => textId(id) && validators.reading(String(id));
+  const knownRatings = (value: Record<string, unknown>, valid: (id: unknown) => boolean, numeric: boolean) => (
+    optional(value, "ratings", (entries) => isRecord(entries)
+      && Object.keys(entries).every((id) => valid(numeric ? Number(id) : id)))
+  );
+  try {
+    return Object.entries(backup.data).every(([key, value]) => {
+      if (value === null) return true;
+      switch (key) {
+        case "wordflow-ngsl-mastered-v1":
+        case "wordflow-ngsl-difficult-v1": return listOf(value, knownWord);
+        case "wordflow-sentence-saved-v1":
+        case "wordflow-sentence-seen-v1":
+        case "wordflow-sentence-mastered-v1":
+        case "wordflow-sentence-difficult-v1": return listOf(value, knownSentence);
+        case "wordflow-pattern-mastered-v1":
+        case "wordflow-pattern-difficult-v1": return listOf(value, knownPattern);
+        case "wordflow-reading-completed-v1": return listOf(value, knownReading);
+        case "wordflow-reading-last-v1": return isRecord(value) && knownReading(value.id);
+        case "wordflow-reading-answers-v1": return isRecord(value) && Object.keys(value).every(knownReading);
+        case "wordflow-ngsl-schedule-v1":
+          // An alias such as "01" stays due after review writes the canonical
+          // "1" entry. Backups must use exactly the keys the scheduler updates.
+          return isRecord(value) && Object.keys(value).every((id) => String(Number(id)) === id && knownWord(Number(id)));
+        case "wordflow-active-session-v1":
+          return isRecord(value) && listOf(value.wordIds, knownWord) && knownRatings(value, knownWord, true);
+        case "wordflow-sentence-active-session-v1":
+          return isRecord(value) && listOf(value.sentenceIds, knownSentence) && knownRatings(value, knownSentence, true);
+        case "wordflow-pattern-active-session-v1":
+          return isRecord(value) && listOf(value.patternIds, knownPattern) && knownRatings(value, knownPattern, false);
+        default: return true;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
 export function restoreLearningBackupData<Key extends string>(storage: WritableStorage, keys: readonly Key[], backup: LearningBackup<Key>) {
   const previous = new Map<Key, string | null>();
   const applied: Key[] = [];

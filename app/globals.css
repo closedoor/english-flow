@@ -95,7 +95,7 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 
 .app-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:#647083}.app-loading b{font-size:20px;color:var(--ink);letter-spacing:-.03em}.app-loading span{font-size:12px}.loading-mark{width:62px;height:62px;margin-bottom:5px;border-radius:21px;background:var(--navy);color:#fff;display:grid;place-items:center;font-size:15px;font-weight:850;letter-spacing:.08em;box-shadow:0 14px 30px rgba(32,57,95,.2)}
 .app-loading>button{min-width:120px;min-height:46px;margin-top:10px;padding:0 18px;border:0;border-radius:14px;background:var(--green);color:#fff;font-size:13px;font-weight:800}
-.storage-warning{position:fixed;z-index:45;top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:min(calc(100% - 24px),456px);padding:12px 11px 12px 14px;border:1px solid #e7b6a6;border-radius:16px;background:#fff5f0;color:#703d31;display:flex;align-items:center;gap:10px;box-shadow:0 12px 30px rgba(75,39,29,.17)}.storage-warning>div{min-width:0;flex:1}.storage-warning b,.storage-warning span{display:block}.storage-warning b{font-size:12px}.storage-warning span{margin-top:4px;font-size:10px;line-height:1.45}.storage-warning button{width:44px;height:44px;flex:0 0 44px;border:0;border-radius:13px;background:#f6ddd3;color:#8d4d3c;font-size:20px}
+.storage-warning{position:relative;z-index:45;top:auto;left:auto;transform:none;margin:calc(10px + env(safe-area-inset-top)) auto 0;width:min(calc(100% - 24px),456px);padding:12px 11px 12px 14px;border:1px solid #e7b6a6;border-radius:16px;background:#fff5f0;color:#703d31;display:flex;align-items:center;gap:10px;box-shadow:0 12px 30px rgba(75,39,29,.17)}.storage-warning>div{min-width:0;flex:1}.storage-warning b,.storage-warning span{display:block}.storage-warning b{font-size:12px}.storage-warning span{margin-top:4px;font-size:10px;line-height:1.45}.storage-warning button{width:44px;height:44px;flex:0 0 44px;border:0;border-radius:13px;background:#f6ddd3;color:#8d4d3c;font-size:20px}
 .content-load-state{min-height:210px;padding:28px 22px;border:1px solid #e3e7e3;border-radius:24px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#778390}.content-load-state b{color:var(--ink);font-size:15px}.content-load-state span{max-width:300px;margin-top:8px;font-size:11px;line-height:1.65}.content-load-state button{min-width:112px;min-height:44px;margin-top:18px;padding:0 16px;border:0;border-radius:13px;background:var(--green);color:#fff;font-size:12px;font-weight:800}
 .app-preview-icon{width:56px;height:56px;flex:0 0 56px;border-radius:14px;background:url("/apple-touch-icon.png") center/cover no-repeat}
 
@@ -165,7 +165,7 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .library-block,.sentence-browser{scroll-margin-top:20px}
 .library-back{min-height:44px;padding:4px 2px;border:0;border-radius:12px;background:#edf6f2;color:var(--green-dark);font-size:.75rem;font-weight:800;white-space:nowrap}
 .browser-switch{min-height:44px;margin-top:8px;padding:8px 12px;border:1px solid #c8dbd3;border-radius:12px;background:#eef7f2;color:var(--green-dark);font-size:.875rem;font-weight:750}
-.browser-hint{margin:8px 0;color:#596d65;font-size:.875rem;line-height:1.6}
+.browser-hint,.sentence-result-list>p.browser-hint{margin:8px 0;color:#596d65;font-size:.875rem;line-height:1.6}
 .reading-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:18px 0 12px;padding:5px;border:1px solid #dde4df;border-radius:16px;background:#ecefeb}
 .reading-filters button{min-height:44px;padding:8px 4px;border:0;border-radius:11px;background:transparent;color:#58695f;font-size:13px;font-weight:750}
 .reading-filters button.selected{background:#fff;color:var(--green-dark);box-shadow:0 2px 6px #20395f0d}
@@ -578,3 +578,14 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
   .is-immersive:has(.storage-warning) .immersive-learning>.word-card-actions,
   .is-immersive:has(.status-toast-stack) .immersive-learning>.word-card-actions{position:static}
 }
+
+.storage-warning .storage-rescue-export{width:auto;min-width:112px;min-height:44px;height:auto;flex:none;margin-top:8px;padding:8px 12px;font-size:12px;font-weight:800}.storage-warning .storage-rescue-export:disabled{opacity:.6}
+
+/* Recovery text can grow after export or with enlarged fonts. Give it and the
+   lesson natural document height so neither can consume the other's space. */
+.is-immersive:has(.storage-warning)>div:first-child{height:auto;min-height:100dvh}
+.is-immersive:has(.storage-warning) .status-toast-stack{position:static;left:auto;bottom:auto;transform:none;width:calc(100% - 24px);margin:10px 12px 0}
+.is-immersive:has(.storage-warning) .immersive-learning{min-height:100dvh}
+.is-immersive:has(.storage-warning) .immersive-learning>.word-card,
+.is-immersive:has(.storage-warning) .immersive-learning>.sentence-study-card{overflow-y:visible;margin-bottom:0}
+.is-immersive:has(.storage-warning) .immersive-learning>.word-card-actions{position:static}

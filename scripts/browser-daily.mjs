@@ -1,4 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -17,7 +18,10 @@ const keys = {
   schedule: 'wordflow-ngsl-schedule-v1', days: 'wordflow-days', readings: 'wordflow-reading-completed-v1', answers: 'wordflow-reading-answers-v1',
 };
 const quizSnapshot = () => ({ version: 1, kind: 'group', updatedAt: Date.now(), path: 'frequency', mode: 'test', wordIds: [1,2,3], index: 2, ratings: {1:'known',2:'known',3:'known'}, stage: 'quiz', quizIndex: 0, quizAnswer: '', quizFeedback: null, quizResults: [] });
-const stored = (page, key) => page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
+const stored = async (page, key) => {
+  await settleLearningStorage(page);
+  return page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
+};
 async function ready(page) {
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
   await page.locator('.bottom-nav, .quiz-page, .word-card, .sentence-study-card, .pattern-prompt, .speak-prompt').first().waitFor({ timeout: 30_000 });
@@ -136,6 +140,7 @@ for (const engine of ['chromium','webkit']) {
         await route.continue().catch(()=>{});
       });
       await ready(page);
+      await settleLearningStorage(page);
       const before=await page.evaluate(()=>({...localStorage}));
       for(let cycle=0;cycle<6;cycle++){
         for(const label of ['句子','生词本','今天','单词','复习','进度'])await nav(page,label);
@@ -197,6 +202,7 @@ for (const engine of ['chromium','webkit']) {
     };
     await check('year-of-learning-and-two-thousand-word-records-backup-roundtrip',async page=>{
       await ready(page);await nav(page,'进度');
+      await settleLearningStorage(page);
       const before=await page.evaluate(()=>({...localStorage}));
       const pending=page.waitForEvent('download');
       await page.getByRole('button',{name:'导出备份',exact:true}).click();

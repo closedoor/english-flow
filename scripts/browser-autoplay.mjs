@@ -1,3 +1,4 @@
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import { openSetupDetails } from './browser-disclosures.mjs';
 import { navigate } from './browser-navigation.mjs';
 import {verifySpeechRecovery} from './speech-recovery-checks.mjs';
@@ -53,6 +54,7 @@ for(const engine of ['chromium','webkit']){
     assert.equal((await logs(page))[0].text,example);assert.equal((await logs(page))[0].gesture,true,'first speech starts in a real input handler');
     await finish(page);await count(page,2);await finish(page);await count(page,3);await finish(page);
     await page.waitForTimeout(180);assert.deepEqual((await logs(page)).map(u=>u.text),Array(3).fill(example));
+    await settleLearningStorage(page);
     const stored=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),key);
     assert.equal(stored.continuous,true);assert.ok(stored.wordIds.length>20);assert.deepEqual(stored.ratings,{});
     assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-days')||'[]').length),0);
@@ -83,6 +85,7 @@ for(const engine of ['chromium','webkit']){
   });
   await check('pause-and-genuine-replacement-cancel-preserve-current-card-and-speech',async page=>{
     await begin(page);await page.locator('.learn-actions .primary-action').click();await count(page,2);
+    await settleLearningStorage(page);
     const saved=await page.evaluate(key=>localStorage.getItem(key),key);
     await page.getByRole('button',{name:'退出学习并保留进度',exact:true}).click();
     assert.equal(await page.evaluate(()=>window.__speech.active),null);
@@ -151,10 +154,12 @@ for(const engine of ['chromium','webkit']){
     const text=await page.locator('.example-box p').innerText();
     await finish(page);await finish(page);await finish(page);
     assert.deepEqual((await logs(page)).map(u=>u.text),[text,text,text]);
+    await settleLearningStorage(page);
     assert.deepEqual(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).ratings,key),{});
   },{...legacyFree(),kind:undefined});
   for(const destination of ['首页','进度'])await check(`resuming-continuous-session-after-${destination}-starts-in-click-not-effect`,async page=>{
     await begin(page);await page.locator('.learn-actions .primary-action').click();await count(page,2);
+    await settleLearningStorage(page);
     const saved=await page.evaluate(key=>localStorage.getItem(key),key);
     await navigate(page,destination);assert.equal(await page.evaluate(()=>window.__speech.active),null);
     await navigate(page,'单词');await page.getByRole('button',{name:'开始学习',exact:true}).click();await count(page,3);
@@ -171,6 +176,7 @@ for(const engine of ['chromium','webkit']){
     await ready(page);await page.evaluate(()=>{window.__speech.fail=true;});await navigate(page,'单词');
     await page.getByRole('button',{name:'开始学习',exact:true}).click();await page.locator('.word-card').waitFor();
     assert.equal((await logs(page)).length,1);
+    await settleLearningStorage(page);
     assert.deepEqual(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).ratings,key),{});
     await page.evaluate(()=>{window.__speech.fail=false;});await page.getByRole('button',{name:'播放场景句子',exact:true}).click();await count(page,2);
   });

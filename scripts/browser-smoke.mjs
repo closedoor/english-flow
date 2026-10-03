@@ -1,4 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import { legacyReadingRecords, verifyReadingRemoval } from './reading-removal-checks.mjs';
 import { selectSentenceMethod } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
@@ -20,6 +21,7 @@ async function ready(page) {
 }
 const nav = navigate;
 async function stored(page, key) {
+  await settleLearningStorage(page);
   return page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
 }
 async function persisted(page, key, predicate) {
@@ -139,6 +141,7 @@ for (const engine of ['chromium', 'webkit']) {
   }, readingHistory);
   await check('invalid-backup-preserves-progress', async page => {
     await ready(page); await nav(page,'进度');
+    await settleLearningStorage(page);
     const before=await page.evaluate(()=>({...localStorage}));
     await page.locator('input[type=file]').setInputFiles({name:'bad.json',mimeType:'application/json',buffer:Buffer.from('{broken')});
     await page.locator('.backup-notice.error').waitFor();

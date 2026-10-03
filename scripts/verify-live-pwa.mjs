@@ -1,3 +1,4 @@
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import { navigate } from './browser-navigation.mjs';
 import { pathToFileURL } from 'node:url';
@@ -76,6 +77,7 @@ for(const name of ['chromium','webkit']){
     await page.locator('.word-card').waitFor();
     await page.locator('.immersive-learning').waitFor();
     assert.equal(await page.locator('.bottom-nav, .word-auto-controls, .card-count, .session-progress').count(),0);
+    await settleLearningStorage(page);
     const initial=await page.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-active-session-v1')));
     assert.equal(initial.continuous,true);assert.ok(initial.wordIds.length>20);
     const checks=[];
@@ -92,8 +94,10 @@ for(const name of ['chromium','webkit']){
       assert.deepEqual(utterances.map(item=>item.text),[example,example,example]);assert.equal(utterances[0].gesture,true);
       checks.push({action,example,repeats:utterances.length});
     }
+    await settleLearningStorage(page);
     const snapshot=await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1'));
     await page.reload();await page.locator('.word-card').waitFor();
+    await settleLearningStorage(page);
     assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1')),snapshot);
     assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'),expected);
     const replayFrom=await page.evaluate(()=>window.__pwaSpeech.log.length);
@@ -109,6 +113,7 @@ for(const name of ['chromium','webkit']){
     const startBox = await page.locator('.setup-start').boundingBox();
     await page.mouse.click(startBox.x+startBox.width/2, startBox.y+startBox.height/2);
     await page.locator('.sentence-study-card').waitFor();
+    await settleLearningStorage(page);
     assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1')),snapshot);
     assert.deepEqual(errors,[]);
     console.log('LIVE_PWA_PASS',JSON.stringify({engine:name,commit:expected,workerActivated:true,manifestCache:cached.cache,cachedManifestType:cached.type,checks,reloadProgressPreserved:true,clientCommitVerified:true,continuousWordSession:true,immersiveCards:true,instrumentedSpeech:true}));

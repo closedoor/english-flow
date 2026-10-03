@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -227,6 +228,7 @@ for (const engine of engines) {
         }
         await page.locator('.feedback-box').waitFor();
         await assertFeedback(page);
+        await settleLearningStorage(page);
         const answered = await saved(page);
         assert.equal(answered.quizIndex, item.index, 'Submitting never advances the question');
         assert.deepEqual(answered.quizResults, [...Array(item.index).fill(true), Boolean(item.correct)]);

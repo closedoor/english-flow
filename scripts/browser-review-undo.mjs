@@ -1,4 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -56,6 +57,7 @@ for (const engine of ["chromium", "webkit"]) {
       const clicks = await page.evaluate(() => window.__reviewUndoClicks);
       assert.equal(clicks.length, 3, "Use three actual pointer clicks: rating, undo, correction");
       assert.ok(clicks[2].at - clicks[0].at < 350, `Correction must exercise the old lock window; took ${clicks[2].at - clicks[0].at} ms`);
+      await settleLearningStorage(page);
       await page.waitForFunction(keys => JSON.parse(localStorage.getItem(keys.mastered) || "[]").includes(1) && !JSON.parse(localStorage.getItem(keys.difficult) || "[]").includes(1), keys);
       const updated = await records(page);
       assert.deepEqual([...updated.mastered].sort(), [1, 3]);

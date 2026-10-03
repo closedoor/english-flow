@@ -1,3 +1,4 @@
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 
 // Speech faults are explicitly injected. The app, gesture, geometry, DOM and
@@ -66,6 +67,7 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
     });
     await check('bottom-replay-recovers-a-late-cancel-without-changing-progress',async page=>{
       await beginSentence(page);await page.waitForFunction(()=>window.__speechRecovery.started.length===1);
+      await settleLearningStorage(page);
       const before=await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1'));
       await page.evaluate(()=>window.__speechRecovery.lateCancel=true);
       const button=page.getByRole('button',{name:'重播本句',exact:true}),r=await button.boundingBox();
@@ -87,6 +89,7 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
       await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();await page.getByRole('button',{name:'开始学习',exact:true}).click();await page.locator('.word-card').waitFor();
       await page.waitForFunction(()=>window.__speechRecovery.started.length===1);
       await page.evaluate(()=>{const s=window.__speechRecovery;s.voices=[{name:'Broken manual voice',lang:'en-US',localService:true}];s.failVoices=['Broken manual voice'];});
+      await settleLearningStorage(page);
       const before=await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1'));
       await page.getByRole('button',{name:'播放场景句子',exact:true}).click();await page.waitForFunction(()=>window.__speechRecovery.started.length===2);
       assert.equal(await page.evaluate(()=>window.__speechRecovery.started.at(-1).text),await page.locator('.example-box p').innerText());
@@ -107,6 +110,7 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
     await check('word-start-recovers-a-speaking-flag-without-an-actual-start-and-next-keeps-three',async page=>{
       await page.evaluate(()=>{const s=window.__speechRecovery;s.stallNext=1;s.voices=[{name:'Stalled installed voice',lang:'en-US',localService:true}];});
       await page.locator('.bottom-nav button').filter({hasText:'单词'}).click();await page.getByRole('button',{name:'开始学习',exact:true}).click();await page.locator('.word-card').waitFor();
+      await settleLearningStorage(page);
       const before=await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1'));
       const english=await page.locator('.example-box p').innerText();
       for(let i=0;i<3;i++){await page.waitForFunction(n=>window.__speechRecovery.started.length===n,i+1);await page.evaluate(()=>window.__speechRecovery.end());}
@@ -121,6 +125,7 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
     await check('Apple-stalled-sentence-start-falls-back-without-skipping-English-or-Chinese',async page=>{
       await page.evaluate(()=>{const s=window.__speechRecovery;s.apple=true;s.stallNext=1;s.voices=[{name:'Installed alternative English',lang:'en-US',localService:true}];});
       await beginSentence(page);
+      await settleLearningStorage(page);
       const before=await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1'));
       await completeSentence(page,0);
       assert.equal(await page.evaluate(()=>window.__speechRecovery.started[0].voice),'Installed alternative English');
@@ -135,6 +140,7 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
       await page.locator('.home-settings-entry').click();await page.locator('.speech-check summary').click();
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
       for(const button of await page.locator('.speech-check button').all()){const r=await button.boundingBox();assert.ok(r.height>=44&&r.x>=0&&r.x+r.width<=320);}
+      await settleLearningStorage(page);
       const before=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage)));
       await page.getByRole('button',{name:'试听英文',exact:true}).click();await page.waitForFunction(()=>window.__speechRecovery.started.length===1);
       await waitForDiagnostic(page,'系统报告已开始');
@@ -201,6 +207,7 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
           if(terminal==='failed')s.failAll='language-unavailable';
         },terminal);
         await page.locator('.home-settings-entry').click();await page.locator('.speech-check summary').click();
+        await settleLearningStorage(page);
         const before=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage)));
         await page.getByRole('button',{name:'试听中文',exact:true}).click();
         if(terminal==='failed'){
@@ -236,6 +243,7 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
     await check('voice-check-native-API-exceptions-report-failure-without-false-stop-or-overlap',async page=>{
       await page.evaluate(()=>window.__speechRecovery.apple=true);
       await page.locator('.home-settings-entry').click();await page.locator('.speech-check summary').click();
+      await settleLearningStorage(page);
       const before=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage)));
       await page.getByRole('button',{name:'试听英文',exact:true}).click();
       await page.waitForFunction(()=>window.__speechRecovery.started.length===1);

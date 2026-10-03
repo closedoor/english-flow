@@ -1,6 +1,6 @@
 import type { WordItem } from "./data";
 
-type WordCardCorrection = Pick<WordItem, "example" | "translation" | "exampleForm" | "collocations"> & Partial<Pick<WordItem, "meaning">>;
+type WordCardCorrection = Pick<WordItem, "example" | "translation" | "exampleForm" | "collocations"> & Partial<Pick<WordItem, "meaning" | "phonetic">>;
 
 // NGSL keys are lowercase; learner-facing English still follows spelling rules.
 export function normalizeWordDisplay(item: WordItem): WordItem {
@@ -10,6 +10,19 @@ export function normalizeWordDisplay(item: WordItem): WordItem {
 // The source corpus remains unchanged. These display-only corrections keep the
 // most frequently encountered cards short, natural and useful for speaking.
 export const wordCardCorrections: Record<string, WordCardCorrection> = {
+  // Pronunciations use British IPA and match the sense in the displayed example.
+  // Verified against Cambridge Dictionary; the ranked source packs stay unchanged.
+  use: { phonetic: "/juːz/", example: "Do you know how to use this camera?", translation: "你会用这台相机吗？", exampleForm: "use", collocations: ["to use", "use this"] },
+  record: { phonetic: "/ˈrek.ɔːd/", example: "She keeps a record of everything she buys.", translation: "她把每一样买了的东西都记录起来。", exampleForm: "record", collocations: ["a record", "record of"] },
+  object: { phonetic: "/əbˈdʒekt/", example: "I object to her going there alone.", translation: "我不同意她一个人去那儿。", exampleForm: "object", collocations: ["I object", "object to"] },
+  measurement: { phonetic: "/ˈmeʒ.ə.mənt/", example: "The measurement must be accurate.", translation: "测量结果必须准确。", exampleForm: "measurement", collocations: ["the measurement", "measurement must"] },
+  airline: { phonetic: "/ˈeə.laɪn/", example: "Where is the United Airlines check-in counter?", translation: "联合航空公司办理登机手续的柜台在哪里？", exampleForm: "airlines", collocations: ["United Airlines", "Airlines check-in"] },
+  cream: { phonetic: "/kriːm/", meaning: "奶油；乳脂；面霜", example: "Would you like some cream in your coffee?", translation: "你的咖啡要加些奶油吗？", exampleForm: "cream", collocations: ["cream in coffee", "face cream"] },
+  online: { phonetic: "/ˌɒnˈlaɪn/", meaning: "在线的；在网上；上网", example: "She goes online for several hours every day.", translation: "她每天上几个小时网。", exampleForm: "online", collocations: ["goes online", "online for"] },
+  significantly: { phonetic: "/sɪɡˈnɪf.ɪ.kənt.li/", meaning: "显著地；意味深长地", example: "Her English has improved significantly this year.", translation: "她的英语今年有了显著进步。", exampleForm: "significantly", collocations: ["improved significantly", "significantly this"] },
+  we: { example: "We study English every morning.", translation: "我们每天早上学习英语。", exampleForm: "We", collocations: ["we study", "we study English"] },
+  // Avoid the source sentence's incorrect claim about Earth's total surface.
+  desert: { example: "We drove through the desert before sunset.", translation: "我们在日落前开车穿过了沙漠。", exampleForm: "desert", collocations: ["through the desert", "a dry desert"] },
   down: { example: "Please sit down.", translation: "请坐下。", exampleForm: "down", collocations: ["sit down", "walk down the stairs"] },
   little: { example: "Could you cook this meat a little more?", translation: "能把这块肉再做熟一点吗？", exampleForm: "little", collocations: ["a little more", "a little water"] },
   something: { example: "I have something to tell you.", translation: "我有件事想告诉你。", exampleForm: "something", collocations: ["something to tell you", "something useful"] },

@@ -1,5 +1,6 @@
 import { openSetupDetails, selectSentenceMethod, resumePausedSentence } from './browser-disclosures.mjs';
 import { navigate } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import {assertSentenceCardGeometry} from './sentence-card-geometry.mjs';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
@@ -12,7 +13,7 @@ async function ready(page){await page.goto(origin,{waitUntil:'domcontentloaded'}
 const nav=navigate;
 async function begin(page,{mode='英文卡片',band='短句'}={}){await ready(page);await nav(page,'句子');await selectSentenceMethod(page,mode);await page.locator('.sentence-band-switch button').filter({hasText:band}).click();const start=page.getByRole('button',{name:'开始学习句子',exact:true});await page.waitForFunction(()=>!document.querySelector('.sentence-page .setup-start').disabled);await start.click();await page.locator('.sentence-study-card').waitFor();}
 const log=page=>page.evaluate(()=>window.__sentenceSpeech.log);
-const stored=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),key);
+const stored=async page=>{await settleLearningStorage(page);return page.evaluate(key=>JSON.parse(localStorage.getItem(key)),key);};
 const exit=page=>page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
 async function openSentenceLookup(page,mode='英文卡片'){
  await ready(page);await nav(page,'句子');await selectSentenceMethod(page,mode);

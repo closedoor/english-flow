@@ -8,6 +8,20 @@ const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8")
 const source = await readFile(new URL("../app/backup-data.ts", import.meta.url), "utf8");
 const compile = (source) => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const backupApi = await import(`data:text/javascript;base64,${Buffer.from(compile(source)).toString("base64")}`);
+const sourceModule = async (name) => import(`data:text/javascript;base64,${Buffer.from(compile(await readFile(new URL(`../app/${name}.ts`, import.meta.url), "utf8"))).toString("base64")}`);
+const [{ curatedWords }, { corePatterns }, { readings }] = await Promise.all([
+  sourceModule("data"), sourceModule("pattern-data"), sourceModule("reading-data"),
+]);
+const rankedWords = (await Promise.all([1, 2, 3].map(async (pack) => JSON.parse(
+  await readFile(new URL(`../public/data/ngsl-words-${pack}.json`, import.meta.url), "utf8"),
+)))).flat();
+const officialWordNames = new Set(rankedWords.map((word) => word.word.toLowerCase()));
+const STUDY_WORD_IDS = new Set([
+  ...rankedWords.map((word) => word.id),
+  ...curatedWords.filter((word) => !officialWordNames.has(word.word.toLowerCase())).map((word) => 10_000 + word.id),
+]);
+const PATTERN_IDS = new Set(corePatterns.map((pattern) => pattern.id));
+const READING_IDS = new Set(readings.map((reading) => reading.id));
 const storage = Object.fromEntries([...page.slice(page.indexOf("const STORAGE ="), page.indexOf("type StorageKey")).matchAll(/(\w+): "(wordflow-[^"]+)"/g)].map((match) => [match[1], match[2]]));
 const keys = Object.values(storage);
 const optional = [storage.readingCompleted, storage.readingLast, storage.practiceRotation, storage.readingAnswers];
@@ -62,6 +76,7 @@ function chooser() {
   const handlers = vm.runInNewContext(chooseSource, {
     backupReadRequestRef: { current: 0 }, BACKUP_MAX_BYTES: backupApi.BACKUP_MAX_BYTES,
     STORAGE_KEYS: keys, BACKUP_OPTIONAL_KEYS: optional, isLearningBackup: backupApi.isLearningBackup,
+    isBackupContentCompatible: backupApi.isBackupContentCompatible, STUDY_WORD_IDS, PATTERN_IDS, READING_IDS,
     setPendingBackup: (value) => { state.pending = value; },
     setResetProgressOpen: (value) => { state.reset = value; },
     setDiscardRequest: (value) => { state.discard = value; },

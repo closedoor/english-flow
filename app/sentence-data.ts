@@ -1,4 +1,5 @@
 import { CONTENT_REVISION, fetchJsonWithRecovery } from "./content-loader";
+import { applySentenceDisplayCorrection } from "./sentence-corrections";
 
 export type SentenceBand = "short" | "medium" | "long";
 export type SentenceItem = {
@@ -328,7 +329,8 @@ export function loadSentencePack(pack: 1 | 2 | 3) {
   if (!sentencePackCache.has(pack)) {
     sentencePackCache.set(pack, fetchSentencePack(pack).then((items) => items.map((item) => {
       const correction = SENTENCE_CORRECTIONS[item.id];
-      return correction ? { ...item, ...correction, adapted: Boolean(correction.text || correction.translation) } : item;
+      const corrected = correction ? { ...item, ...correction, adapted: Boolean(correction.text || correction.translation) } : item;
+      return applySentenceDisplayCorrection(corrected);
     })).catch((error) => {
       sentencePackCache.delete(pack);
       throw error;

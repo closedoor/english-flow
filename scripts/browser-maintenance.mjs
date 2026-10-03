@@ -2,6 +2,7 @@ import { navigate } from './browser-navigation.mjs';
 import { legacyReadingRecords, verifyReadingRemoval } from './reading-removal-checks.mjs';
 import { openSetupDetails, sentenceChoices } from './browser-disclosures.mjs';
 import { verifyLookupReturn } from './lookup-return-checks.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -53,6 +54,7 @@ async function runSentenceMaintenanceChecks(check, origin) {
     });
     const summary = (await sentenceChoices(page)).join(' ');
     if (!summary.includes('看中文说英文') || !summary.includes('短句') || !summary.includes('餐饮')) throw Error(`Practice choices changed: ${summary}`);
+    await settleLearningStorage(page);
     const stored = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), preferencesKey);
     if (JSON.stringify(stored) !== JSON.stringify(seedChoices)) throw Error(`Stored practice choices changed: ${JSON.stringify(stored)}`);
   }
@@ -94,6 +96,7 @@ async function runSentenceMaintenanceChecks(check, origin) {
     // The search cannot change the group the top Start button selects.
     await page.getByRole('button', { name: /^开始学习(?:句子)?$/, exact: true }).click();
     await page.locator('.sentence-study-card').waitFor();
+    await settleLearningStorage(page);
     const group = await page.evaluate(() => JSON.parse(localStorage.getItem('wordflow-sentence-active-session-v1')));
     for (const [key, value] of Object.entries(seedChoices)) if (group[key] !== value) throw Error(`Search changed new practice ${key}: ${group[key]}`);
     if (!group.continuous || group.sentenceIds.length <= 20) throw Error(`Continuous practice did not include the selected scope: ${group.sentenceIds.length}`);
