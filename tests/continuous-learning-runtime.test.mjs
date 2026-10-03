@@ -29,10 +29,10 @@ assert.ok(wordEffect);
 assert.ok(sentenceEffect);
 const actions = [
   "saveMastered", "saveDifficult", "saveSchedule", "saveSessionPreferences", "selectPath", "noteStudyDay", "markMastered", "addDifficult",
-  "playAutomaticWordExample", "resumeWordSession", "startSession", "startSingleWord", "finishCard", "moveCard",
+  "playAutomaticWordExample", "resumeWordSession", "startSession", "startSingleWord", "finishCard", "moveCard", "retryDifficultWords",
   "finishOpeningLearningSetup", "openLearningSetup", "returnToWordLibrary", "confirmDiscardSession",
   "markSentenceSeen", "playAutomaticSentenceExample", "beginSentenceSession", "startSentenceSession", "resumeSentenceSession",
-  "restoreSentenceSetupPreferences", "moveSentence", "finishSentenceCard",
+  "restoreSentenceSetupPreferences", "moveSentence", "finishSentenceCard", "retryDifficultSentences",
 ];
 const helpers = ["sessionPayloadMatches", "localDateKey", "cleanSentenceIds", "isSentenceBand", "isSentenceCategory", "isSentenceLearningMode", "cleanSentenceSession", "isLearnPath", "cleanActiveSession"];
 const source = compile(`${helpers.map((name) => {
@@ -90,6 +90,7 @@ function runtime(patch = {}, stored = {}) {
     Object.assign(state, { path: state.preferences.path, mode: state.preferences.mode, count: state.preferences.count });
     Object.assign(context, state);
     context.current = state.sessionWords[state.index];
+    context.difficultSet = new Set(state.difficult);
     context.sentenceSessionItems = state.sentenceSessionIds.map((id) => context.sentenceItemById.get(id)).filter(Boolean);
     context.safeSentenceIndex = Math.min(state.sentenceIndex, Math.max(context.sentenceSessionItems.length - 1, 0));
     context.currentSentence = context.sentenceSessionItems[context.safeSentenceIndex];
@@ -280,4 +281,83 @@ test("legacy groups with missing kind, explicit one-word groups and quizzes rema
     assert.equal(app.saved.get("word"), before);
     assert.ok(app.state.mastered.includes(81));
   }
+});
+
+test("a continuous word course corrects an earlier rating, completes its final card, and resumes its exact reinforcement range", () => {
+  const wordIds = Array.from({ length: 90 }, (_, index) => index + 1);
+  const snapshot = { version: 1, continuous: true, kind: "group", updatedAt: Date.now() - 45 * 86_400_000,
+    path: "frequency", mode: "free", wordIds, index: 89,
+    ratings: { ...Object.fromEntries(wordIds.slice(0, -2).map(id => [id, "known"])), 89: "difficult" },
+    stage: "cards", quizIndex: 0, quizAnswer: "", quizFeedback: null, quizResults: [] };
+  const app = runtime({ mastered: wordIds.slice(0, -2), difficult: [89] }, { word: JSON.stringify(snapshot) });
+  app.invoke("resumeWordSession");
+  assert.deepEqual(app.snapshot("word"), snapshot, "continuous courses retain their full range and original timestamp beyond the old TTL");
+  app.invoke("moveCard", -1);
+  app.invoke("finishCard", true);
+  assert.equal(app.state.index, 89);
+  assert.equal(app.state.cardRatings[89], "known");
+  assert.ok(app.state.mastered.includes(89));
+  assert.deepEqual(plain(app.state.difficult), []);
+  app.invoke("finishCard", false);
+  assert.equal(app.state.learnStage, "result");
+  assert.equal(app.saved.has("word"), false);
+  assert.deepEqual(plain(app.state.difficult), [90]);
+  assert.equal(app.state.schedule[90].stage, 0);
+  assert.ok(app.state.schedule[90].due <= Date.now());
+  app.invoke("retryDifficultWords");
+  const retry = app.saved.get("word");
+  assert.deepEqual(app.state.sessionWords.map(word => word.id), [90]);
+  assert.equal(app.state.wordSessionKind, "group");
+  assert.deepEqual(plain(app.state.cardRatings), {});
+  app.invoke("openLearningSetup");app.invoke("startSession");
+  assert.equal(app.saved.get("word"), retry, "normal start preserves the reinforcement IDs and timestamp");
+  assert.equal(app.state.discardRequest, null);
+  app.invoke("finishCard", true);
+  assert.equal(app.saved.has("word"), false);
+  assert.deepEqual([...app.state.mastered].sort((a, b) => a - b), wordIds);
+  assert.deepEqual(plain(app.state.difficult), []);
+});
+
+for (const mode of ["bilingual", "speak"]) test(`the final ${mode} sentence rating completes and reinforcement preserves its group identity`, () => {
+  const sentenceIds = Array.from({ length: 90 }, (_, index) => index + 1);
+  const snapshot = { version: 1, continuous: true, kind: "group", updatedAt: Date.now() - 45 * 86_400_000,
+    band: "short", category: "all", count: 10, mode, sentenceIds, index: 89,
+    ratings: { ...Object.fromEntries(sentenceIds.slice(0, -2).map(id => [id, "known"])), 89: "difficult" } };
+  const app = runtime({ tab: "sentences", sentenceMode: mode, sentenceSessionIds: sentenceIds,
+    sentenceMastered: sentenceIds.slice(0, -2), sentenceDifficult: [89], sentenceSeen: sentenceIds.slice(0, -1) }, { sentence: JSON.stringify(snapshot) });
+  app.invoke("resumeSentenceSession");assert.deepEqual(app.snapshot("sentence"), snapshot);
+  app.invoke("moveSentence", -1);app.invoke("finishSentenceCard", true);
+  assert.equal(app.state.sentenceIndex, 89);assert.equal(app.state.sentenceRatings[89], "known");
+  assert.deepEqual(plain(app.state.sentenceDifficult), []);
+  assert.equal(app.state.sentenceTranslationOpen, false);
+  app.invoke("finishSentenceCard", false);
+  assert.equal(app.state.sentenceStage, "result");assert.equal(app.saved.has("sentence"), false);
+  assert.deepEqual(plain(app.state.sentenceDifficult), [90]);
+  app.invoke("retryDifficultSentences");
+  const retry = app.saved.get("sentence");
+  assert.deepEqual(plain(app.state.sentenceSessionIds), [90]);assert.equal(app.state.sentenceSessionKind, "group");
+  assert.deepEqual(plain(app.state.sentenceRatings), {});assert.equal(app.state.sentenceTranslationOpen, false);
+  app.invoke("restoreSentenceSetupPreferences");app.invoke("startSentenceSession");
+  assert.equal(app.saved.get("sentence"), retry);assert.equal(app.state.discardRequest, null);
+  app.invoke("finishSentenceCard", true);
+  assert.equal(app.saved.has("sentence"), false);assert.deepEqual(plain(app.state.sentenceDifficult), []);
+  assert.deepEqual([...app.state.sentenceMastered].sort((a, b) => a - b), sentenceIds);
+  assert.deepEqual([...app.state.sentenceSeen].sort((a, b) => a - b), sentenceIds);
+});
+
+test("rating the last card wraps to a skipped earlier word or sentence before a result can clear its course", () => {
+  const ids = Array.from({ length: 90 }, (_, index) => index + 1);
+  const ratings = Object.fromEntries(ids.slice(1, -1).map(id => [id, "known"]));
+  const words = runtime();words.invoke("startSession");words.patch({ index: 89, cardRatings: ratings });
+  words.invoke("finishCard", true);
+  assert.equal(words.state.learnStage, "cards");assert.equal(words.state.index, 0);
+  assert.equal(Object.keys(words.state.cardRatings).length, 89);assert.deepEqual(words.snapshot("word").wordIds, ids);
+  words.invoke("finishCard", false);assert.equal(words.state.learnStage, "result");assert.equal(words.saved.has("word"), false);
+  const sentences = runtime({ tab: "sentences", sentenceMode: "speak" });
+  sentences.invoke("startSentenceSession");sentences.patch({ sentenceIndex: 89, sentenceRatings: ratings, sentenceTranslationOpen: true });
+  sentences.invoke("finishSentenceCard", true);
+  assert.equal(sentences.state.sentenceStage, "cards");assert.equal(sentences.state.sentenceIndex, 0);
+  assert.equal(sentences.state.sentenceTranslationOpen, false);assert.equal(Object.keys(sentences.state.sentenceRatings).length, 89);
+  assert.deepEqual(sentences.snapshot("sentence").sentenceIds, ids);
+  sentences.invoke("finishSentenceCard", false);assert.equal(sentences.state.sentenceStage, "result");assert.equal(sentences.saved.has("sentence"), false);
 });

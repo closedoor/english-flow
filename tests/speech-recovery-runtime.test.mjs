@@ -248,3 +248,50 @@ test('a Chinese diagnostic failure emits a Chinese learning warning and preserve
   speech.testSpeech('en-US');engine.active.onerror({error:'language-unavailable'});
   assert.deepEqual(errors,['chinese-language-unavailable','language-unavailable']);
 });
+
+test('constructor failure replaces an old completion with the attempted language failure',async t=>{
+  const {speech,engine,attempts,errors}=await fixture(t,{apple:true});
+  speech.testSpeech('en-US');engine.start();engine.end();
+  globalThis.SpeechSynthesisUtterance=class{constructor(){throw new Error('speech service unavailable');}};
+  assert.equal(speech.testSpeech('zh-CN'),false);
+  assert.equal(attempts.length,1);assert.equal(engine.active,null);
+  const failed=speech.getSpeechDiagnostic();assert.equal(failed.phase,'failed');
+  assert.equal(failed.language,'zh-CN');assert.equal(failed.error,'unavailable');
+  assert.deepEqual(errors,['chinese-unavailable']);
+  speech.stopSpeech();assert.deepEqual(speech.getSpeechDiagnostic(),failed);
+});
+
+test('Mandarin construction failure after three English completions reports Mandarin without advancing',async t=>{
+  const {speech,engine,attempts,errors}=await fixture(t,{apple:true});
+  speech.startBilingualSentenceSpeech('Hello.','你好。');
+  for(let i=0;i<2;i++){engine.start();engine.end();}
+  engine.start();const lastEnglish=engine.active;
+  globalThis.SpeechSynthesisUtterance=class{constructor(){throw new Error('speech service unavailable');}};
+  engine.end();lastEnglish.onend();lastEnglish.onstart();t.mock.timers.tick(16000);
+  assert.deepEqual(attempts.map(u=>u.lang),['en-US','en-US','en-US']);
+  assert.equal(engine.active,null);assert.deepEqual(errors,['chinese-unavailable']);
+  const failed=speech.getSpeechDiagnostic();assert.equal(failed.phase,'failed');
+  assert.equal(failed.language,'zh-CN');assert.equal(failed.error,'unavailable');
+});
+
+test('Chinese native cancellation failure keeps its source and prevents overlapping replacement',async t=>{
+  const {speech,engine,attempts,errors}=await fixture(t,{apple:true});
+  speech.testSpeech('zh-CN');engine.start();const old=engine.active;
+  const cancel=engine.cancel;engine.cancel=()=>{throw new Error('speech service unavailable');};
+  assert.equal(speech.stopSpeech(),false);
+  assert.equal(engine.active,old);assert.deepEqual(errors,['chinese-unavailable']);
+  assert.equal(speech.getSpeechDiagnostic().phase,'failed');assert.equal(speech.getSpeechDiagnostic().language,'zh-CN');
+  assert.equal(speech.testSpeech('en-US'),false);assert.equal(attempts.length,1);
+  assert.deepEqual(errors,['chinese-unavailable','chinese-unavailable'],'The failed cancellation still concerns the active Chinese voice');
+  engine.cancel=cancel;assert.equal(speech.stopSpeech(),true);assert.equal(engine.active,null);
+  assert.equal(speech.testSpeech('en-US'),true);engine.start();engine.end();
+  assert.equal(attempts.at(-1).lang,'en-US');assert.equal(speech.getSpeechDiagnostic().phase,'ended');
+});
+
+test('stopping a completed empty native queue does not invoke a broken cancellation API',async t=>{
+  const {speech,engine,errors}=await fixture(t,{apple:true});
+  speech.testSpeech('zh-CN');engine.start();engine.end();const ended=speech.getSpeechDiagnostic();
+  engine.cancel=()=>{throw new Error('unexpected idle cancellation');};
+  assert.equal(speech.stopSpeech(),true);assert.equal(engine.active,null);
+  assert.deepEqual(errors,[]);assert.deepEqual(speech.getSpeechDiagnostic(),ended);
+});

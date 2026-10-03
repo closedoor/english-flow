@@ -193,6 +193,10 @@ function normalized(value: string) {
   return value.normalize("NFKC").toLowerCase().trim().replace(/[.,!?;:'’]/g, "").replace(/\s+/g, " ");
 }
 
+function preventRepeatedButtonActivation(event: { repeat: boolean; key: string; preventDefault(): void }) {
+  if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault();
+}
+
 function readingWordCount(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -1158,25 +1162,49 @@ export default function Home() {
     // A shorter new article can clamp scroll before this frame. Do not save
     // that layout movement as the learner's position in the new article.
     readingPositionReadyRef.current = false;
+    const returningWord = tab === "learn" && learnStage === "setup" && wordBrowserReturnRef.current;
+    const returningSentence = tab === "sentences" && sentenceSection === "library" && sentenceStage === "setup" && Boolean(sentenceBrowserOriginRef.current);
+    const browser = returningWord ? wordBrowserRef.current : returningSentence ? sentenceBrowserRef.current : null;
+    const returnList = browser?.querySelector<HTMLDivElement>(returningWord ? ".library-list" : ".sentence-result-list");
+    const focusAtRequest = document.activeElement;
+    const scrollAtRequest = window.scrollY;
+    const listScrollAtRequest = returnList?.scrollTop ?? 0;
+    let userInteracted = false;
+    const preserveInteraction = () => { userInteracted = true; };
+    const interactionEvents = ["pointerdown", "keydown", "wheel", "touchmove"] as const;
+    if (returningWord || returningSentence) {
+      for (const name of interactionEvents) window.addEventListener(name, preserveInteraction, { passive: true });
+    }
+    const removeInteractionListeners = () => {
+      for (const name of interactionEvents) window.removeEventListener(name, preserveInteraction);
+    };
     const frame = window.requestAnimationFrame(() => {
+      removeInteractionListeners();
+      const focused = document.activeElement;
+      const preserveCurrentPosition = userInteracted || (focused !== focusAtRequest && focused !== document.body)
+        || Math.abs(window.scrollY - scrollAtRequest) > 1 || Math.abs((returnList?.scrollTop ?? 0) - listScrollAtRequest) > 1;
       const origin = sentenceBrowserOriginRef.current;
       if (tab === "learn" && learnStage === "setup" && wordBrowserReturnRef.current) {
         wordBrowserReturnRef.current = false;
         const wordOrigin = wordBrowserOriginRef.current;
         wordBrowserOriginRef.current = null;
-        const list = wordBrowserRef.current?.querySelector<HTMLDivElement>(".library-list");
-        if (list) list.scrollTop = wordOrigin?.listScrollTop ?? 0;
-        if (wordOrigin) window.scrollTo({ top: wordOrigin.scrollY, left: 0, behavior: "auto" });
-        else wordBrowserRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-        const previousWord = wordOrigin ? wordBrowserRef.current?.querySelector<HTMLButtonElement>(`button[data-word-id="${wordOrigin.id}"]`) : null;
-        (previousWord ?? wordBrowserRef.current)?.focus({ preventScroll: true });
+        if (!preserveCurrentPosition) {
+          const list = wordBrowserRef.current?.querySelector<HTMLDivElement>(".library-list");
+          if (list) list.scrollTop = wordOrigin?.listScrollTop ?? 0;
+          if (wordOrigin) window.scrollTo({ top: wordOrigin.scrollY, left: 0, behavior: "auto" });
+          else wordBrowserRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+          const previousWord = wordOrigin ? wordBrowserRef.current?.querySelector<HTMLButtonElement>(`button[data-word-id="${wordOrigin.id}"]`) : null;
+          (previousWord ?? wordBrowserRef.current)?.focus({ preventScroll: true });
+        }
       } else if (tab === "sentences" && sentenceSection === "library" && sentenceStage === "setup" && origin) {
         sentenceBrowserOriginRef.current = null;
-        const list = sentenceBrowserRef.current?.querySelector<HTMLDivElement>(".sentence-result-list");
-        if (list) list.scrollTop = origin.listScrollTop;
-        window.scrollTo({ top: origin.scrollY, left: 0, behavior: "auto" });
-        const previousSentence = sentenceBrowserRef.current?.querySelector<HTMLButtonElement>(`button[data-sentence-id="${origin.id}"]`);
-        (previousSentence ?? sentenceBrowserRef.current)?.focus({ preventScroll: true });
+        if (!preserveCurrentPosition) {
+          const list = sentenceBrowserRef.current?.querySelector<HTMLDivElement>(".sentence-result-list");
+          if (list) list.scrollTop = origin.listScrollTop;
+          window.scrollTo({ top: origin.scrollY, left: 0, behavior: "auto" });
+          const previousSentence = sentenceBrowserRef.current?.querySelector<HTMLButtonElement>(`button[data-sentence-id="${origin.id}"]`);
+          (previousSentence ?? sentenceBrowserRef.current)?.focus({ preventScroll: true });
+        }
       } else if (tab === "read" && readingId && readingPositionRef.current.has(readingId)) {
         window.scrollTo({ top: readingPositionRef.current.get(readingId) ?? 0, left: 0, behavior: "auto" });
       } else {
@@ -1184,7 +1212,7 @@ export default function Home() {
       }
       readingPositionReadyRef.current = tab === "read" && Boolean(readingId);
     });
-    return () => window.cancelAnimationFrame(frame);
+    return () => { window.cancelAnimationFrame(frame); removeInteractionListeners(); };
   }, [hydrated, index, learnStage, patternDrillIndex, patternIndex, patternStage, quizIndex, readingId, readingLevel, readingNavigation, reviewIndex, reviewView, sentenceIndex, sentenceSection, sentenceStage, tab]);
 
   useEffect(() => {
@@ -1784,7 +1812,7 @@ export default function Home() {
     }
     if (!restored) {
       setStorageWriteError(true);
-      setBackupNotice({ kind: "error", message: "恢复没有完成，原有记录已尽量保留。请检查设备存储空间后再试。" });
+      setBackupNotice({ kind: "error", message: "恢复没有完成，当前页面的学习记录仍保留。请先导出备份，检查设备存储空间后再试。" });
       setPendingBackup(null);
       setBackupBusy(null);
       backupActionLock.current = false;
@@ -2466,7 +2494,7 @@ export default function Home() {
 
   const renderSentenceCards = () => (
     <section className="page learn-page sentence-learn-page immersive-learning" aria-label="句子学习">
-      <header className="compact-header"><button className="round-button" onClick={restoreSentenceSetupPreferences} aria-label="返回句库设置并保留进度">‹</button><div className="sentence-utility-actions"><button className="round-button sentence-slow" disabled={!currentSentence || (sentenceMode === "speak" && !sentenceTranslationOpen)} onClick={() => currentSentence && playSpeech(currentSentence.text, .68)} aria-label="慢速播放">0.7×</button>{currentSentence && <button className={`round-button sentence-bookmark${currentSentenceSaved ? " saved" : ""}`} aria-label={currentSentenceSaved ? "取消收藏" : "收藏句子"} onClick={() => setSentenceSaved((items) => currentSentenceSaved ? items.filter((id) => id !== currentSentence.id) : [...items, currentSentence.id])}>{currentSentenceSaved ? "★" : "☆"}</button>}</div></header>
+      <header className="compact-header"><button className="round-button" onClick={restoreSentenceSetupPreferences} aria-label="返回句库设置并保留进度">‹</button><div className="sentence-utility-actions"><button className="round-button sentence-slow" disabled={!currentSentence || (sentenceMode === "speak" && !sentenceTranslationOpen)} onClick={() => currentSentence && playSpeech(currentSentence.text, .68)} aria-label="慢速播放">0.7×</button>{currentSentence && <button className={`round-button sentence-bookmark${currentSentenceSaved ? " saved" : ""}`} aria-label={currentSentenceSaved ? "取消收藏" : "收藏句子"} onKeyDown={preventRepeatedButtonActivation} onClick={() => setSentenceSaved((items) => currentSentenceSaved ? items.filter((id) => id !== currentSentence.id) : [...items, currentSentence.id])}>{currentSentenceSaved ? "★" : "☆"}</button>}</div></header>
       {sentenceLoadError ? <div className="sentence-card-loading sentence-card-error" role="alert"><div><b>{networkOnline ? "这组句子暂时无法恢复" : "网络已断开，联网后会自动恢复这组句子"}</b><button onClick={() => window.location.reload()}>重新载入页面</button></div></div> : sentenceLoading || !currentSentence ? <div className="sentence-card-loading" role="status">正在恢复这组句子…</div> : <div key={currentSentence.id} className="sentence-card sentence-study-card" onTouchStart={beginCardSwipe} onTouchEnd={(event) => endCardSwipe(event, moveSentence)} onTouchCancel={() => { touchStart.current = null; }}>
         <div className={`sentence-copy${sentenceMode === "speak" ? " sentence-recall" : ""}`}>
           {sentenceMode === "bilingual" ? <><p lang="en" className="sentence-english">{currentSentence.text}</p><div className="sentence-translation" lang="zh-CN">{currentSentence.translation}</div></> : <><div className="speak-prompt"><p lang="zh-CN">{currentSentence.translation}</p></div>{sentenceTranslationOpen && <div id={`sentence-answer-${currentSentence.id}`} ref={sentenceAnswerRef} className="speak-answer" tabIndex={-1} role="status" aria-label="英文答案" aria-live="polite" aria-atomic="true"><p lang="en" className="sentence-english">{currentSentence.text}</p></div>}</>}
@@ -2475,7 +2503,7 @@ export default function Home() {
       <div className="word-card-actions sentence-card-actions" ref={wordActionsRef}>
       {currentSentence && <div className="sentence-pager" role="group" aria-label="切换句子卡片"><button disabled={safeSentenceIndex === 0} onClick={() => moveSentence(-1)}>‹ 上一句</button><button className="sentence-replay" disabled={sentenceMode === "speak" && !sentenceTranslationOpen} onClick={() => sentenceMode === "bilingual" ? replaySentenceExample() : playSpeech(currentSentence.text, .76)} aria-label={sentenceMode === "bilingual" ? "重播本句" : "播放英文"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m11 5-5 4H3v6h3l5 4V5Z" /><path d="M15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14" /></svg></button><span className="sr-only">{safeSentenceIndex + 1} / {sentenceSessionItems.length}</span><button disabled={safeSentenceIndex === sentenceSessionItems.length - 1} onClick={() => moveSentence(1)}>下一句 ›</button></div>}
       {currentSentence && sentenceMode === "speak" && !sentenceTranslationOpen && <button className="reveal-answer" aria-expanded="false" aria-controls={`sentence-answer-${currentSentence.id}`} onClick={() => setSentenceTranslationOpen(true)}>我说好了，查看英文答案</button>}
-      {currentSentence && (sentenceMode === "bilingual" || sentenceTranslationOpen) && <div className="learn-actions"><button className={`secondary-action ${currentSentenceRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishSentenceCard(false)}>{currentSentenceRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentSentenceRating === "known" ? "is-mastered" : ""}`} onClick={() => finishSentenceCard(true)}>{currentSentenceRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>}
+      {currentSentence && (sentenceMode === "bilingual" || sentenceTranslationOpen) && <div className="learn-actions"><button className={`secondary-action ${currentSentenceRating === "difficult" ? "is-difficult" : ""}`} onKeyDown={preventRepeatedButtonActivation} onClick={() => finishSentenceCard(false)}>{currentSentenceRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentSentenceRating === "known" ? "is-mastered" : ""}`} onKeyDown={preventRepeatedButtonActivation} onClick={() => finishSentenceCard(true)}>{currentSentenceRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>}
       </div>
     </section>
   );
@@ -2510,7 +2538,7 @@ export default function Home() {
       </div> : <div className="sentence-card-loading" role="status">正在恢复句型练习…</div>}
       {currentPattern && <div className="word-card-actions pattern-card-actions" ref={wordActionsRef}>
         <div className="pattern-drill-pager" role="group" aria-label="切换句型替换练习"><button disabled={patternDrillIndex === 0} onClick={() => movePatternDrill(-1)}>‹ 上一组</button><span>{patternDrillIndex + 1} / 3</span><button disabled={!patternAnswerOpen || patternDrillIndex === 2} onClick={() => movePatternDrill(1)}>下一组 ›</button></div>
-      {currentPattern && patternAnswerOpen && patternDrillIndex === 2 && <div className="learn-actions"><button className={`secondary-action ${currentPatternRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishPattern(false)}>{currentPatternRating === "difficult" ? "✓ 继续练习" : "还需练习"}</button><button className={`primary-action ${currentPatternRating === "known" ? "is-mastered" : ""}`} onClick={() => finishPattern(true)}>{currentPatternRating === "known" ? "✓ 已掌握" : "掌握句型"}</button></div>}
+      {currentPattern && patternAnswerOpen && patternDrillIndex === 2 && <div className="learn-actions"><button className={`secondary-action ${currentPatternRating === "difficult" ? "is-difficult" : ""}`} onKeyDown={preventRepeatedButtonActivation} onClick={() => finishPattern(false)}>{currentPatternRating === "difficult" ? "✓ 继续练习" : "还需练习"}</button><button className={`primary-action ${currentPatternRating === "known" ? "is-mastered" : ""}`} onKeyDown={preventRepeatedButtonActivation} onClick={() => finishPattern(true)}>{currentPatternRating === "known" ? "✓ 已掌握" : "掌握句型"}</button></div>}
       </div>}
     </section>
   );
@@ -2609,7 +2637,7 @@ export default function Home() {
       </div>
       <div className="word-card-actions" ref={wordActionsRef}>
       <div className="sentence-pager" role="group" aria-label="切换词卡"><button disabled={index === 0} onClick={() => moveCard(-1)}>‹ 上一张</button><span className="sr-only">{index + 1} / {sessionWords.length}</span><button disabled={index === sessionWords.length - 1} onClick={() => moveCard(1)}>下一张 ›</button></div>
-      <div className="learn-actions"><button className={`secondary-action ${currentCardRating === "difficult" ? "is-difficult" : ""}`} onClick={() => finishCard(false)}>{currentCardRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentCardRating === "known" ? "is-mastered" : ""}`} onClick={() => finishCard(true)}>{currentCardRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>
+      <div className="learn-actions"><button className={`secondary-action ${currentCardRating === "difficult" ? "is-difficult" : ""}`} onKeyDown={preventRepeatedButtonActivation} onClick={() => finishCard(false)}>{currentCardRating === "difficult" ? "✓ 还不熟悉" : "还不熟悉"}</button><button className={`primary-action ${currentCardRating === "known" ? "is-mastered" : ""}`} onKeyDown={preventRepeatedButtonActivation} onClick={() => finishCard(true)}>{currentCardRating === "known" ? "✓ 已学会" : "我学会了"}</button></div>
       </div>
 
     </section>
@@ -2699,8 +2727,8 @@ export default function Home() {
         {answerOpen ? <div id={`review-answer-${reviewWord.id}`} ref={reviewAnswerRef} className="review-answer" tabIndex={-1} role="status" aria-live="polite"><strong>{reviewWord.meaning}</strong><div className="mini-example"><p lang="en">{highlightedExample(reviewWord)}</p><small>{reviewWord.translation}</small></div></div> : <button className="review-reveal" aria-expanded="false" aria-controls={`review-answer-${reviewWord.id}`} onClick={() => revealReviewAnswer(reviewWord.id)}>显示答案</button>}
         <div className="review-pager" role="group" aria-label="切换复习词"><button aria-label="上一个复习词" disabled={safeReviewIndex === 0} onClick={() => { setReviewIndex(safeReviewIndex - 1); setReviewRevealedWordId(null); }}>‹</button><span>{safeReviewIndex + 1} / {reviewWords.length}</span><button aria-label="下一个复习词" disabled={safeReviewIndex === reviewWords.length - 1} onClick={() => { setReviewIndex(safeReviewIndex + 1); setReviewRevealedWordId(null); }}>›</button></div>
       </div> : <div className="empty-state"><span>✓</span><h2 ref={reviewHeadingRef} tabIndex={-1}>{reviewView === "due" ? (nextReviewDue !== null ? "暂时没有到期的词" : hasWordStudyHistory ? "当前没有待复习的词" : "还没有需要复习的词") : "生词本还是空的"}</h2><p>{reviewView === "due" ? (nextReviewDue !== null ? <>下次复习<strong className="next-review-time">{formatReviewDue(nextReviewDue, todayKey)}</strong>到时会自动出现在这里，也可以先去学习新词。</> : hasWordStudyHistory ? "继续学习新词，系统会安排下一次复习。" : "先学习单词并标记掌握程度，系统会按记忆规律安排复习。") : "标记“还不熟悉”的词会出现在这里。"}</p><button onClick={() => openLearningSetup()}>去学习新词</button></div>}
-      {reviewWord && answerOpen && reviewView === "due" && <div className="rating-grid" role="group" aria-label="评价记忆程度"><button onClick={() => rateReview("again")}><b>忘了</b><small>10 分钟后</small></button><button onClick={() => rateReview("hard")}><b>困难</b><small>1 天后</small></button><button onClick={() => rateReview("good")}><b>记得</b><small>{reviewIntervalDays(schedule[reviewWord.id]?.stage ?? 0, "good")} 天后</small></button><button onClick={() => rateReview("easy")}><b>简单</b><small>{reviewIntervalDays(schedule[reviewWord.id]?.stage ?? 0, "easy")} 天后</small></button></div>}
-      {reviewWord && answerOpen && reviewView === "wordbook" && <button className="primary-action full-button" onClick={() => markWordbookMastered(reviewWord.id)}>这个词已经会了</button>}
+      {reviewWord && answerOpen && reviewView === "due" && <div className="rating-grid" role="group" aria-label="评价记忆程度"><button onKeyDown={preventRepeatedButtonActivation} onClick={() => rateReview("again")}><b>忘了</b><small>10 分钟后</small></button><button onKeyDown={preventRepeatedButtonActivation} onClick={() => rateReview("hard")}><b>困难</b><small>1 天后</small></button><button onKeyDown={preventRepeatedButtonActivation} onClick={() => rateReview("good")}><b>记得</b><small>{reviewIntervalDays(schedule[reviewWord.id]?.stage ?? 0, "good")} 天后</small></button><button onKeyDown={preventRepeatedButtonActivation} onClick={() => rateReview("easy")}><b>简单</b><small>{reviewIntervalDays(schedule[reviewWord.id]?.stage ?? 0, "easy")} 天后</small></button></div>}
+      {reviewWord && answerOpen && reviewView === "wordbook" && <button className="primary-action full-button" onKeyDown={preventRepeatedButtonActivation} onClick={() => markWordbookMastered(reviewWord.id)}>这个词已经会了</button>}
     </section>;
   };
 

@@ -119,7 +119,7 @@ test('a stalled offline write returns validated content once and reports unconfi
   });
 });
 
-test('stalled housekeeping cannot hide a successful saved pack or issue a false warning', async () => {
+test('saving a pack does not start another potentially stalled cache enumeration', async () => {
   const caches = fixture();
   const keys = caches.keys.bind(caches);
   let calls = 0;
@@ -129,6 +129,7 @@ test('stalled housekeeping cannot hide a successful saved pack or issue a false 
     const cache = await caches.open(cacheName);
     assert.deepEqual(await (await cache.match(url)).json(), [9,10]);
     assert.deepEqual(counts(), { requests: 1, warnings: 0 });
+    assert.equal(calls, 1);
   });
 });
 

@@ -1,6 +1,8 @@
 import { navigate, openLegacyPatterns, openLegacyWords } from './browser-navigation.mjs';
 import { legacyReadingRecords, verifyReadingRemoval } from './reading-removal-checks.mjs';
 import { openSetupDetails, selectSentenceMethod, sentenceChoices } from './browser-disclosures.mjs';
+import { verifyLookupReturn } from './lookup-return-checks.mjs';
+import { verifyKeyboardActivation } from './keyboard-activation-checks.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -708,6 +710,24 @@ for (const engine of ['chromium', 'webkit']) {
     return { persistedRotation: { word: 0, sentence: 0, pattern: 0 }, updatePreflightReached: true,
       preflightAttempts: 2, distinctRetryUrls: true, simulatedFutureVersionAndStaleHtml: true, releaseSwitchVerified: false };
   });
+
+  await verifyLookupReturn((name, body) => check(name, async page => {
+    await body(page);
+    assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'), expected);
+    await nav(page, '进度');
+    assert.ok((await page.locator('.app-version-panel').innerText()).includes(`当前版本 ${expected.slice(0, 7)}`));
+    return { delayedReturnFrameSimulated: true, servedAndClientReleaseVerified: true };
+  }), base.href);
+
+  const releaseUrl = new URL('/', base);
+  releaseUrl.searchParams.set('ef-update', expected);
+  await verifyKeyboardActivation((name, seed, body) => check(name, async page => {
+    await body(page);
+    assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'), expected);
+    await nav(page, '进度');
+    assert.ok((await page.locator('.app-version-panel').innerText()).includes(`当前版本 ${expected.slice(0, 7)}`));
+    return { nativeKeyboardRepeatVerified: true, servedAndClientReleaseVerified: true };
+  }, seed), releaseUrl.href);
 
   await browser.close();
 }

@@ -60,10 +60,11 @@ test('failed cache enumeration still permits the old shell fallback',async()=>{
   await shell.put('/data/test.json',new Response('[7,8]')); caches.keys=async()=>{throw new Error('Enumeration failed');};
   assert.deepEqual(await run(caches,()=>fetchJsonWithRecovery(url,valid)),[7,8]);
 });
-test('invalid cached JSON and failed cleanup do not block the next valid revision',async()=>{
+test('invalid cached JSON is ignored without deleting a potentially repaired key',async()=>{
   const caches=fixture(); await olderCopy(caches); const bad=await caches.open('english-flow-content-v2');
-  await bad.put('/data/test.json?rev=v2',new Response('{broken')); bad.delete=async()=>{throw new Error('Cleanup denied');};
+  await bad.put('/data/test.json?rev=v2',new Response('{broken')); let deletions=0; bad.delete=async()=>{deletions++; throw new Error('Cleanup denied');};
   assert.deepEqual(await run(caches,()=>fetchJsonWithRecovery(url,valid)),[1,2]);
+  assert.equal(deletions,0);
 });
 test('an unreadable current cache does not block validated legacy recovery',async()=>{
   const caches=fixture(); await olderCopy(caches); const open=caches.open.bind(caches);

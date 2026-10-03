@@ -79,7 +79,8 @@ test("a corrupt current cache uses an older unversioned cache only while offline
   const value = await withBrowserGlobals({ online: false, caches, fetch: async () => { throw new Error("offline"); } },
     () => fetchJsonWithRecovery(url, validArray));
   assert.deepEqual(value, [7, 8]);
-  assert.equal(await current.match(url), undefined);
+  // Invalid content is ignored, without deleting a key another tab may repair.
+  assert.equal(await (await current.match(url)).text(), "{broken");
 });
 
 test("an offline upgrade can read the versioned key left by the v19 content cache", { concurrency: false }, async () => {
@@ -128,7 +129,7 @@ test("an online upgrade replaces older content instead of pinning the stale cach
   assert.deepEqual(await (await current.match(url)).json(), [3, 4]);
 });
 
-test("committing one upgraded pack removes only that pack from older content caches", { concurrency: false }, async () => {
+test("committing an upgraded pack preserves other revisions for still-open pages", { concurrency: false }, async () => {
   const caches = cacheStorage();
   const previous = await caches.open("english-flow-content-v19");
   await previous.put("/data/test.json?rev=v19", new Response("[1,2]"));
@@ -141,12 +142,12 @@ test("committing one upgraded pack removes only that pack from older content cac
   }, () => fetchJsonWithRecovery(currentUrl("/data/test.json"), validArray));
 
   assert.deepEqual(value, [3, 4]);
-  assert.equal(await previous.match("/data/test.json?rev=v19"), undefined);
+  assert.deepEqual(await (await previous.match("/data/test.json?rev=v19")).json(), [1, 2]);
   assert.deepEqual(await (await previous.match("/data/other.json?rev=v19")).json(), [7, 8]);
   assert.ok(caches.stores.has("english-flow-content-v19"));
 });
 
-test("successful caching does not show a false offline warning when legacy cleanup fails", { concurrency: false }, async () => {
+test("successful caching does not enumerate other revisions again for cleanup", { concurrency: false }, async () => {
   const caches = cacheStorage();
   let keyReads = 0;
   const originalKeys = caches.keys.bind(caches);
@@ -169,6 +170,7 @@ test("successful caching does not show a false offline warning when legacy clean
 
   assert.deepEqual(value, [31, 32]);
   assert.equal(warnings, 0);
+  assert.equal(keyReads, 1);
   const current = await caches.open(CURRENT_CACHE);
   assert.deepEqual(await (await current.match(url)).json(), [31, 32]);
 });

@@ -58,6 +58,7 @@ function harness(patch = {}) {
     ...patch,
   };
   const frames = new Map();
+  const listeners = new Map();
   const scrollCalls = [];
   const focusCalls = [];
   const writes = [];
@@ -66,6 +67,8 @@ function harness(patch = {}) {
     scrollY: 0,
     requestAnimationFrame(callback) { frames.set(++nextFrame, callback); return nextFrame; },
     cancelAnimationFrame(id) { frames.delete(id); },
+    addEventListener(name, callback) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(callback); },
+    removeEventListener(name, callback) { listeners.get(name)?.delete(callback); },
     scrollTo(options) { window.scrollY = options.top; scrollCalls.push({ ...options }); },
   };
   const buttons = new Map(items.map((item) => [item.id, {

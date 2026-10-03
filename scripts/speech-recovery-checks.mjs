@@ -17,16 +17,16 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
     async function check(name,action){
       const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,serviceWorkers:local?'block':'allow'});
       await context.addInitScript(()=>{
-        const state={attempts:[],started:[],active:null,gesture:false,lateCancel:false,drop:false,failVoices:[],voices:[],cancels:0,apple:false,stallNext:0,failAll:null,
+        const state={attempts:[],started:[],active:null,gesture:false,lateCancel:false,drop:false,failVoices:[],voices:[],cancels:0,apple:false,stallNext:0,failAll:null,constructorFault:false,cancelFault:false,
           end(){const u=this.active;this.active=null;synth.pending=false;synth.speaking=false;u?.onend?.();}};
         window.__speechRecovery=state;
         // Only voice-route selection is simulated here. Both rendering engines
         // and real DOM gestures remain unchanged; this is not native iOS audio.
         Object.defineProperty(navigator,'userAgent',{configurable:true,get:()=>state.apple?'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)':'English Flow isolated speech fixture'});
         document.addEventListener('click',()=>state.gesture=true,true);window.addEventListener('click',()=>state.gesture=false);
-        Object.defineProperty(window,'SpeechSynthesisUtterance',{configurable:true,value:class{constructor(text){this.text=text;}}});
+        Object.defineProperty(window,'SpeechSynthesisUtterance',{configurable:true,value:class{constructor(text){if(state.constructorFault)throw Error('injected native construction failure');this.text=text;}}});
         const synth={paused:false,pending:false,speaking:false,getVoices(){return state.voices;},resume(){this.paused=false;},
-          cancel(){state.cancels++;state.active=null;this.pending=false;this.speaking=false;
+          cancel(){state.cancels++;if(state.cancelFault)throw Error('injected native cancellation failure');state.active=null;this.pending=false;this.speaking=false;
             if(state.lateCancel)setTimeout(()=>{state.active=null;this.pending=false;this.speaking=false;},0);},
           speak(u){state.attempts.push({text:u.text,lang:u.lang,voice:u.voice?.name,gesture:state.gesture});
             if(state.failAll){u.onerror?.({error:state.failAll});return;}
@@ -233,6 +233,39 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
         assert.equal(await page.evaluate(()=>JSON.stringify(Object.entries(localStorage))),before,'Checking another voice must not change learning records');
       });
     }
+    await check('voice-check-native-API-exceptions-report-failure-without-false-stop-or-overlap',async page=>{
+      await page.evaluate(()=>window.__speechRecovery.apple=true);
+      await page.locator('.home-settings-entry').click();await page.locator('.speech-check summary').click();
+      const before=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage)));
+      await page.getByRole('button',{name:'试听英文',exact:true}).click();
+      await page.waitForFunction(()=>window.__speechRecovery.started.length===1);
+      await page.evaluate(()=>window.__speechRecovery.end());await waitForDiagnostic(page,'系统报告朗读结束');
+      await page.evaluate(()=>window.__speechRecovery.constructorFault=true);
+      await page.getByRole('button',{name:'试听中文',exact:true}).click();
+      await waitForDiagnostic(page,'中文语音未能完成');
+      await page.waitForFunction(()=>document.querySelector('.speech-warning')?.textContent.includes('中文语音未能完成'));
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.attempts.length),1,'A failed constructor must not queue an utterance');
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.active),null);
+      await page.evaluate(()=>window.__speechRecovery.constructorFault=false);
+      await page.getByRole('button',{name:'试听中文',exact:true}).click();
+      await page.waitForFunction(()=>window.__speechRecovery.started.length===2);
+      await waitForDiagnostic(page,'系统报告已开始');
+      await page.evaluate(()=>window.__speechRecovery.cancelFault=true);
+      await page.getByRole('button',{name:'停止试听',exact:true}).click();
+      await waitForDiagnostic(page,'中文语音未能完成');
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.active!==null),true,'A failed native stop must not be reported as successful');
+      await page.getByRole('button',{name:'试听英文',exact:true}).click();
+      await waitForDiagnostic(page,'中文语音未能完成');
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.attempts.length),2,'A failed stop must prevent overlapping replacement');
+      await page.evaluate(()=>window.__speechRecovery.cancelFault=false);
+      await page.getByRole('button',{name:'停止试听',exact:true}).click();
+      await page.waitForFunction(()=>window.__speechRecovery.active===null);await waitForDiagnostic(page,'点下面的按钮试听');
+      await page.getByRole('button',{name:'试听英文',exact:true}).click();
+      await page.waitForFunction(()=>window.__speechRecovery.started.length===3);
+      assert.equal(await page.evaluate(()=>window.__speechRecovery.started.at(-1).lang),'en-US');
+      await page.evaluate(()=>window.__speechRecovery.end());await waitForDiagnostic(page,'系统报告朗读结束');
+      assert.equal(await page.evaluate(()=>JSON.stringify(Object.entries(localStorage))),before,'System API exceptions and retries must not change learning records');
+    });
     await browser.close();
   }
   const failed=results.filter(r=>r.status==='FAIL').length;

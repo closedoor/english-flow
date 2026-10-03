@@ -53,6 +53,7 @@ function harness(patch = {}) {
   const next = focus('next');
   const window = {
     innerHeight: state.height,
+    scrollY: 0,
     requestAnimationFrame(callback) { frames.set(++frameId, callback); return frameId; },
     cancelAnimationFrame(id) { frames.delete(id); },
     addEventListener(name, callback) { listeners.set(name, callback); },
@@ -70,7 +71,7 @@ function harness(patch = {}) {
     return state.toastBounds ? { getBoundingClientRect: () => ({ ...state.toastBounds }) } : null;
   } });
   const context = vm.createContext({
-    ...state, window,
+    ...state, window, document: { activeElement: null, body: {} },
     quizFeedbackRef: { current: feedback }, quizInputRef: { current: input }, quizNextRef: { current: next },
     quizActionsRef: { current: { getBoundingClientRect: () => ({ top: state.actionsTop }) } },
     statusToastRef: toastRef,

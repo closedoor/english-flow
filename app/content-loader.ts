@@ -51,7 +51,8 @@ async function currentCachedJson<T>(url: string, validate: JsonValidator<T>) {
       try {
         return await parseValidatedJson(saved.clone(), validate);
       } catch {
-        await cache.delete(url);
+        // Another tab can replace this captured invalid response before its
+        // read finishes. Ignore it; a valid network write replaces this key.
       }
     }
   } catch {
@@ -63,61 +64,35 @@ async function currentCachedJson<T>(url: string, validate: JsonValidator<T>) {
 async function legacyCachedJson<T>(url: string, validate: JsonValidator<T>) {
   if (typeof caches === "undefined") return null;
   const unversionedUrl = url.replace(/[?#].*$/, "");
-  let cacheNames: string[] = [];
-  try {
-    cacheNames = typeof caches.keys === "function" ? await caches.keys() : [];
-  } catch {
-    // The old shell fallback can still be readable when enumeration fails.
-  }
-  const olderContentCaches = cacheNames
-    .filter((name) => name.startsWith(CONTENT_CACHE_PREFIX) && name !== CONTENT_CACHE_NAME)
-    .reverse();
-  for (const cacheName of olderContentCaches) {
-    const revision = cacheRevision(cacheName);
-    let cache: Cache;
-    try {
-      cache = await caches.open(cacheName);
-    } catch {
-      // A single damaged or unavailable cache must not hide other revisions.
-      continue;
-    }
-    for (const candidate of new Set([revision ? `${unversionedUrl}?rev=${revision}` : "", unversionedUrl])) {
-      if (!candidate) continue;
-      let saved: Response | undefined;
-      try {
-        saved = await cache.match(candidate);
-      } catch {
-        continue;
-      }
-      if (!saved) continue;
-      try {
-        return await parseValidatedJson(saved.clone(), validate);
-      } catch {
-        await cache.delete(candidate).catch(() => false);
-      }
-    }
-  }
-  // Older shell workers cached data without a dedicated content-cache name.
-  try {
+  // Read the old unversioned shell independently: stalled enumeration must
+  // not hide it. Both branches start together and share the same time budget.
+  const oldShell = withinCacheDeadline((async () => {
     const saved = await caches.match(unversionedUrl);
-    if (saved) return await parseValidatedJson(saved.clone(), validate);
-  } catch {
-    // Cache Storage may be unavailable; the network path can still work.
-  }
-  return null;
-}
+    return saved ? await parseValidatedJson(saved.clone(), validate) : null;
+  })()).catch(() => null);
 
-async function removeLegacyCopies(url: string) {
-  if (typeof caches === "undefined" || typeof caches.keys !== "function") return;
-  const unversionedUrl = url.replace(/[?#].*$/, "");
-  const cacheNames = await caches.keys();
-  await Promise.all(cacheNames.filter((name) => name.startsWith(CONTENT_CACHE_PREFIX) && name !== CONTENT_CACHE_NAME).map(async (cacheName) => {
-    const revision = cacheRevision(cacheName);
-    const cache = await caches.open(cacheName);
-    await Promise.all([...new Set([revision ? `${unversionedUrl}?rev=${revision}` : "", unversionedUrl])]
-      .map((candidate) => candidate ? cache.delete(candidate).catch(() => false) : Promise.resolve(false)));
-    if (typeof cache.keys === "function" && !(await cache.keys()).length) await caches.delete(cacheName).catch(() => false);
-  }));
+  const content = await withinCacheDeadline((async () => {
+    const cacheNames = typeof caches.keys === "function" ? await caches.keys() : [];
+    const olderContentCaches = cacheNames
+      .filter((name) => name.startsWith(CONTENT_CACHE_PREFIX) && name !== CONTENT_CACHE_NAME)
+      .reverse();
+    // Start the most recently created revision first. Each revision and each
+    // key is independent, so one stalled disk read cannot hide a usable copy.
+    return Promise.any(olderContentCaches.map(async (cacheName) => {
+      const revision = cacheRevision(cacheName);
+      const cache = await caches.open(cacheName);
+      const candidates = new Set(revision ? [`${unversionedUrl}?rev=${revision}`, unversionedUrl] : [unversionedUrl]);
+      return Promise.any([...candidates].map(async (candidate) => {
+        const saved = await cache.match(candidate);
+        if (!saved) throw new Error("Cached learning content is unavailable");
+        // Reject invalid snapshots without deleting a key another page may
+        // already have repaired. Promise.any observes late failures as well.
+        return parseValidatedJson(saved.clone(), validate);
+      }));
+    }));
+  })()).catch(() => null);
+  // Healthy dedicated revisions retain priority over the older shell copy.
+  return content !== null ? content : await oldShell;
 }
 
 async function rememberResponse(url: string, response: Response) {
@@ -131,13 +106,13 @@ async function rememberResponse(url: string, response: Response) {
       await cache.put(url, response);
     })());
   } catch {
-    // Network content remains usable for this visit, but its offline save could not be confirmed in time. Read and cleanup timeouts must not trigger this warning.
+    // Network content remains usable for this visit, but its offline save could not be confirmed in time. Read timeouts must not trigger this warning.
     window.dispatchEvent?.(new Event(OFFLINE_CACHE_ERROR_EVENT));
     return false;
   }
-  // Removing older duplicates is only storage housekeeping. A cleanup failure
-  // must not claim that the newly written offline copy was lost.
-  await withinCacheDeadline(removeLegacyCopies(url)).catch(() => undefined);
+  // Content fingerprints have no release ordering. Another revision can
+  // belong to a newer or still-open page, including an older page recreating
+  // its cache after an upgrade. Only maintain this page's own revision.
   return true;
 }
 
@@ -147,7 +122,7 @@ export async function fetchJsonWithRecovery<T>(url: string, validate: JsonValida
 
   // Keep a validated previous revision ready. On captive or unreachable Wi-Fi,
   // one short refresh attempt is enough before showing the usable offline copy.
-  const fallback = await withinCacheDeadline(legacyCachedJson(url, validate)).catch(() => null);
+  const fallback = await legacyCachedJson(url, validate);
   const retryDelays = fallback === null ? RETRY_DELAYS : [0] as const;
 
   let lastError: unknown = new Error("Learning content is unavailable");

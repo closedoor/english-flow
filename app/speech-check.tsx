@@ -41,7 +41,7 @@ export default function SpeechCheck() {
       </div>
       <div className="speech-check-actions">
         <button onClick={() => play(result.language === "zh-CN" ? "zh-CN" : "en-US", true)}>换个声音试播</button>
-        <button onClick={() => { stopSpeech(); setResult({ ...getSpeechDiagnostic(), phase: "idle" }); }}>停止试听</button>
+        <button onClick={() => { if (stopSpeech()) setResult({ ...getSpeechDiagnostic(), phase: "idle" }); }}>停止试听</button>
       </div>
       <p role="status" aria-live="polite">{message}</p>
       <p>{result.language === "zh-CN" ? "中文" : "英文"} · {result.voice}{result.error ? ` · 错误：${result.error}` : ""}{!isSpeechSupported() ? " · 浏览器不支持朗读" : ""}</p>

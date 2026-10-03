@@ -1,5 +1,23 @@
 # English Flow testing
 
+## Comprehensive edge-case audit
+
+`browser-learning-boundaries.mjs` uses isolated records with all 2,809 word IDs or a complete 1,000-item sentence band. It checks continuous snapshots older than 30 days, final-card corrections and completion, wrapping to unrated cards, difficult-only retry and pause/resume, recall answer protection, final review/bookmark undo, and legacy final-exam retries. Keyboard repetition checks distinguish a held key from separate intentional activations.
+
+`lookup-return-focus-runtime.test.mjs` executes the actual navigation effect. The shared `lookup-return-checks.mjs` browser scenarios use visible return controls and delay the return frame, covering normal focus restoration, newly entered input, real wheel scrolling and cancellation by later navigation. A user's later action takes precedence over an old return callback, with unchanged learning records. This frame scheduling is simulated and does not verify a physical iPhone keyboard.
+
+The content-loader multiversion runtime scenarios model independent old/new pages sharing origin Cache Storage, using the real loader and response snapshots. Delayed old writes, an old page recreating an evicted cache, and delayed corrupt reads must never delete another page's newly saved valid content. Only the current revision is written; invalid cached responses are ignored and can be replaced by validated network content. Content fingerprints have no release ordering, so page-level cleanup no longer deletes other revisions. Unchanged content fingerprints reuse the same namespace across code releases; changed fingerprints retain their separate caches until browser eviction.
+
+Speech API exception regressions explicitly inject constructor and cancellation failures. Diagnostics keep the attempted language and failure status, and a failed native stop does not claim that the engine is idle. Normal three-repeat and three-English/one-Chinese behavior remains separately covered; these scenarios do not verify physical sound.
+
+Actual-worker lifecycle regressions interleave one release's activation with the next release's installation, then check offline navigation. Activation cleanup leaves another worker's staging namespace intact. A missing stage refuses cleanup/claim; promotion copies resources before publishing the document, so a copy failure cannot expose a partial new shell. Failure preserves the previous complete shell and an existing same-revision document. The build-artifact and real browser offline-shell checks remain part of full CI.
+
+The backup action regression injects persistent write refusal that also blocks rollback. It verifies that every original in-memory record remains exportable in a valid 19-field version-1 rescue backup, and that even dismissing a warning cannot permit a version reload to lose those records. A platform that refuses rollback cannot guarantee atomic disk restoration; the failed-restore message explicitly directs the user to export the retained page records first.
+
+Legacy-cache recovery additionally isolates stalled namespace enumeration, a stalled newer revision and a stalled versioned candidate from other valid offline copies. All revision/candidate reads share the original two-second budget; old-shell lookup starts independently. A validated available fallback remains usable without network requests, promotion or cache deletion. Healthy immediate reads retain the existing most-recent-created-revision preference; under differing disk delays, a faster valid compatible fallback can win.
+
+The formal-site maintenance verifier repeats the shared delayed lookup-return and native held-key checks in fresh profiles, checking the served and executing release identity. The learning-only browser fixtures remain restricted to local origins.
+
 ## Third-perspective daily-use audit
 
 Sentence lookups now carry an optional session kind, so the normal start button can distinguish a looked-up sentence from a paused course. Existing untagged snapshots retain their previous resume behavior, including single-item legacy practice. Behavior regressions cover the normal start after lookup, explicit resume, reload and backup compatibility, with unchanged storage keys and format version.

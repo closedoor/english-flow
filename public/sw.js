@@ -246,15 +246,31 @@ async function installCompleteShell() {
 
 async function promoteStagedShell() {
   const cacheNames = await caches.keys();
-  if (!cacheNames.includes(STAGING_CACHE)) return;
+  if (!cacheNames.includes(STAGING_CACHE)) throw new Error("Staged app shell is missing");
   const staging = await caches.open(STAGING_CACHE);
   const requests = await staging.keys();
   if (!requests.length) throw new Error("Staged app shell is empty");
+  const documentRequest = requests.find((request) => new URL(request.url).pathname === "/" && !new URL(request.url).search);
+  const documentResponse = documentRequest && await staging.match(documentRequest);
+  if (!documentResponse) throw new Error("Staged app shell document is missing");
+  await validateAppDocument(documentRequest, documentResponse, BUILD_COMMIT);
   const target = await caches.open(CACHE);
-  for (const request of requests) {
-    const response = await staging.match(request);
-    if (!response) throw new Error(`Missing staged response for ${request.url}`);
-    await target.put(request, response);
+  try {
+    // Publish the document last. A failed copy must leave offline navigation
+    // on the previous complete shell, never a new page with missing chunks.
+    for (const request of requests.filter((request) => request !== documentRequest)) {
+      const response = await staging.match(request);
+      if (!response) throw new Error(`Missing staged response for ${request.url}`);
+      await target.put(request, response);
+    }
+    await target.put(documentRequest, documentResponse);
+  } catch (error) {
+    // Keep an existing same-revision cache intact: this attempt has not
+    // published its document. Remove only a target created by this promotion.
+    if (!cacheNames.includes(CACHE)) {
+      try { await caches.delete(CACHE); } catch { /* No incomplete document was published. */ }
+    }
+    throw error;
   }
   await caches.delete(STAGING_CACHE);
 }
@@ -262,7 +278,9 @@ async function promoteStagedShell() {
 async function deleteOldShellCaches() {
   try {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE).map((key) => caches.delete(key)));
+    // A newer worker can install while this worker is still activating. Its
+    // staging cache is incomplete and belongs to that separate install job.
+    await Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE && !key.endsWith("-staging")).map((key) => caches.delete(key)));
   } catch {
     // Keeping an older shell is safer than blocking activation.
   }

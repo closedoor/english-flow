@@ -169,7 +169,7 @@ export function stopSpeech() {
     } catch {
       stopped = false;
       reportSpeech("failed", undefined, "unavailable");
-      emitSpeechError("unavailable");
+      emitSpeechError(diagnostic.language === "zh-CN" ? "chinese-unavailable" : "unavailable");
     }
   }
   // A deliberate stop cancels preparation and speech, so a reopened diagnostic
@@ -190,6 +190,8 @@ function queueUtterance(run: number, text: string, rate: number, language: strin
   try {
     utterance = createUtterance(text, rate, language, usePlatformVoice);
   } catch {
+    diagnostic = { ...diagnostic, language };
+    reportSpeech("failed", undefined, "unavailable");
     onFailure("unavailable");
     return false;
   }

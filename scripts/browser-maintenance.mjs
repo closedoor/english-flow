@@ -1,6 +1,7 @@
 import { navigate } from './browser-navigation.mjs';
 import { legacyReadingRecords, verifyReadingRemoval } from './reading-removal-checks.mjs';
 import { openSetupDetails, sentenceChoices } from './browser-disclosures.mjs';
+import { verifyLookupReturn } from './lookup-return-checks.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -235,6 +236,7 @@ for (const engine of ['chromium', 'webkit']) {
   });
 
   await runSentenceMaintenanceChecks(check, origin);
+  await verifyLookupReturn(check, origin);
 
   await browser.close();
 }

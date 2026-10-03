@@ -25,6 +25,7 @@ const exportCode = compile(`${constants}\n${extract("const exportLearningBackup 
 const resetSource = extract("const resetLearningProgress =", "const addDifficult =");
 const resetCode = compile(`${constants}\n${resetSource}\nresetLearningProgress();`);
 const reloadCode = compile(`${constants}\n${extract("const canReloadForUpdate =", "const exportLearningBackup =")}\ncanReloadForUpdate();`);
+const restoreCode = compile(`${constants}\n${extract("const restoreLearningBackup =", "const resetLearningProgress =")}\nrestoreLearningBackup();`);
 
 function currentSession() {
   return {
@@ -183,4 +184,64 @@ test("successful reset persists the zero rotation and permits a safe version upd
     [STORAGE.practiceRotation]: current.practiceRotationRef.current,
   }), true);
   assert.equal(reloadAllowed(), true, "the full record guard must accept the completed reset");
+});
+
+test("persistent restore and rollback failures retain the full in-memory rescue backup and block an unsafe reload", async () => {
+  const current = currentSession();
+  const originalMemory = structuredClone(current);
+  const lock = { current: false };
+  let exported;
+  let notice;
+  let busy;
+  const capture = async () => {
+    await vm.runInNewContext(exportCode, {
+      ...current, ...backup, File, window: {},
+      navigator: { canShare: () => true, share: async ({ files }) => { exported = JSON.parse(await files[0].text()); } },
+      backupActionLock: lock, setBackupBusy: (value) => { busy = value; },
+      setBackupNotice: (value) => { notice = value; },
+    });
+    return structuredClone(exported);
+  };
+  const original = await capture();
+  const stored = new Map(Object.entries(original.data).map(([key, value]) => [key, JSON.stringify(value)]));
+  const incoming = structuredClone(original);
+  incoming.data[STORAGE.mastered] = [];
+  incoming.data[STORAGE.difficult] = [7, 999];
+  let writes = 0;
+  let pending = incoming;
+  let warning = false;
+  const storage = {
+    getItem: (key) => stored.get(key) ?? null,
+    setItem: (key, value) => {
+      writes += 1;
+      if (writes > 1) throw new Error("Simulated persistent storage refusal, including rollback");
+      stored.set(key, value);
+    },
+    removeItem: () => { throw new Error("Unexpected deletion"); },
+  };
+  vm.runInNewContext(restoreCode, {
+    ...backup, pendingBackup: pending, backupActionLock: lock,
+    window: { localStorage: storage, location: { reload() { assert.fail("A failed restore must not reload"); } } },
+    setStorageWriteError: (value) => { warning = value; },
+    setBackupNotice: (value) => { notice = value; },
+    setBackupBusy: (value) => { busy = value; },
+    setPendingBackup: (value) => { pending = value; },
+  });
+  assert.equal(warning, true);
+  assert.equal(pending, null);
+  assert.equal(busy, null);
+  assert.equal(lock.current, false);
+  assert.equal(notice.kind, "error");
+  assert.match(notice.message, /当前页面.*仍保留.*先导出备份/);
+  assert.deepEqual(JSON.parse(stored.get(STORAGE.mastered)), [], "Persistent disk refusal can prevent complete rollback");
+  assert.deepEqual(current, originalMemory, "Restore failure leaves every original in-memory field and paused position untouched");
+  assert.equal(vm.runInNewContext(reloadCode, {
+    ...current, ...version, hydrated: true, tab: "progress", hasOpenDialog: false,
+    backupBusy: null, externalUpdateDetected: false, storageWriteError: false,
+    window: { localStorage: storage },
+  }), false, "Dismissing the warning cannot permit losing the rescue snapshot");
+  const rescue = await capture();
+  assert.deepEqual(rescue.data, original.data);
+  assert.equal(Object.keys(rescue.data).length, 19);
+  assert.equal(backup.isLearningBackup(rescue, keys), true);
 });
