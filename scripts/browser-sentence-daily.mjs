@@ -80,7 +80,16 @@ for(const engine of ['chromium','webkit']){
  });
  await check('unmarked-legacy-one-item-practice-retains-normal-and-explicit-continuation',async page=>{
   await page.goto(origin,{waitUntil:'domcontentloaded'});await page.locator('.sentence-study-card').waitFor();const before=await stored(page);
-  for(const explicit of [false,true]){await exit(page);if(explicit)await resumePausedSentence(page);else await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();assert.deepEqual(await stored(page),before);assert.equal((await stored(page)).kind,undefined);assert.equal(await page.locator('#discard-title').count(),0);}
+  for(const explicit of [false,true]){
+   await exit(page);
+   if(explicit)await resumePausedSentence(page);
+   else{
+    // Only the active session is seeded, so select its method after setup restores the default.
+    await selectSentenceMethod(page,'看中文说英文');
+    await page.getByRole('button',{name:'开始学习句子',exact:true}).click();
+   }
+   await page.locator('.sentence-study-card').waitFor();assert.deepEqual(await stored(page),before);assert.equal((await stored(page)).kind,undefined);assert.equal(await page.locator('#discard-title').count(),0);
+  }
  },{seed:{version:1,updatedAt:Date.now(),band:'short',category:'all',count:10,mode:'speak',sentenceIds:[1],index:0,ratings:{}}});
  await check('unrated-first-card-can-change-settings-without-discard-warning',async page=>{await begin(page);await exit(page);await openSetupDetails(page,'.sentence-range');await page.locator('.sentence-band-switch button').filter({hasText:'常用句'}).click();await page.waitForFunction(()=>!document.querySelector('.sentence-page .setup-start').disabled);await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();assert.equal(await page.locator('#discard-title').count(),0);const session=await stored(page);assert.equal(session.continuous,true);assert.ok(session.sentenceIds.length>20);assert.ok(session.sentenceIds.every(id=>id>1000&&id<=2000));});
  await check('real-progress-still-protected-for-a-changed-learning-range',async page=>{await begin(page);await page.locator('.learn-actions .secondary-action').click();await exit(page);const before=await stored(page);await openSetupDetails(page,'.sentence-range');await page.locator('.sentence-band-switch button').filter({hasText:'常用句'}).click();await page.waitForFunction(()=>!document.querySelector('.sentence-page .setup-start').disabled);await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('#discard-title').waitFor();await page.getByRole('button',{name:'保留进度',exact:true}).click();assert.deepEqual(await stored(page),before);await resumePausedSentence(page);await page.locator('.sentence-study-card').waitFor();assert.equal((await stored(page)).index,before.index);});

@@ -6,6 +6,8 @@ Sentence lookups now carry an optional session kind, so the normal start button 
 
 The live sentence verifier repeats lookup, reload and normal start in fresh production profiles, checks the full served/client release identity and requires a continuous course after lookup. These profiles contain no user's existing records.
 
+The unit/type/lint and browser CI jobs run independently so each reports failures without waiting for the other. Both jobs must succeed for the full release validation to pass; the existing target-commit Render checks remain in the main-branch job.
+
 The new-learner review empty state describes rating individual words, matching the existing immediate review scheduling in continuous practice. The existing review availability regression retains its coverage of empty, future-due and resumed queues.
 
 Voice-check alternate playback uses the language shown in its diagnostic, including after returning Home and remounting the settings screen. Native Chinese sample failures retain their language in the global warning. Runtime checks and real-button Chromium/WebKit scenarios cover completed, stopped and failed samples, alternate voice selection and unchanged learning records. Speech callbacks remain simulated; these checks do not verify physical audio.
