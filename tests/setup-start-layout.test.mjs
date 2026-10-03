@@ -23,7 +23,7 @@ test('top setup starts retain current choices, sentence-loading guards and patte
   assert.match(word,/onClick=\{\(\) => startSession\(\)\}/);
   assert.match(word,/currentPathLabel[\s\S]*退出保存/);
   assert.doesNotMatch(word,/练习方式|每组词数|count-switch|mode-options/);
-  assert.match(sentence,/disabled=\{sentenceSelectionLoading \|\| availableCount === 0\} onClick=\{\(\) => startSentenceSession\(\)\}/);
+  assert.match(sentence,/disabled=\{sentenceSelectionLoading \|\| availableCount === 0\} aria-busy=\{sentenceSelectionLoading\} onClick=\{\(\) => startSentenceSession\(\)\}/);
   assert.match(sentence,/onClick=\{resumeSentenceSession\}/);
   assert.doesNotMatch(sentence,/每组句数|count-switch/);
   assert.match(pattern,/disabled=\{!availablePatterns.length\} onClick=\{\(\) => startPatternSession\(\)\}/);

@@ -7,11 +7,13 @@ import ts from "typescript";
 const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 const backupSource = await readFile(new URL("../app/backup-data.ts", import.meta.url), "utf8");
 const versionSource = await readFile(new URL("../app/version-utils.ts", import.meta.url), "utf8");
+const coordinatorSource = await readFile(new URL("../app/storage-coordination.ts", import.meta.url), "utf8");
 const compile = (source) => ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const backup = await import(`data:text/javascript;base64,${Buffer.from(compile(backupSource)).toString("base64")}`);
 const version = await import(`data:text/javascript;base64,${Buffer.from(compile(versionSource)).toString("base64")}`);
+const { createLearningStorageCoordinator } = await import(`data:text/javascript;base64,${Buffer.from(compile(coordinatorSource)).toString("base64")}`);
 const extract = (start, end) => {
   const from = page.indexOf(start);
   const to = page.indexOf(end, from);
@@ -87,7 +89,7 @@ test("export includes unsaved learning and paused sessions even when storage is 
   }
 });
 
-function reset({ failRemoval = false, failRotationWrite = false, blocked = false } = {}) {
+async function reset({ failRemoval = false, failRotationWrite = false, blocked = false } = {}) {
   const current = currentSession();
   const saved = {
     mastered: current.mastered, difficult: current.difficult, schedule: current.schedule,
@@ -129,29 +131,40 @@ function reset({ failRemoval = false, failRotationWrite = false, blocked = false
       const state = name[3].toLowerCase() + name.slice(4);
       current[state] = value;
     }]));
-  vm.runInNewContext(resetCode, {
+  const backupActionLock = { current: false };
+  const storageCoordinatorRef = { current: createLearningStorageCoordinator({
+    keys, initial: storage, storage: () => browserWindow.localStorage,
+    onConflict: () => assert.fail("isolated reset must not encounter another writer"),
+    onError: () => setters.setStorageWriteError(true),
+  }) };
+  await vm.runInNewContext(resetCode, {
     ...current, ...backup, ...setters, window: browserWindow,
+    backupActionLock, storageCoordinatorRef,
     words: [{ id: 1 }], count: 10,
     restoreSentenceSetupPreferences: () => calls.push(["restoreSentenceSetupPreferences"]),
     removeStoredValue: (key) => { try { storage.removeItem(key); } catch { /* old handler swallowed failures */ } },
   });
+  assert.equal(backupActionLock.current, false, "reset releases its action lock after completion or failure");
+  assert.equal(storageCoordinatorRef.current.isIdle(), true, "reset awaits all storage work");
   const reloadAllowed = () => vm.runInNewContext(reloadCode, {
     hydrated: true, tab: "progress", hasOpenDialog: false, backupBusy: null,
     externalUpdateDetected: false, storageWriteError: false,
+    storageCoordinatorRef,
     ...current, ...version, window: browserWindow,
   });
   return { stored, original, calls, current, reloadAllowed };
 }
 
-test("a failed or blocked reset keeps current progress and rolls back partial removals", () => {
+test("a failed or blocked reset keeps current progress and rolls back partial removals", async () => {
   for (const options of [{ failRemoval: true }, { failRotationWrite: true }, { blocked: true }]) {
-    const { stored, original, calls, current } = reset(options);
+    const { stored, original, calls, current } = await reset(options);
     assert.deepEqual(stored, original);
     assert.ok(calls.some(([name, value]) => name === "setStorageWriteError" && value === true));
     const notice = calls.find(([name]) => name === "setBackupNotice")?.[1];
     assert.equal(notice.kind, "error");
     assert.match(notice.message, /导出备份/);
-    assert.ok(calls.every(([name]) => ["setStorageWriteError", "setBackupNotice", "setResetProgressOpen"].includes(name)));
+    assert.ok(calls.every(([name]) => ["setStorageWriteError", "setBackupNotice", "setResetProgressOpen", "setBackupBusy"].includes(name)));
+    assert.deepEqual(calls.filter(([name]) => name === "setBackupBusy").map(([, value]) => value), ["reset", null]);
     assert.equal(current.activeSessionResumeSnapshotRef.current.index, 1);
     assert.equal(current.sentenceResumeSnapshotRef.current.index, 1);
     assert.deepEqual(current.practiceRotationRef.current, { word: 3, sentence: 4, pattern: 5 });
@@ -159,8 +172,8 @@ test("a failed or blocked reset keeps current progress and rolls back partial re
   }
 });
 
-test("successful reset clears progress and reports completion while retaining bookmarks and preferences", () => {
-  const { stored, original, calls, current } = reset();
+test("successful reset clears progress and reports completion while retaining bookmarks and preferences", async () => {
+  const { stored, original, calls, current } = await reset();
   const retained = [STORAGE.session, STORAGE.sentenceSaved, STORAGE.sentencePreferences];
   assert.deepEqual(stored, new Map([
     ...retained.map((key) => [key, original.get(key)]),
@@ -175,8 +188,8 @@ test("successful reset clears progress and reports completion while retaining bo
   assert.equal(current.practiceRotationRef.current.word, 0);
 });
 
-test("successful reset persists the zero rotation and permits a safe version update without another study group", () => {
-  const { stored, current, reloadAllowed } = reset();
+test("successful reset persists the zero rotation and permits a safe version update without another study group", async () => {
+  const { stored, current, reloadAllowed } = await reset();
   const rotation = JSON.parse(JSON.stringify(current.practiceRotationRef.current));
   assert.deepEqual(rotation, { word: 0, sentence: 0, pattern: 0 });
   assert.deepEqual(JSON.parse(stored.get(STORAGE.practiceRotation)), rotation);
@@ -219,8 +232,14 @@ test("persistent restore and rollback failures retain the full in-memory rescue 
     },
     removeItem: () => { throw new Error("Unexpected deletion"); },
   };
-  vm.runInNewContext(restoreCode, {
+  const storageCoordinatorRef = { current: createLearningStorageCoordinator({
+    keys, initial: storage, storage: () => storage,
+    onConflict: () => assert.fail("isolated restore must not encounter another writer"),
+    onError: () => { warning = true; },
+  }) };
+  await vm.runInNewContext(restoreCode, {
     ...backup, pendingBackup: pending, backupActionLock: lock,
+    storageCoordinatorRef,
     window: { localStorage: storage, location: { reload() { assert.fail("A failed restore must not reload"); } } },
     setStorageWriteError: (value) => { warning = value; },
     setBackupNotice: (value) => { notice = value; },
@@ -238,6 +257,7 @@ test("persistent restore and rollback failures retain the full in-memory rescue 
   assert.equal(vm.runInNewContext(reloadCode, {
     ...current, ...version, hydrated: true, tab: "progress", hasOpenDialog: false,
     backupBusy: null, externalUpdateDetected: false, storageWriteError: false,
+    storageCoordinatorRef,
     window: { localStorage: storage },
   }), false, "Dismissing the warning cannot permit losing the rescue snapshot");
   const rescue = await capture();

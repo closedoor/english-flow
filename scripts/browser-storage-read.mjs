@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 
 if (!process.env.PLAYWRIGHT_MODULE) throw new Error('Set PLAYWRIGHT_MODULE; see TESTING.md.');
 const playwright = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
@@ -161,10 +162,7 @@ for (const engine of ['chromium', 'webkit']) {
     assert.equal(before.transientFailures, 1, 'A single simulated read error must pause startup');
     await page.getByRole('button', { name: retryLabel, exact: true }).click();
     await page.locator('.word-card').waitFor();
-    await page.waitForFunction(keys => {
-      const writes = window.__storageReadFault.writes;
-      return [keys.mastered, keys.word, keys.sentence, keys.pattern].every(key => writes.some(write => write.key === key));
-    }, keys);
+    await settleLearningStorage(page);
     assert.equal(await page.locator('.word-heading h2').innerText(),'to','The original fifth word resumes');
     const resumed = await page.evaluate(key => JSON.parse(localStorage.getItem(key)),keys.word);
     assert.equal(resumed.index,4); assert.deepEqual(resumed.ratings,{1:'known',2:'difficult'});
@@ -173,6 +171,25 @@ for (const engine of ['chromium', 'webkit']) {
     assert.equal(after.transientFailures, 1);
     assert.deepEqual(parseRecords(after.current), parseRecords(before.original), 'All 19 records and paused sessions survive retry and real autosave');
     assert.equal(await page.getByText(errorTitle, { exact: true }).count(), 0);
+    // Unchanged restored records need no redundant setItem calls. Prove that
+    // a new real rating still autosaves after recovery instead of counting
+    // no-op writes as a prerequisite for a successful startup.
+    await page.locator('.learn-actions .primary-action').click();
+    await page.waitForFunction(keys => {
+      const session = JSON.parse(localStorage.getItem(keys.word) || 'null');
+      const mastered = JSON.parse(localStorage.getItem(keys.mastered) || '[]');
+      return session?.index === 5 && session.ratings[5] === 'known' && mastered.includes(5);
+    }, keys);
+    await settleLearningStorage(page);
+    const rated = await snapshot(page);
+    assert.equal(rated.documentId, before.documentId, 'New work is saved in the recovered document');
+    assert.deepEqual(JSON.parse(rated.current[keys.mastered]), [1, 3, 5]);
+    assert.deepEqual(JSON.parse(rated.current[keys.word]).ratings, { 1: 'known', 2: 'difficult', 5: 'known' });
+    for (const key of [keys.sentence, keys.pattern, keys.sentenceSaved, keys.sentencePreferences, keys.readingCompleted, keys.readingLast, keys.readingAnswers]) {
+      assert.equal(rated.current[key], before.original[key], `New word work preserves other records: ${key}`);
+    }
+    assert.ok(rated.writes.some(write => write.key === keys.word), 'New session progress actually reaches storage');
+    assert.ok(rated.writes.some(write => write.key === keys.mastered), 'New mastery actually reaches storage');
   });
 
   await check('persistent-storage-access-and-key-errors-never-save-defaults', 'getter', async page => {

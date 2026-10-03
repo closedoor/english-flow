@@ -102,12 +102,13 @@ function harness(patch = {}) {
   const wordBrowserOriginRef = { current: null };
   const wordBrowserReturnRef = { current: false };
   const sentenceBrowserRef = { current: browser };
+  const sentenceBrowserPresentationRef = { current: null };
   const sentenceBrowserOriginRef = { current: null };
   const sentenceSetupPreferencesRef = { current: {
     band: state.sentenceBand, category: state.sentenceCategory, count: state.sentenceCount, mode: state.sentenceMode,
   } };
   const context = vm.createContext({
-    window, document, sentenceBrowserRef, sentenceBrowserOriginRef, sentenceSetupPreferencesRef, patternSetupCategoryRef: { current: "travel" }, readingPositionRef: { current: new Map() }, readingPositionReadyRef: { current: false },
+    window, document, sentenceBrowserRef, sentenceBrowserPresentationRef, sentenceBrowserOriginRef, sentenceSetupPreferencesRef, patternSetupCategoryRef: { current: "travel" }, readingPositionRef: { current: new Map() }, readingPositionReadyRef: { current: false },
     words, wordBrowserRef, wordBrowserOriginRef, wordBrowserReturnRef,
     playAutomaticWordExample() {},
     playAutomaticSentenceExample() {},

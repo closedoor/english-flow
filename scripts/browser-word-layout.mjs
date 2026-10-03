@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { navigate } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import {pathToFileURL} from 'node:url';
 const pw=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
 const origin=process.env.BROWSER_TEST_URL||'http://127.0.0.1:4173';
@@ -92,13 +93,16 @@ for(const engine of baseline?['chromium']:['chromium','webkit']){
     assert.equal(await page.locator('.word-card').evaluate(el=>el.scrollTop),0,'A different word must start at the top of its card');
     await assertActions(page);
    }
+   await settleLearningStorage(page);
    const saved=await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1'));
    await page.getByRole('button',{name:'退出学习并保留进度',exact:true}).scrollIntoViewIfNeeded();
    await tapVisibleButton(page,'退出学习并保留进度');
    await page.getByRole('button',{name:'开始学习',exact:true}).waitFor();
+   await settleLearningStorage(page);
    assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1')),saved);
    assert.equal(await page.locator('[role="dialog"], [role="alertdialog"]').count(),0);
    await page.getByRole('button',{name:'开始学习',exact:true}).click();await page.locator('.word-card').waitFor();
+   await settleLearningStorage(page);
    assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1')),saved);
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));assert.deepEqual(errors,[]);
    results.push({engine,name:item.name,status:'PASS'});

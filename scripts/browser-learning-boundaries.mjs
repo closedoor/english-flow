@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import { navigate, openLegacyWords } from './browser-navigation.mjs';
 import { verifyKeyboardActivation } from './keyboard-activation-checks.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 
 if (!process.env.PLAYWRIGHT_MODULE) throw new Error('Set PLAYWRIGHT_MODULE; see TESTING.md.');
 const playwright = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
@@ -23,8 +24,14 @@ const wordSnapshot = (patch = {}) => ({ version: 1, kind: 'group', continuous: t
   quizIndex: 0, quizAnswer: '', quizFeedback: null, quizResults: [], ...patch });
 const sentenceSnapshot = (mode, patch = {}) => ({ version: 1, kind: 'group', continuous: true, updatedAt: Date.now() - 45 * DAY,
   band: 'long', category: 'all', count: 10, mode, sentenceIds, index: 999, ratings: ratingsFor(sentenceIds, [3000]), ...patch });
-const stored = (page, key) => page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
-const records = page => page.evaluate(keys => Object.fromEntries(Object.entries(keys).map(([name, key]) => [name, localStorage.getItem(key)])), keys);
+const stored = async (page, key) => {
+  await settleLearningStorage(page);
+  return page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
+};
+const records = async page => {
+  await settleLearningStorage(page);
+  return page.evaluate(keys => Object.fromEntries(Object.entries(keys).map(([name, key]) => [name, localStorage.getItem(key)])), keys);
+};
 const waitRecord = (page, key, field, value) => page.waitForFunction(({ key, field, value }) => {
   const record = JSON.parse(localStorage.getItem(key) || 'null');
   return record && record[field] === value;

@@ -17,6 +17,10 @@ const CORE_SHELL = [
   "/apple-touch-icon.png",
 ];
 
+function isEnglishAppDocumentPath(pathname) {
+  return pathname === "/" || pathname === "/index.html";
+}
+
 // Cache Storage has no AbortSignal. Bound runtime reads and writes separately
 // so a stalled disk operation cannot hold a usable network response forever.
 // Promise.race observes late rejections; an expired read is never served later.
@@ -60,7 +64,7 @@ function responseMatchesRequest(request, response) {
   const pathname = new URL(value, self.location.origin).pathname.toLowerCase();
   const contentType = (response.headers.get("content-type") || "").toLowerCase();
   if (!contentType) return !(
-    pathname === "/"
+    isEnglishAppDocumentPath(pathname)
     || pathname.endsWith(".js")
     || pathname.endsWith(".css")
     || pathname.endsWith(".png")
@@ -72,7 +76,7 @@ function responseMatchesRequest(request, response) {
   if (pathname.endsWith(".png")) return contentType.includes("image/png");
   if (pathname.endsWith(".ico")) return contentType.includes("image/") || contentType.includes("application/octet-stream");
   if (pathname.endsWith(".webmanifest")) return contentType.includes("json") || contentType.includes("manifest");
-  if (pathname === "/") return contentType.includes("text/html");
+  if (isEnglishAppDocumentPath(pathname)) return contentType.includes("text/html");
   return true;
 }
 
@@ -146,7 +150,7 @@ async function fetchAndCache(request, timeoutMs = 0) {
   try {
     const response = await normalizeManifestResponse(request, await fetch(request, controller ? { signal: controller.signal } : undefined));
     const url = new URL(request instanceof Request ? request.url : String(request), self.location.origin);
-    if (url.pathname === "/") await validateAppDocument(request, response);
+    if (isEnglishAppDocumentPath(url.pathname)) await validateAppDocument(request, response);
     // The network deadline must not abort an obtained response merely because
     // its optional disk copy is slow. Reads and writes have their own limits.
     if (timeout) clearTimeout(timeout);
@@ -208,7 +212,7 @@ async function cacheCompleteBuildGraph(cache, initialUrls, tolerateFailures = fa
       throw new Error(`Unable to cache ${url}`);
     }
     const pathname = new URL(url, self.location.origin).pathname;
-    if (pathname === "/") {
+    if (isEnglishAppDocumentPath(pathname)) {
       try { await validateAppDocument(url, response); }
       catch (error) { if (tolerateFailures) continue; throw error; }
     }
@@ -317,7 +321,7 @@ async function fetchWithTimeout(request, timeoutMs, documentCommit) {
   try {
     const response = await fetch(request, { signal: controller.signal });
     if (documentCommit !== undefined
-      && new URL(request instanceof Request ? request.url : String(request), self.location.origin).pathname === "/") {
+      && isEnglishAppDocumentPath(new URL(request instanceof Request ? request.url : String(request), self.location.origin).pathname)) {
       await validateAppDocument(request, response, documentCommit);
     }
     return response;
@@ -370,7 +374,7 @@ self.addEventListener("fetch", (event) => {
 
   // Explicit update preflights describe the live server. Never cache them or
   // reuse a failed/stale query entry left by a previously installed worker.
-  if (url.pathname === "/" && url.searchParams.has("ef-update") && event.request.mode !== "navigate") {
+  if (isEnglishAppDocumentPath(url.pathname) && url.searchParams.has("ef-update") && event.request.mode !== "navigate") {
     event.respondWith(fetch(event.request, { cache: "no-store" }).catch(() => Response.error()));
     return;
   }

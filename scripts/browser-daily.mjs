@@ -1,4 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -17,7 +18,10 @@ const keys = {
   schedule: 'wordflow-ngsl-schedule-v1', days: 'wordflow-days', readings: 'wordflow-reading-completed-v1', answers: 'wordflow-reading-answers-v1',
 };
 const quizSnapshot = () => ({ version: 1, kind: 'group', updatedAt: Date.now(), path: 'frequency', mode: 'test', wordIds: [1,2,3], index: 2, ratings: {1:'known',2:'known',3:'known'}, stage: 'quiz', quizIndex: 0, quizAnswer: '', quizFeedback: null, quizResults: [] });
-const stored = (page, key) => page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
+const stored = async (page, key) => {
+  await settleLearningStorage(page);
+  return page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
+};
 async function ready(page) {
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
   await page.locator('.bottom-nav, .quiz-page, .word-card, .sentence-study-card, .pattern-prompt, .speak-prompt').first().waitFor({ timeout: 30_000 });

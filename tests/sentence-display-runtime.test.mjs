@@ -5,16 +5,37 @@ import vm from "node:vm";
 import ts from "typescript";
 
 const source = await readFile(new URL("../app/sentence-data.ts", import.meta.url), "utf8");
+const corrections = await readFile(new URL("../app/sentence-corrections.ts", import.meta.url), "utf8");
 const packs = await Promise.all([1, 2, 3].map(async (pack) => JSON.parse(await readFile(new URL(`../public/data/tatoeba-sentences-${pack}.json`, import.meta.url), "utf8"))));
-const code = ts.transpileModule(source.replace(/^import[^\n]+\n/, "").replace(/^export /gm, "") + "\nloadSentencePack;", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-const load = vm.runInNewContext(code, {
-  CONTENT_REVISION: "test",
-  fetchJsonWithRecovery: async (url, validate) => {
-    const pack = packs[Number(url.match(/sentences-(\d)/)[1]) - 1];
-    assert.equal(validate(pack), true);
-    return pack;
-  },
-});
+const sources = { "sentence-data": source, "sentence-corrections": corrections };
+const modules = new Map();
+// Execute the real loader and its imported display corrections. Only the
+// network boundary is supplied with isolated canonical content.
+function loadModule(name) {
+  if (modules.has(name)) return modules.get(name).exports;
+  if (name === "content-loader") return {
+    CONTENT_REVISION: "test",
+    fetchJsonWithRecovery: async (url, validate) => {
+      const pack = packs[Number(url.match(/sentences-(\d)/)[1]) - 1];
+      assert.equal(validate(pack), true);
+      return structuredClone(pack);
+    },
+  };
+  assert.ok(Object.hasOwn(sources, name), `unexpected imported module: ${name}`);
+  const module = { exports: {} };
+  modules.set(name, module);
+  const compiled = ts.transpileModule(sources[name], {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+    reportDiagnostics: true,
+  });
+  assert.deepEqual(compiled.diagnostics.filter((item) => item.category === ts.DiagnosticCategory.Error), []);
+  vm.runInNewContext(compiled.outputText, {
+    module, exports: module.exports,
+    require: (specifier) => loadModule(specifier.replace(/^\.\//, "")),
+  }, { filename: `app/${name}.ts` });
+  return module.exports;
+}
+const load = loadModule("sentence-data").loadSentencePack;
 const displayed = (await Promise.all([1, 2, 3].map(load))).flat();
 const byId = new Map(displayed.map((item) => [item.id, item]));
 

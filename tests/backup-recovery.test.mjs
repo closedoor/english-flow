@@ -161,10 +161,11 @@ test("iPhone backup safely falls back when file sharing is unavailable or throws
 test("restore is confirmed, protected from double taps and reloads only after success", () => {
   assert.match(page, /恢复这份学习记录/);
   assert.match(page, /恢复后会替换这台设备当前的全部学习记录和偏好/);
-  assert.match(page, /restoreLearningBackupData\(window\.localStorage, STORAGE_KEYS, pendingBackup\)/);
+  assert.match(page, /await storageCoordinatorRef\.current\?\.transaction\(\s*\(storage\) => restoreLearningBackupData\(storage, STORAGE_KEYS, pendingBackup\), STORAGE_KEYS\)/);
   const restoreBlock = page.split("const restoreLearningBackup", 2)[1].split("const resetLearningProgress", 1)[0];
   assert.match(restoreBlock, /let restored = false/);
-  assert.match(restoreBlock, /try \{[\s\S]*restoreLearningBackupData\(window\.localStorage/);
+  assert.match(restoreBlock, /try \{[\s\S]*await storageCoordinatorRef\.current\?\.transaction\([\s\S]*restoreLearningBackupData\(storage, STORAGE_KEYS, pendingBackup\)/);
+  assert.match(page, /await storageCoordinatorRef\.current\?\.transaction\(\(storage\) => restoreLearningBackupData\(storage, resetKeys, emptyProgress\), resetKeys\)/, "partial reset replaces only its explicit progress keys");
   assert.match(restoreBlock, /catch \{[\s\S]*if \(!restored\)/);
   assert.match(restoreBlock, /backupActionLock\.current = false/);
   assert.match(page, /isLearningBackup\(value, STORAGE_KEYS, BACKUP_OPTIONAL_KEYS\)/);

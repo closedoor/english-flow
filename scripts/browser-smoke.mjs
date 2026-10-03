@@ -1,4 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import { legacyReadingRecords, verifyReadingRemoval } from './reading-removal-checks.mjs';
 import { selectSentenceMethod } from './browser-disclosures.mjs';
 import assert from 'node:assert/strict';
@@ -20,6 +21,7 @@ async function ready(page) {
 }
 const nav = navigate;
 async function stored(page, key) {
+  await settleLearningStorage(page);
   return page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
 }
 async function persisted(page, key, predicate) {

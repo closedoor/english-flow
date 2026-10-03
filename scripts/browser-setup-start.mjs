@@ -10,7 +10,9 @@ if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname)) thr
 const results = [];
 const wordKey = 'wordflow-active-session-v1', sentenceKey = 'wordflow-sentence-active-session-v1', patternKey = 'wordflow-pattern-active-session-v1';
 const wordStart = '开始学习', sentenceStart = '开始学习句子', patternStart = '开始句型替换练习';
-const start = (page, label) => page.getByRole('button', { name: label, exact: true });
+const start = (page, label) => label === sentenceStart
+  ? page.locator('.sentence-page .setup-start').and(page.getByRole('button', { name: /^(?:开始学习句子|正在加载句子…)$/, exact: true }))
+  : page.getByRole('button', { name: label, exact: true });
 const saved = (page, key) => page.evaluate(key => JSON.parse(localStorage.getItem(key) || 'null'), key);
 const exitWord = page => page.getByRole('button', { name: '退出学习并保留进度', exact: true }).click();
 const exitSentence = page => page.getByRole('button', { name: '返回句库设置并保留进度', exact: true }).click();
@@ -142,6 +144,8 @@ for (const engine of ['chromium', 'webkit']) {
       const request = page.waitForRequest(request => request.url().includes('tatoeba-sentences-2.json'));
       await openSetupDetails(page, '.sentence-range'); await page.locator('.sentence-band-switch button').filter({ hasText: '常用句' }).click(); await request;
       await page.evaluate(() => scrollTo(0, 0)); assert.equal(await start(page, sentenceStart).isDisabled(), true);
+      assert.equal(await start(page, sentenceStart).getAttribute('aria-busy'), 'true');
+      assert.equal(await start(page, sentenceStart).innerText(), '正在加载句子…');
       const before = await saved(page, sentenceKey); await tapStart(page, sentenceStart); assert.deepEqual(await saved(page, sentenceKey), before);
       release(); await enabled(page, sentenceStart); await tapStart(page, sentenceStart); await page.locator('.sentence-study-card').waitFor();
     } finally { release(); }

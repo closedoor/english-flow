@@ -12,6 +12,8 @@ const backupSource = await readFile(new URL("../app/backup-data.ts", import.meta
 const { readLearningStorage } = await import(`data:text/javascript;base64,${Buffer.from(compile(backupSource)).toString("base64")}`);
 const sessionSource = await readFile(new URL("../app/session-utils.ts", import.meta.url), "utf8");
 const sessionUtils = await import(`data:text/javascript;base64,${Buffer.from(compile(sessionSource)).toString("base64")}`);
+const coordinatorSource = await readFile(new URL("../app/storage-coordination.ts", import.meta.url), "utf8");
+const { createLearningStorageCoordinator } = await import(`data:text/javascript;base64,${Buffer.from(compile(coordinatorSource)).toString("base64")}`);
 const extract = (start, end) => {
   const from = page.indexOf(start);
   const to = page.indexOf(end, from);
@@ -21,7 +23,9 @@ const extract = (start, end) => {
 const parsed = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 let hydrationSource;
 let retrySource;
+const persistenceHelpers = [];
 function findHydration(node) {
+  if (ts.isFunctionDeclaration(node) && ["writeJson", "removeStoredValue"].includes(node.name?.text)) persistenceHelpers.push(node.getText(parsed));
   if (ts.isCallExpression(node) && node.expression.getText(parsed) === "useEffect") {
     const callback = node.arguments[0];
     if (callback?.getText(parsed).includes("Client-only local progress is hydrated")) hydrationSource = callback.getText(parsed);
@@ -40,7 +44,8 @@ const helpers = extract("function readJson", "function blankSentence");
 const STORAGE = vm.runInNewContext(compile(`${extract("const STORAGE =", "const tabItems:")}\nSTORAGE;`));
 const keys = Object.values(STORAGE);
 const optionalKeys = [STORAGE.readingCompleted, STORAGE.readingLast, STORAGE.readingAnswers, STORAGE.practiceRotation];
-const source = compile(`${constants}\n${helpers}\nSTUDY_WORD_IDS = new Set(words.map(word => word.id));\nSTUDY_WORD_BY_ID = new Map(words.map(word => [word.id, word]));\nglobalThis.hydrateRecords = ${hydrationSource};\nglobalThis.retryRecordRead = ${retrySource};`);
+assert.equal(persistenceHelpers.length, 2, "use the actual component persistence handlers");
+const source = compile(`${constants}\n${helpers}\n${persistenceHelpers.join("\n")}\nSTUDY_WORD_IDS = new Set(words.map(word => word.id));\nSTUDY_WORD_BY_ID = new Map(words.map(word => [word.id, word]));\nglobalThis.hydrateRecords = ${hydrationSource};\nglobalThis.retryRecordRead = ${retrySource};`);
 
 function originalRecords() {
   const now = Date.now();
@@ -96,7 +101,7 @@ function app({ failedKey, blockedStorage = false, missingOptional = false, failA
   const refs = Object.fromEntries([...new Set([...hydrationSource.matchAll(/\b(\w+Ref)\.current/g)].map((match) => match[1]))]
     .map((name) => [name, { current: null }]));
   const context = vm.createContext({
-    ...setters, ...refs, ...sessionUtils, window, Event, readLearningStorage,
+    ...setters, ...refs, ...sessionUtils, window, Event, readLearningStorage, createLearningStorageCoordinator,
     navigator: { userAgent: "isolated Chromium", platform: "Linux", maxTouchPoints: 0 },
     document: { hidden: false, addEventListener() {}, removeEventListener() {} },
     corePatterns: [{ id: "p01" }, { id: "p02" }],

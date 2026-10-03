@@ -5,8 +5,9 @@ import VersionNotice from "./version-notice";
 import SpeechCheck, { speechFailureMessage } from "./speech-check";
 import { isSnapshotPersisted } from "./version-utils";
 import { scenes, type SceneId, type WordItem } from "./data";
+import { createLearningStorageCoordinator, type LearningStorageCoordinator } from "./storage-coordination";
 import { corePatterns, patternCategories, type PatternCategory } from "./pattern-data";
-import { BACKUP_MAX_BYTES, createLearningBackup, isLearningBackup, readLearningStorage, restoreLearningBackupData, type LearningBackup } from "./backup-data";
+import { BACKUP_MAX_BYTES, createLearningBackup, isBackupContentCompatible, isLearningBackup, readLearningStorage, restoreLearningBackupData, type LearningBackup } from "./backup-data";
 import { isSpeechSupported, SPEECH_ERROR_EVENT, SPEECH_PLAYBACK_EVENT, speak, startBilingualSentenceSpeech, startRepeatedSpeech, startSegmentedSpeech, stopSpeech, toggleSegmentedSpeech, type SpeechPlaybackState } from "./speech-playback";
 import { blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, selectContinuousSession, takeRotatedSpread } from "./session-utils";
 
@@ -157,26 +158,6 @@ function readJson<T>(key: string, fallback: T, storage?: Pick<Storage, "getItem"
   }
 }
 
-function writeJson(key: string, value: unknown) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-    return true;
-  } catch {
-    window.dispatchEvent(new Event(STORAGE_ERROR_EVENT));
-    return false;
-  }
-}
-
-function removeStoredValue(key: string) {
-  try {
-    window.localStorage.removeItem(key);
-    return true;
-  } catch {
-    window.dispatchEvent(new Event(STORAGE_ERROR_EVENT));
-    return false;
-  }
-}
-
 function backupItemCount(backup: LearningBackup<StorageKey>, key: StorageKey) {
   const value = backup.data[key];
   return Array.isArray(value) ? value.length : 0;
@@ -301,12 +282,22 @@ function cleanPatternSession(value: unknown): PatternSessionSnapshot | null {
 function cleanStoredSchedule(value: unknown): Record<number, ScheduleEntry> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const maximumScheduleDue = Date.now() + 365 * DAY;
-  return Object.fromEntries(Object.entries(value).filter(([rawId, entry]) => {
+  const schedule: Record<number, ScheduleEntry> = {};
+  const canonicalIds = new Set<number>();
+  for (const [rawId, entry] of Object.entries(value)) {
     const id = Number(rawId);
-    if (!Number.isInteger(id) || !STUDY_WORD_IDS.has(id) || !entry || typeof entry !== "object") return false;
+    if (!Number.isInteger(id) || !STUDY_WORD_IDS.has(id) || !entry || typeof entry !== "object") continue;
     const item = entry as Partial<ScheduleEntry>;
-    return Number.isFinite(item.due) && Number(item.due) >= 0 && Number(item.due) <= maximumScheduleDue && Number.isInteger(item.stage) && Number(item.stage) >= 0 && Number(item.stage) <= 5;
-  })) as Record<number, ScheduleEntry>;
+    if (!Number.isFinite(item.due) || Number(item.due) < 0 || Number(item.due) > maximumScheduleDue || !Number.isInteger(item.stage) || Number(item.stage) < 0 || Number(item.stage) > 5) continue;
+    const normalized = { due: Number(item.due), stage: Number(item.stage) };
+    const canonical = String(id) === rawId;
+    const previous = schedule[id];
+    // A valid canonical entry wins. Otherwise rescue aliases at the earliest
+    // due date (and lower stage on ties), independently of their input order.
+    if (canonical || (!canonicalIds.has(id) && (!previous || normalized.due < previous.due || (normalized.due === previous.due && normalized.stage < previous.stage)))) schedule[id] = normalized;
+    if (canonical) canonicalIds.add(id);
+  }
+  return schedule;
 }
 
 function isLearnPath(value: unknown): value is LearnPath {
@@ -515,7 +506,7 @@ export default function Home() {
   const [resetProgressOpen, setResetProgressOpen] = useState(false);
   const [pendingBackup, setPendingBackup] = useState<LearningBackup<StorageKey> | null>(null);
   const [backupNotice, setBackupNotice] = useState<BackupNotice | null>(null);
-  const [backupBusy, setBackupBusy] = useState<"read" | "export" | "restore" | null>(null);
+  const [backupBusy, setBackupBusy] = useState<"read" | "export" | "restore" | "reset" | null>(null);
   const [networkOnline, setNetworkOnline] = useState(true);
   const [storageWriteError, setStorageWriteError] = useState(false);
   const [storageReadError, setStorageReadError] = useState(false);
@@ -577,9 +568,12 @@ export default function Home() {
   const wordBrowserOriginRef = useRef<BrowserOrigin | null>(null);
   const wordBrowserReturnRef = useRef(false);
   const sentenceBrowserRef = useRef<HTMLDivElement | null>(null);
+  const sentenceBrowserPresentationRef = useRef<(() => void) | null>(null);
   const sentenceBrowserOriginRef = useRef<BrowserOrigin | null>(null);
   const resultPrimaryRef = useRef<HTMLButtonElement | null>(null);
   const backupInputRef = useRef<HTMLInputElement | null>(null);
+  const storageCoordinatorRef = useRef<LearningStorageCoordinator | null>(null);
+  const confirmedReloadRef = useRef(false);
   const backupActionLock = useRef(false);
   const backupReadRequestRef = useRef(0);
   const statusToastRef = useRef<HTMLDivElement | null>(null);
@@ -589,6 +583,37 @@ export default function Home() {
   const sentenceSetupPreferencesRef = useRef<SentencePreferences>({ band: "short", category: "all", count: 10, mode: "bilingual" });
   const patternSetupCategoryRef = useRef<"all" | PatternCategory>("all");
   const practiceRotationRef = useRef<PracticeRotation>({ word: 0, sentence: 0, pattern: 0 });
+
+  function writeJson(key: string, value: unknown) {
+    try {
+      const serialized = JSON.stringify(value);
+      if (serialized === undefined) throw new Error("Invalid learning value");
+      return storageCoordinatorRef.current?.write(key, serialized) ?? false;
+    } catch {
+      window.dispatchEvent(new Event(STORAGE_ERROR_EVENT));
+      return false;
+    }
+  }
+
+  function removeStoredValue(key: string) {
+    return storageCoordinatorRef.current?.write(key, null) ?? false;
+  }
+
+  useEffect(() => () => storageCoordinatorRef.current?.dispose(), []);
+
+  useEffect(() => {
+    const protectUnsavedWork = (event: BeforeUnloadEvent) => {
+      if (!hydrated || confirmedReloadRef.current) return;
+      if (storageCoordinatorRef.current?.hasUnsavedChanges()) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", protectUnsavedWork);
+    return () => window.removeEventListener("beforeunload", protectUnsavedWork);
+  }, [hydrated]);
+
+  useEffect(() => () => sentenceBrowserPresentationRef.current?.(), [tab, sentenceSection, sentenceStage]);
 
   useEffect(() => () => {
     if (reviewActionReleaseRef.current !== null) window.clearTimeout(reviewActionReleaseRef.current);
@@ -687,6 +712,7 @@ export default function Home() {
     const handleExternalStorageUpdate = (event: StorageEvent) => {
       if (event.storageArea && event.storageArea !== window.localStorage) return;
       if (event.key !== null && !STORAGE_KEYS.includes(event.key as StorageKey)) return;
+      storageCoordinatorRef.current?.pause();
       stopSpeech();
       if (!externalUpdateDetected) setBackupNotice(null);
       setExternalUpdateDetected(true);
@@ -769,6 +795,19 @@ export default function Home() {
       setStorageReadError(true);
       return;
     }
+    storageCoordinatorRef.current?.dispose();
+    storageCoordinatorRef.current = createLearningStorageCoordinator({
+      keys: STORAGE_KEYS,
+      initial: persisted,
+      storage: () => window.localStorage,
+      locks: navigator.locks,
+      onConflict: () => {
+        stopSpeech();
+        setBackupNotice(null);
+        setExternalUpdateDetected(true);
+      },
+      onError: () => setStorageWriteError(true),
+    });
     const readStored = <T,>(key: string, fallback: T) => readJson(key, fallback, persisted);
     // Client-only local progress is hydrated after the initial static render.
     const today = new Date();
@@ -1110,7 +1149,7 @@ export default function Home() {
         event.preventDefault();
         event.stopPropagation();
         if (activeDialog === "restore") { if (!backupActionLock.current) setPendingBackup(null); }
-        else if (activeDialog === "reset") setResetProgressOpen(false);
+        else if (activeDialog === "reset") { if (!backupActionLock.current) setResetProgressOpen(false); }
         else if (activeDialog === "discard") setDiscardRequest(null);
         else if (activeDialog === "install") setInstallOpen(false);
         return;
@@ -1380,7 +1419,7 @@ export default function Home() {
                 : tab === "review"
                   ? "复习中心"
                   : tab === "progress"
-                    ? "学习进度"
+                    ? "记录与设置"
                     : tab === "sentences"
                       ? "句子练习"
                       : tab === "read"
@@ -1500,6 +1539,7 @@ export default function Home() {
   };
 
   const openSentenceBrowser = (savedOnly: boolean, reviewOnly = false) => {
+    sentenceBrowserPresentationRef.current?.();
     sentenceBrowserOriginRef.current = null;
     setSentenceBrowserOpen(true);
     setSentenceSavedOnly(savedOnly);
@@ -1507,7 +1547,18 @@ export default function Home() {
     setSentenceSearch("");
     setSentenceResultLimit(30);
     const focusAtRequest = document.activeElement;
-    window.requestAnimationFrame(() => {
+    const interactionEvents = ["pointerdown", "keydown", "wheel", "touchmove"] as const;
+    let frame: number | null = null;
+    const cancelPresentation = () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      for (const name of interactionEvents) window.removeEventListener(name, cancelPresentation);
+      if (sentenceBrowserPresentationRef.current === cancelPresentation) sentenceBrowserPresentationRef.current = null;
+    };
+    sentenceBrowserPresentationRef.current = cancelPresentation;
+    for (const name of interactionEvents) window.addEventListener(name, cancelPresentation, { passive: true });
+    frame = window.requestAnimationFrame(() => {
+      if (sentenceBrowserPresentationRef.current !== cancelPresentation) return;
+      cancelPresentation();
       const focused = document.activeElement;
       // A learner may already be typing or have chosen another control.
       if (focused && focused !== focusAtRequest && focused !== document.body) return;
@@ -1672,7 +1723,7 @@ export default function Home() {
   };
 
   const canReloadForUpdate = () => {
-    if (!hydrated || tab !== "progress" || hasOpenDialog || backupBusy || externalUpdateDetected || storageWriteError) return false;
+    if (!hydrated || tab !== "progress" || hasOpenDialog || backupBusy || externalUpdateDetected || storageWriteError || !storageCoordinatorRef.current?.isIdle()) return false;
     const snapshot: Record<StorageKey, unknown> = {
         [STORAGE.mastered]: mastered,
         [STORAGE.difficult]: difficult,
@@ -1754,9 +1805,9 @@ export default function Home() {
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-      setBackupNotice({ kind: "success", message: "已开始下载备份，请确认文件已保存。换手机或清理 Safari 前，请妥善保管。" });
+      setBackupNotice({ kind: "success", message: "已开始下载备份，请确认文件已保存。换手机或清理浏览器数据前，请妥善保管。" });
     } catch {
-      setBackupNotice({ kind: "error", message: "备份没有生成成功，请确认 Safari 允许下载且设备仍有可用空间。" });
+      setBackupNotice({ kind: "error", message: "备份没有生成成功，请确认浏览器允许下载且设备仍有可用空间。" });
     } finally {
       backupActionLock.current = false;
       setBackupBusy(null);
@@ -1780,6 +1831,15 @@ export default function Home() {
       const value: unknown = JSON.parse(await file.text());
       if (request !== backupReadRequestRef.current) return;
       if (!isLearningBackup(value, STORAGE_KEYS, BACKUP_OPTIONAL_KEYS)) throw new Error("Invalid backup");
+      if (!isBackupContentCompatible(value, {
+        word: (id) => STUDY_WORD_IDS.has(id),
+        sentence: (id) => id >= 1 && id <= 3000,
+        pattern: (id) => PATTERN_IDS.has(id),
+        reading: (id) => READING_IDS.has(id),
+      })) {
+        setBackupNotice({ kind: "error", message: "这份备份包含当前版本不支持的内容编号或复习计划，未导入；原有记录没有被替换。请保留文件，并在生成备份的版本中检查或重新导出。" });
+        return;
+      }
       setBackupNotice(null);
       setResetProgressOpen(false);
       setDiscardRequest(null);
@@ -1800,13 +1860,13 @@ export default function Home() {
     setBackupNotice(null);
   };
 
-  const restoreLearningBackup = () => {
+  const restoreLearningBackup = async () => {
     if (!pendingBackup || backupActionLock.current) return;
     backupActionLock.current = true;
     setBackupBusy("restore");
     let restored = false;
     try {
-      restored = restoreLearningBackupData(window.localStorage, STORAGE_KEYS, pendingBackup);
+      restored = await storageCoordinatorRef.current?.transaction((storage) => restoreLearningBackupData(storage, STORAGE_KEYS, pendingBackup), STORAGE_KEYS) ?? false;
     } catch {
       // Accessing localStorage itself can throw in restricted Safari contexts.
     }
@@ -1819,10 +1879,14 @@ export default function Home() {
       return;
     }
     setPendingBackup(null);
+    confirmedReloadRef.current = true;
     window.location.reload();
   };
 
-  const resetLearningProgress = () => {
+  const resetLearningProgress = async () => {
+    if (backupActionLock.current) return;
+    backupActionLock.current = true;
+    setBackupBusy("reset");
     const resetRotation: PracticeRotation = { word: 0, sentence: 0, pattern: 0 };
     const resetKeys = [
       STORAGE.mastered,
@@ -1845,7 +1909,7 @@ export default function Home() {
     let reset = false;
     try {
       const emptyProgress = createLearningBackup({ getItem: (key) => key === STORAGE.practiceRotation ? JSON.stringify(resetRotation) : null }, resetKeys);
-      reset = restoreLearningBackupData(window.localStorage, resetKeys, emptyProgress);
+      reset = await storageCoordinatorRef.current?.transaction((storage) => restoreLearningBackupData(storage, resetKeys, emptyProgress), resetKeys) ?? false;
     } catch {
       // Accessing localStorage itself may be blocked, before any removal runs.
     }
@@ -1853,6 +1917,8 @@ export default function Home() {
       setStorageWriteError(true);
       setBackupNotice({ kind: "error", message: "重置没有完成，当前页面的进度仍保留。请先导出备份，检查设备存储空间后再试。" });
       setResetProgressOpen(false);
+      backupActionLock.current = false;
+      setBackupBusy(null);
       return;
     }
     setMastered([]);
@@ -1903,6 +1969,8 @@ export default function Home() {
     setResetProgressOpen(false);
     setTab("progress");
     setBackupNotice({ kind: "success", message: "学习进度已重置，句库收藏和学习偏好已保留。" });
+    backupActionLock.current = false;
+    setBackupBusy(null);
   };
 
   const addDifficult = (id: number) => {
@@ -2465,7 +2533,7 @@ export default function Home() {
     const difficultInSelection = currentPack.filter((item) => sentenceDifficult.includes(item.id) && (sentenceCategory === "all" || item.category === sentenceCategory)).length;
     return <section className="page sentence-page simple-setup">{commonHeader("句子", "听懂一句，再开口说一句")}
       <div className="setup-start-panel">
-        <button className="sticky-start primary-action setup-start" disabled={sentenceSelectionLoading || availableCount === 0} onClick={() => startSentenceSession()}>开始学习句子</button>
+        <button className="sticky-start primary-action setup-start" disabled={sentenceSelectionLoading || availableCount === 0} aria-busy={sentenceSelectionLoading} onClick={() => startSentenceSession()}>{sentenceSelectionLoading ? "正在加载句子…" : "开始学习句子"}</button>
       </div>
       {sentenceLoadError && sentencePacksIncomplete && <div className="sentence-load-error" role="alert"><span>{networkOnline ? "部分句库尚未载入，已有内容和本机记录仍保留。可以先重试；仍失败时再重新载入页面。" : "当前处于离线状态，已缓存的句子仍可使用；联网后会自动补全。"}</span><div className="sentence-load-actions"><button onClick={retrySentenceContent}>重试缺少的句库</button><button onClick={() => window.location.reload()}>重新载入页面</button></div></div>}
       <details className="setup-disclosure sentence-range" open={sentenceRangeOpen} onToggle={(event) => setSentenceRangeOpen(event.currentTarget.open)}><summary><div><b>练习范围</b><small>{sentenceBand === "short" ? "短句" : sentenceBand === "medium" ? "常用句" : "长句"} · {sentenceCategories.find((item) => item.id === sentenceCategory)?.label}</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
@@ -2742,7 +2810,7 @@ export default function Home() {
         {hasUnfinishedPattern && <button className="secondary-action full-button legacy-pattern-resume" onClick={openPatternPracticeFromHome}>继续旧版句型练习</button>}
       </div></details>}
       <details className="setup-details setup-source"><summary>词库说明</summary><div className="source-card"><b>词库说明</b><p>完整收录 NGSL 1.2 的 {ngslMeta.count.toLocaleString()} 个词条，并按官方 SFI 词频顺序排列；另含 {sceneExtras.length} 个实用场景词组。中文释义基于 ECDICT；例句基于 Tatoeba 并经过学习化整理，每个词条均配有完整场景例句。</p><div><a href="https://www.newgeneralservicelist.com/new-general-service-list" target="_blank" rel="noreferrer">NGSL · CC BY-SA 4.0</a><a href="https://github.com/skywind3000/ECDICT" target="_blank" rel="noreferrer">ECDICT · MIT</a><a href="https://tatoeba.org/en/downloads" target="_blank" rel="noreferrer">Tatoeba · CC BY 2.0 FR</a></div></div></details>
-      <div className="backup-management"><div><b>学习记录备份</b><small>换手机或清理 Safari 前，导出一个本机备份文件。</small></div><div className="backup-actions"><button disabled={Boolean(backupBusy)} onClick={exportLearningBackup}>{backupBusy === "export" ? "正在导出…" : "导出备份"}</button><button disabled={Boolean(backupBusy)} onClick={() => backupInputRef.current?.click()}>{backupBusy === "read" ? "正在读取…" : "恢复备份"}</button></div>{backupBusy === "read" && <div className="backup-read-status" role="status"><span>正在读取备份文件…</span><button onClick={cancelBackupRead}>取消读取</button></div>}<input ref={backupInputRef} hidden type="file" accept=".json,application/json" onChange={chooseBackupFile} /></div>
+      <div className="backup-management"><div><b>学习记录备份</b><small>换手机或清理浏览器数据前，导出一个本机备份文件。</small></div><div className="backup-actions"><button disabled={Boolean(backupBusy)} onClick={exportLearningBackup}>{backupBusy === "export" ? "正在导出…" : "导出备份"}</button><button disabled={Boolean(backupBusy)} onClick={() => backupInputRef.current?.click()}>{backupBusy === "read" ? "正在读取…" : "恢复备份"}</button></div>{backupBusy === "read" && <div className="backup-read-status" role="status"><span>正在读取备份文件…</span><button onClick={cancelBackupRead}>取消读取</button></div>}<input ref={backupInputRef} hidden type="file" accept=".json,application/json" onChange={chooseBackupFile} /></div>
       {backupNotice && <div className={`backup-notice ${backupNotice.kind}`} role={backupNotice.kind === "error" ? "alert" : "status"}><span>{backupNotice.message}</span><button aria-label="关闭备份提示" onClick={() => setBackupNotice(null)}>×</button></div>}
       <div className="data-management"><div><b>重置学习进度</b><small>清除单词、句子、句型、阅读和复习记录</small></div><button disabled={Boolean(backupBusy)} onClick={() => setResetProgressOpen(true)}>重置</button></div>
       {!standalone && iosInstallAvailable && <button className="install-card" onClick={() => setInstallOpen(true)}><span>＋</span><div><b>添加到 iPhone 主屏幕</b><small>像 App 一样打开，学习记录保存在本机</small></div><i>›</i></button>}
@@ -2756,7 +2824,7 @@ export default function Home() {
   return <main className="app-shell"><div className={`phone-stage${immersiveCards ? " is-immersive" : ""}`} style={speechNotice || offlineCacheWriteError || !networkOnline ? { paddingBottom: immersiveCards ? 0 : statusToastHeight + 64, "--status-notice-space": `${statusToastHeight + (immersiveCards ? 0 : 64)}px` } as React.CSSProperties : undefined}>
     <div inert={hasOpenDialog}>
     <div className="sr-only" aria-live="polite" aria-atomic="true">{screenAnnouncement}</div>
-    {storageWriteError && <div className="storage-warning" role="alert"><div><b>学习记录暂未保存</b><span>请关闭 Safari 无痕浏览，并确认设备还有可用存储空间。</span></div><button aria-label="关闭保存失败提示" onClick={() => setStorageWriteError(false)}>×</button></div>}
+    {storageWriteError && <div className="storage-warning" role="alert"><div><b>学习记录暂未保存</b><span>请先导出本页备份，保住尚未保存的记录，再检查浏览器存储权限和可用空间。</span><button className="storage-rescue-export" disabled={Boolean(backupBusy)} onClick={exportLearningBackup}>{backupBusy === "export" ? "正在导出…" : "导出本页备份"}</button>{backupNotice && tab !== "progress" && <span role={backupNotice.kind === "error" ? "alert" : "status"}>{backupNotice.message}</span>}</div><button aria-label="关闭保存失败提示" onClick={() => setStorageWriteError(false)}>×</button></div>}
     {(speechNotice || offlineCacheWriteError || !networkOnline) && <div className="status-toast-stack" ref={statusToastRef}>{speechNotice && <div className="speech-warning" role="alert"><span>{speechNotice}</span><button aria-label="关闭语音提示" onClick={() => setSpeechNotice(null)}>×</button></div>}{offlineCacheWriteError && <div className="speech-warning offline-cache-warning" role="alert"><span>本次内容可以正常使用，但离线副本暂未确认保存。请检查 Safari 隐私模式和可用空间。</span><button aria-label="关闭离线保存提示" onClick={() => setOfflineCacheWriteError(false)}>×</button></div>}{!networkOnline && <div className="offline-status" role="status">离线模式 · 已加载内容和本机记录仍可使用</div>}</div>}
     <VersionNotice showDetails={tab === "progress"} beforeReload={canReloadForUpdate} />
     {tab === "home" ? renderHome() : tab === "learn" ? renderLearn() : tab === "sentences" ? renderSentences() : tab === "read" ? renderRead() : tab === "review" ? renderReview() : renderProgress()}
@@ -2764,8 +2832,8 @@ export default function Home() {
     </div>
     {activeDialog === "install" && <div className="sheet-backdrop" onClick={() => setInstallOpen(false)}><div ref={installSheetRef} tabIndex={-1} className="install-sheet" role="dialog" aria-modal="true" aria-labelledby="install-title" onClick={(event) => event.stopPropagation()}><div className="sheet-handle" /><button ref={installCloseRef} className="sheet-close" aria-label="关闭安装说明" onClick={() => setInstallOpen(false)}>×</button><div className="app-preview"><span className="app-preview-icon" aria-hidden="true" /><div><b>词流英语</b><small>添加到主屏幕</small></div></div><h2 id="install-title">在 Safari 中安装</h2><ol><li><span>1</span><p>点击 Safari 底部的<strong>分享按钮</strong>。</p></li><li><span>2</span><p>向下找到并点击<strong>“添加到主屏幕”</strong>。</p></li><li><span>3</span><p>点击右上角<strong>“添加”</strong>即可。</p></li></ol><button className="primary-action full-button" onClick={() => setInstallOpen(false)}>我知道了</button></div></div>}
     {activeDialog === "discard" && discardRequest && <div className="sheet-backdrop discard-backdrop" onClick={() => setDiscardRequest(null)}><div ref={discardDialogRef} tabIndex={-1} className="discard-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-title" aria-describedby="discard-description" onClick={(event) => event.stopPropagation()}><span className="discard-icon" aria-hidden="true">↻</span><h2 id="discard-title">结束当前学习？</h2><p id="discard-description">{discardRequest.pattern ? `本组已完成 ${ratedPatternCount} / ${patternSessionIds.length} 个句型。` : discardRequest.sentence ? `本组已标记 ${ratedSentenceCount} / ${sentenceSessionIds.length} 个句子。` : discardRequest.wordStart && pausedWordSession ? `已保存至第 ${pausedWordSession.index + 1} 张，已标记 ${Object.keys(pausedWordSession.ratings).length} / ${pausedWordSession.wordIds.length} 个词。` : learnStage === "quiz" ? `考试已完成 ${quizResults.length} / ${sessionWords.length} 题。` : `本组已标记 ${ratedCardCount} / ${sessionWords.length} 个词。`}已有记录都会保留，但未完成位置将结束。{(discardRequest.wordStart || discardRequest.sentenceStart || discardRequest.patternStart) && "确认后会直接开始你刚刚选择的练习。"}</p><div className="discard-actions"><button ref={discardCancelRef} className="secondary-action" onClick={() => setDiscardRequest(null)}>保留进度</button><button className="discard-confirm" onClick={confirmDiscardSession}>{discardRequest.wordStart || discardRequest.sentenceStart || discardRequest.patternStart ? "结束并开始新练习" : "结束本组"}</button></div></div></div>}
-    {activeDialog === "reset" && <div className="sheet-backdrop discard-backdrop" onClick={() => setResetProgressOpen(false)}><div ref={resetDialogRef} tabIndex={-1} className="discard-dialog reset-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-description" onClick={(event) => event.stopPropagation()}><span className="discard-icon reset-icon" aria-hidden="true">!</span><h2 id="reset-title">确定重置学习进度？</h2><p id="reset-description">单词、句子、核心句型和阅读的掌握记录、待加强内容、复习计划、学习天数以及未完成课程都会被清除。<strong>句库收藏和学习偏好会保留。</strong></p><div className="discard-actions"><button ref={resetCancelRef} className="secondary-action" onClick={() => setResetProgressOpen(false)}>取消</button><button className="reset-confirm" onClick={resetLearningProgress}>确认重置</button></div></div></div>}
+    {activeDialog === "reset" && <div className="sheet-backdrop discard-backdrop" onClick={() => { if (!backupActionLock.current) setResetProgressOpen(false); }}><div ref={resetDialogRef} tabIndex={-1} className="discard-dialog reset-dialog" role="dialog" aria-modal="true" aria-busy={backupBusy === "reset"} aria-labelledby="reset-title" aria-describedby="reset-description" onClick={(event) => event.stopPropagation()}><span className="discard-icon reset-icon" aria-hidden="true">!</span><h2 id="reset-title">确定重置学习进度？</h2><p id="reset-description">单词、句子、核心句型和阅读的掌握记录、待加强内容、复习计划、学习天数以及未完成课程都会被清除。<strong>句库收藏和学习偏好会保留。</strong></p><div className="discard-actions"><button ref={resetCancelRef} disabled={backupBusy === "reset"} className="secondary-action" onClick={() => setResetProgressOpen(false)}>取消</button><button disabled={backupBusy === "reset"} className="reset-confirm" onClick={resetLearningProgress}>{backupBusy === "reset" ? "正在重置…" : "确认重置"}</button></div></div></div>}
     {activeDialog === "restore" && pendingBackup && <div className="sheet-backdrop discard-backdrop" onClick={() => { if (!backupBusy) setPendingBackup(null); }}><div ref={restoreDialogRef} tabIndex={-1} className="discard-dialog restore-dialog" role="dialog" aria-modal="true" aria-labelledby="restore-title" aria-describedby="restore-description" aria-busy={backupBusy === "restore"} onClick={(event) => event.stopPropagation()}><span className="discard-icon restore-icon" aria-hidden="true">↥</span><h2 id="restore-title">恢复这份学习记录？</h2><p id="restore-description">备份时间：{new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(pendingBackup.exportedAt))}<br />包含 {backupItemCount(pendingBackup, STORAGE.mastered)} 个已掌握单词、{backupItemCount(pendingBackup, STORAGE.sentenceMastered)} 个已掌握句子、{backupItemCount(pendingBackup, STORAGE.patternMastered)} 个已掌握句型和 {backupItemCount(pendingBackup, STORAGE.readingCompleted)} 篇已读文章。<strong>恢复后会替换这台设备当前的全部学习记录和偏好。</strong></p><div className="discard-actions"><button ref={restoreCancelRef} disabled={backupBusy === "restore"} className="secondary-action" onClick={() => setPendingBackup(null)}>取消</button><button disabled={backupBusy === "restore"} className="restore-confirm" onClick={restoreLearningBackup}>{backupBusy === "restore" ? "正在恢复…" : "确认恢复"}</button></div></div></div>}
-    {activeDialog === "sync" && <div className="sheet-backdrop discard-backdrop sync-backdrop"><div ref={syncDialogRef} tabIndex={-1} className="discard-dialog sync-dialog" role="alertdialog" aria-modal="true" aria-busy={backupBusy === "export"} aria-labelledby="sync-title" aria-describedby="sync-description"><span className="discard-icon sync-icon" aria-hidden="true">↻</span><h2 id="sync-title">另一窗口已更新记录</h2><p id="sync-description">此页面已暂停，以免覆盖另一窗口的新记录。如果本页有未保存的学习进度，请先导出本页备份；载入最新记录会替换本页内容。备份只包含本页记录，请分别保管，再只保留一个学习窗口继续。</p><button className="secondary-action full-button" disabled={Boolean(backupBusy)} onClick={exportLearningBackup}>{backupBusy === "export" ? "正在导出…" : "导出本页备份"}</button>{backupNotice && <div className={`backup-notice ${backupNotice.kind}`} role={backupNotice.kind === "error" ? "alert" : "status"}><span>{backupNotice.message}</span></div>}<button ref={syncReloadRef} className="primary-action full-button" disabled={Boolean(backupBusy)} onClick={() => window.location.reload()}>载入最新记录</button></div></div>}
+    {activeDialog === "sync" && <div className="sheet-backdrop discard-backdrop sync-backdrop"><div ref={syncDialogRef} tabIndex={-1} className="discard-dialog sync-dialog" role="alertdialog" aria-modal="true" aria-busy={backupBusy === "export"} aria-labelledby="sync-title" aria-describedby="sync-description"><span className="discard-icon sync-icon" aria-hidden="true">↻</span><h2 id="sync-title">另一窗口已更新记录</h2><p id="sync-description">此页面已暂停，以免覆盖另一窗口的新记录。如果本页有未保存的学习进度，请先导出本页备份；载入最新记录会替换本页内容。备份只包含本页记录，请分别保管，再只保留一个学习窗口继续。</p><button className="secondary-action full-button" disabled={Boolean(backupBusy)} onClick={exportLearningBackup}>{backupBusy === "export" ? "正在导出…" : "导出本页备份"}</button>{backupNotice && <div className={`backup-notice ${backupNotice.kind}`} role={backupNotice.kind === "error" ? "alert" : "status"}><span>{backupNotice.message}</span></div>}<button ref={syncReloadRef} className="primary-action full-button" disabled={Boolean(backupBusy)} onClick={() => { confirmedReloadRef.current = true; window.location.reload(); }}>载入最新记录</button></div></div>}
   </div></main>;
 }

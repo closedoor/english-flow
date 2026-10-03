@@ -300,7 +300,9 @@ test("library and reading edge states have explicit behavior", () => {
 });
 
 test("corrupt or unavailable Safari storage cannot break learning", () => {
-  assert.match(page, /function writeJson[\s\S]*try[\s\S]*localStorage\.setItem[\s\S]*catch/);
+  assert.match(page, /function writeJson\(key: string, value: unknown\) \{\s*try \{\s*const serialized = JSON\.stringify\(value\);[\s\S]*?storageCoordinatorRef\.current\?\.write\(key, serialized\) \?\? false;\s*\} catch/);
+  assert.match(page, /storage: \(\) => window\.localStorage/);
+  assert.match(page, /onError: \(\) => setStorageWriteError\(true\)/);
   assert.match(page, /STORAGE_ERROR_EVENT = "english-flow-storage-error"/);
   assert.match(page, /window\.dispatchEvent\(new Event\(STORAGE_ERROR_EVENT\)\)/);
   assert.match(page, /role="alert"/);
@@ -313,7 +315,7 @@ test("corrupt or unavailable Safari storage cannot break learning", () => {
   assert.match(page, /rawQuizResults\.length !== quizIndex \+ \(hasCurrentFeedback \? 1 : 0\)/);
   assert.match(page, /rawQuizResults\.at\(-1\) !== \(item\.quizFeedback === "correct"\)/);
   assert.match(page, /const maximumScheduleDue = Date\.now\(\) \+ 365 \* DAY/);
-  assert.match(page, /Number\(item\.due\) >= 0 && Number\(item\.due\) <= maximumScheduleDue/);
+  assert.match(page, /!Number\.isFinite\(item\.due\) \|\| Number\(item\.due\) < 0 \|\| Number\(item\.due\) > maximumScheduleDue[^\n]+\) continue/);
 });
 
 test("a stale second window is paused before it can overwrite newer progress", () => {
