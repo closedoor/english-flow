@@ -13,7 +13,9 @@ const compile = (source) => ts.transpileModule(source, {
 const session = await import(`data:text/javascript;base64,${Buffer.from(compile(helpers)).toString("base64")}`);
 const extract = (start, end) => page.slice(page.indexOf(start), page.indexOf(end, page.indexOf(start)));
 const dates = extract("function localDateKey", "function isValidStudyDate");
-const renderCode = compile(`${dates}\n${extract("const renderReview =", "const renderProgress =")}\nrenderReview();`);
+const keyboardGuard = extract("function preventRepeatedButtonActivation", "function readingWordCount");
+assert.ok(keyboardGuard, "the actual repeated-key activation guard is available to the rendered review buttons");
+const renderCode = compile(`${keyboardGuard}\n${dates}\n${extract("const renderReview =", "const renderProgress =")}\nrenderReview();`);
 const ratingCode = compile(`${extract("const releaseReviewActionLock =", "const rememberReviewAction =")}\n${extract("const rateReview =", "const markWordbookMastered =")}\nrateReview;`);
 const day = 86_400_000;
 const now = new Date(2026, 8, 5, 12, 0).getTime();

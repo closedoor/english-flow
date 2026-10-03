@@ -79,7 +79,7 @@ test("changing any visible card or question index returns the viewport to the to
   assert.notEqual(scrollIndex, -1, "missing the transition scroll-to-top effect");
 
   const scrollEffectTail = page.slice(scrollIndex, scrollIndex + 1_200);
-  assert.match(scrollEffectTail, /return \(\) => window\.cancelAnimationFrame\(frame\)/);
+  assert.match(scrollEffectTail, /return \(\) => \{\s*window\.cancelAnimationFrame\(frame\);\s*removeInteractionListeners\(\);\s*\}/, "cleanup must cancel the pending frame and remove its interaction observers");
   const dependencyMatch = scrollEffectTail.match(/\}, \[([^\]]+)\]\);/);
   assert.ok(dependencyMatch, "the scroll-to-top effect must declare its transition dependencies");
 

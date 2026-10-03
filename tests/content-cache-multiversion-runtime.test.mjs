@@ -21,8 +21,16 @@ function fixture() {
       if (!stores.has(name)) {
         const values = new Map();
         stores.set(name, {
-          async match(url) { return values.get(String(url))?.clone(); },
-          async put(url, response) { values.set(String(url), response.clone()); },
+          async match(url) {
+            const saved = values.get(String(url));
+            return saved && new Response(saved.body.slice(), { status: saved.status, statusText: saved.statusText, headers: saved.headers });
+          },
+          async put(url, response) {
+            // Cache Storage commits body bytes, not a live Response tee.
+            // Each later match must own an independently readable body.
+            const saved = { body: new Uint8Array(await response.arrayBuffer()), status: response.status, statusText: response.statusText, headers: [...response.headers] };
+            values.set(String(url), saved);
+          },
           async delete(url) { deletions += 1; return values.delete(String(url)); },
           async keys() { return [...values.keys()]; },
         });
