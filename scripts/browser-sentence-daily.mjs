@@ -37,7 +37,11 @@ async function tapUncovered(page,name){
  assert.equal(await button.evaluate(el=>{const r=el.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===el||el.contains(hit);}),true,`${name} must receive a direct coordinate tap`);
  await page.touchscreen.tap(rect.x+rect.width/2,rect.y+rect.height/2);
 }
+async function prepareStaticNoticeTarget(page,target){
+ if(await page.locator('.status-toast-stack').evaluate(stack=>getComputedStyle(stack).position==='static'))await target.scrollIntoViewIfNeeded();
+}
 async function sentenceToolbarClear(page){
+ await prepareStaticNoticeTarget(page,page.locator('.sentence-card-actions'));
  await page.waitForFunction(()=>[...document.querySelectorAll('.sentence-card-actions button')].every(button=>{const r=button.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===button||button.contains(hit);}));
  const geometry=await page.evaluate(()=>{const actions=document.querySelector('.sentence-card-actions').getBoundingClientRect(),stack=document.querySelector('.status-toast-stack').getBoundingClientRect();return {actionsTop:actions.top,stackBottom:stack.bottom,overflow:document.documentElement.scrollWidth>innerWidth+1};});
  assert.equal(geometry.overflow,false);assert.ok(geometry.stackBottom<=geometry.actionsTop-4,JSON.stringify(geometry));
@@ -132,7 +136,9 @@ for(const engine of ['chromium','webkit']){
   await page.getByRole('button',{name:'关闭语音提示',exact:true}).waitFor();await page.getByRole('button',{name:'关闭离线保存提示',exact:true}).waitFor();await page.locator('.offline-status').waitFor();await sentenceToolbarClear(page);
   const before=await stored(page);await tapUncovered(page,'下一句 ›');await page.waitForFunction(({key,index})=>JSON.parse(localStorage.getItem(key)).index===index+1,{key,index:before.index});await sentenceToolbarClear(page);
   await tapUncovered(page,'‹ 上一句');await page.waitForFunction(({key,index})=>JSON.parse(localStorage.getItem(key)).index===index,{key,index:before.index});await sentenceToolbarClear(page);assert.deepEqual((await stored(page)).ratings,before.ratings);
+  await prepareStaticNoticeTarget(page,page.getByRole('button',{name:'关闭语音提示',exact:true}));
   await tapUncovered(page,'关闭语音提示');await page.getByRole('button',{name:'关闭语音提示',exact:true}).waitFor({state:'hidden'});await sentenceToolbarClear(page);
+  await prepareStaticNoticeTarget(page,page.getByRole('button',{name:'关闭离线保存提示',exact:true}));
   await tapUncovered(page,'关闭离线保存提示');await page.getByRole('button',{name:'关闭离线保存提示',exact:true}).waitFor({state:'hidden'});await sentenceToolbarClear(page);
   await page.evaluate(()=>{window.__sentenceSpeech.fail=false;window.dispatchEvent(new Event('online'));});await page.locator('.status-toast-stack').waitFor({state:'hidden'});
  },size);
