@@ -87,7 +87,25 @@ function installed(coordinator, { hydrated = true, confirmedReloadRef = { curren
   };
   function dispatch() {
     const event = new Event("beforeunload", { cancelable: true });
+    // Node 22's generic Event has a getter-only boolean returnValue. The real
+    // browser uses BeforeUnloadEvent's writable DOMString attribute instead.
+    // Keep native dispatch/cancellation, and supply that browser-specific field.
+    let returnValue = "";
+    const returnValueAssignments = [];
+    Object.defineProperty(event, "returnValue", {
+      configurable: true,
+      enumerable: true,
+      get: () => returnValue,
+      set: (value) => {
+        returnValue = String(value);
+        returnValueAssignments.push(returnValue);
+      },
+    });
+    assert.equal(event.returnValue, "", "BeforeUnloadEvent starts with an empty DOMString");
     target.dispatchEvent(event);
+    assert.equal(event.returnValue, "", "the handler retains the browser's empty-string returnValue contract");
+    assert.deepEqual(returnValueAssignments, event.defaultPrevented ? [""] : [],
+      "unsaved work writes returnValue; durable, unhydrated, confirmed and cleaned-up paths leave it untouched");
     return event.defaultPrevented;
   }
   const globals = {
