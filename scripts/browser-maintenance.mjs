@@ -23,9 +23,6 @@ async function ready(page) {
   await page.locator('.bottom-nav').waitFor({ timeout: 30_000 });
 }
 const nav = navigate;
-const storedRecords = page => page.evaluate(() => Object.fromEntries(
-  Object.keys(localStorage).filter(key => key.startsWith('wordflow-')).sort().map(key => [key, localStorage.getItem(key)]),
-));
 
 // Integration snippet for scripts/browser-maintenance.mjs. Pass its local check helper.
 // Existing fresh isolated contexts only; native speech is not claimed as verified.
