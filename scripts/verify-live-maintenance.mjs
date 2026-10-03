@@ -122,11 +122,14 @@ async function identify(page, scripts, beforeReady) {
 
 for (const engine of ['chromium', 'webkit']) {
   const browser = await playwright[engine].launch({ headless: true });
-  async function check(name, body, seed = {}, beforeReady) {
+  async function check(name, body, seed = {}, beforeReady, { nativeWheel = false } = {}) {
     // Fresh, disposable profiles only. Real Service Worker acceptance is separate
     // in verify-live-pwa.mjs; these UI checks must not intercept a learner's cache.
+    // Playwright mobile WebKit cannot dispatch mouse-wheel input. Wheel cases
+    // retain the narrow viewport and touch capability, with mobile emulation off;
+    // all other cases continue to use the mobile touch profile.
     const context = await browser.newContext({ viewport: { width: 390, height: 650 }, hasTouch: true, acceptDownloads: true,
-      isMobile: true, serviceWorkers: 'block' });
+      isMobile: !nativeWheel, serviceWorkers: 'block' });
     await context.addInitScript(({ values, simulateStartupReadFault, masteredKey }) => {
       const storage = window.localStorage;
       const get = Storage.prototype.getItem, set = Storage.prototype.setItem, remove = Storage.prototype.removeItem;
@@ -716,8 +719,9 @@ for (const engine of ['chromium', 'webkit']) {
     assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'), expected);
     await nav(page, '进度');
     assert.ok((await page.locator('.app-version-panel').innerText()).includes(`当前版本 ${expected.slice(0, 7)}`));
-    return { delayedReturnFrameSimulated: true, servedAndClientReleaseVerified: true };
-  }), base.href);
+    return { delayedReturnFrameSimulated: true, servedAndClientReleaseVerified: true,
+      ...(name.endsWith('-scrolling') ? { scrollInput: 'native-mouse-wheel', mobileEmulation: false } : {}) };
+  }, {}, undefined, { nativeWheel: name.endsWith('-scrolling') }), base.href);
 
   const releaseUrl = new URL('/', base);
   releaseUrl.searchParams.set('ef-update', expected);

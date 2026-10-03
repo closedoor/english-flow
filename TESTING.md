@@ -18,7 +18,7 @@ The backup action regression injects persistent write refusal that also blocks r
 
 Legacy-cache recovery additionally isolates stalled namespace enumeration, a stalled newer revision and a stalled versioned candidate from other valid offline copies. All revision/candidate reads share the original two-second budget; old-shell lookup starts independently. A validated available fallback remains usable without network requests, promotion or cache deletion. Healthy immediate reads retain the existing most-recent-created-revision preference; under differing disk delays, a faster valid compatible fallback can win.
 
-The formal-site maintenance verifier repeats the shared delayed lookup-return and native held-key checks in fresh profiles, checking the served and executing release identity. The learning-only browser fixtures remain restricted to local origins.
+The formal-site maintenance verifier repeats the shared delayed lookup-return and native held-key checks in fresh profiles, checking the served and executing release identity. The learning-only browser fixtures remain restricted to local origins. Native mouse-wheel scenarios use the same 390×650 viewport and touch capability with mobile emulation disabled: Playwright mobile WebKit cannot dispatch mouse wheels. All other live maintenance scenarios retain mobile emulation. These wheel cases still require actual native scrolling, preserved focus/viewport/list position and unchanged records; no injected scrolling or skipped assertions are used.
 
 ## Third-perspective daily-use audit
 
