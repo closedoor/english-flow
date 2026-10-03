@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
-import {selectSentenceMethod} from './browser-disclosures.mjs';
+import {openSetupDetails,selectSentenceMethod} from './browser-disclosures.mjs';
+import {navigate} from './browser-navigation.mjs';
 import {assertSentenceCardGeometry} from './sentence-card-geometry.mjs';
 import {verifySpeechRecovery} from './speech-recovery-checks.mjs';
 if(!process.env.PLAYWRIGHT_MODULE)throw Error('Set PLAYWRIGHT_MODULE.');
@@ -56,6 +57,45 @@ for(const engine of ['chromium','webkit']){
   await page.getByRole('button',{name:'下一句 ›',exact:true}).click();assert.equal(await page.locator('.sentence-english').count(),0);assert.equal(await page.evaluate(()=>window.__liveSentence.log.length),spokenBefore+1);
   assert.deepEqual(errors,[]);console.log('LIVE_SENTENCE_PASS',JSON.stringify({engine,commit:expected,checks,resumeWithoutDialog:true,progressPreserved:true,continuousRange:true,immersiveSentenceCards:true,practiceMethodsInsideRange:true,setupSummaryAndProgressHidden:true,recallWithoutAnswerLeak:true,compactBilingualText:true,thumbReplayVerified:true,geometry,recallGeometry,instrumentedSpeech:true}));
  }catch(error){console.error('LIVE_SENTENCE_FAIL',JSON.stringify({engine,commit:expected,error:String(error),errors}));process.exitCode=1;}
- finally{await context.close();await browser.close();}
+ finally{await context.close();}
+ const lookupContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,serviceWorkers:'allow'});
+ // A separate fresh profile tests the deployed query flow without learner data.
+ // Speech is deliberately simulated; these checks do not claim physical audio.
+ await lookupContext.addInitScript(()=>{
+  Object.defineProperty(window,'SpeechSynthesisUtterance',{configurable:true,value:class{constructor(text){this.text=text;}}});
+  Object.defineProperty(window,'speechSynthesis',{configurable:true,value:{paused:false,getVoices(){return[];},cancel(){},resume(){},speak(u){u.onstart?.();queueMicrotask(()=>u.onend?.());}}});
+ });
+ const lookupPage=await lookupContext.newPage();lookupPage.setDefaultTimeout(25000);const lookupErrors=[],lookupScripts=[];
+ lookupPage.on('pageerror',error=>lookupErrors.push(error.message));
+ lookupPage.on('response',response=>{if(response.request().resourceType()==='script'&&/\.m?js(?:\?|$)/.test(response.url()))lookupScripts.push(response.text().catch(()=>''));});
+ const sentenceKey='wordflow-sentence-active-session-v1',savedKey='wordflow-sentence-saved-v1';
+ const readSentence=()=>lookupPage.evaluate(key=>JSON.parse(localStorage.getItem(key)||'null'),sentenceKey);
+ async function identifyLookupClient(){
+  assert.equal(await lookupPage.title(),'词流英语');assert.equal(await lookupPage.locator('meta[name="english-flow-build"]').getAttribute('content'),expected);
+  await navigate(lookupPage,'进度');assert.ok((await lookupPage.locator('.app-version-panel').innerText()).includes(`当前版本 ${expected.slice(0,7)}`),'The executing sentence lookup client must report this release');
+  assert.ok((await Promise.all(lookupScripts)).some(source=>source.includes(expected)),'A loaded sentence lookup client module must contain the full release identity');
+  await navigate(lookupPage,'句子');
+ }
+ try{
+  const url=new URL('/',base);url.searchParams.set('ef-update',expected);const response=await lookupPage.goto(url.href,{waitUntil:'domcontentloaded',timeout:45000});assert.equal(response.status(),200);
+  await lookupPage.locator('.bottom-nav').waitFor();await identifyLookupClient();
+  await openSetupDetails(lookupPage,'.sentence-find');await lookupPage.getByRole('searchbox',{name:'搜索长短句',exact:true}).fill('you');
+  const result=lookupPage.locator('.sentence-result-list button[data-sentence-id]').first();await result.waitFor();await result.click();await lookupPage.locator('.sentence-study-card').waitFor();
+  await lookupPage.waitForFunction(key=>JSON.parse(localStorage.getItem(key)||'null')?.kind==='lookup',sentenceKey);
+  const lookup=await readSentence();assert.equal(lookup.kind,'lookup');assert.equal(lookup.sentenceIds.length,1);assert.equal(lookup.band,'short');assert.deepEqual(lookup.ratings,{});
+  const lookupId=lookup.sentenceIds[0];await lookupPage.getByRole('button',{name:'收藏句子',exact:true}).click();
+  await lookupPage.waitForFunction(({key,id})=>JSON.parse(localStorage.getItem(key)||'[]').includes(id),{key:savedKey,id:lookupId});
+  lookupScripts.length=0;const reloaded=await lookupPage.reload({waitUntil:'domcontentloaded'});assert.equal(reloaded.status(),200);await lookupPage.locator('.sentence-study-card').waitFor();
+  assert.deepEqual(await readSentence(),lookup,'Reload must retain the lookup identity, IDs, position, ratings and timestamp');
+  assert.deepEqual(await lookupPage.evaluate(key=>JSON.parse(localStorage.getItem(key)||'[]'),savedKey),[lookupId],'The query bookmark must survive reload');
+  await lookupPage.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();await identifyLookupClient();
+  await lookupPage.waitForFunction(()=>{const button=document.querySelector('.sentence-page .setup-start');return button&&!button.disabled;});await lookupPage.getByRole('button',{name:'开始学习句子',exact:true}).click();await lookupPage.locator('.sentence-study-card').waitFor();
+  await lookupPage.waitForFunction(key=>JSON.parse(localStorage.getItem(key)||'null')?.continuous===true,sentenceKey);
+  const group=await readSentence();assert.equal(group.kind,'group');assert.equal(group.continuous,true);assert.equal(group.band,'short');assert.equal(group.category,'all');assert.equal(group.sentenceIds.length,1000);assert.equal(new Set(group.sentenceIds).size,1000);assert.ok(group.sentenceIds.every(id=>id>=1&&id<=1000));assert.deepEqual(group.ratings,{});
+  assert.equal(await lookupPage.locator('#discard-title').count(),0);assert.deepEqual(await lookupPage.evaluate(key=>JSON.parse(localStorage.getItem(key)||'[]'),savedKey),[lookupId],'Starting the normal range must retain the query bookmark');
+  assert.deepEqual(await lookupPage.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-days')||'[]')),[],'Querying, bookmarking and starting must not invent study days');
+  assert.deepEqual(lookupErrors,[]);console.log('LIVE_SENTENCE_LOOKUP_PASS',JSON.stringify({engine,commit:expected,clientCommitVerifiedBeforeAndAfterReload:true,lookupIdentityRetainedAfterReload:true,normalStartIncludesFullRange:true,sentenceCount:group.sentenceIds.length,queryBookmarkPreserved:true,discardDialog:false,instrumentedSpeech:true}));
+ }catch(error){console.error('LIVE_SENTENCE_LOOKUP_FAIL',JSON.stringify({engine,commit:expected,error:String(error),errors:lookupErrors}));process.exitCode=1;}
+ finally{await lookupContext.close();await browser.close();}
 }
 await verifySpeechRecovery(pw,base.href,expected);
