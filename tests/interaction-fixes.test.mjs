@@ -157,7 +157,7 @@ test("empty states explain the next useful action without claiming progress that
   const review = sourceBetween("const renderReview", "const renderProgress");
   assert.match(review, /hasWordStudyHistory/);
   assert.match(review, /还没有需要复习的词/);
-  assert.match(review, /先完成一组学习/);
+  assert.match(review, /先学习单词并标记掌握程度/);
   assert.doesNotMatch(review, /reviewView === "due" \? "今天已经复习完了"/);
 });
 
