@@ -6,6 +6,10 @@ type SentenceDisplayCorrection = Partial<Pick<SentenceItem, "text" | "translatio
 // length bands and source attribution. Scene choices follow the sentence's
 // meaning rather than ambiguous words such as fish, order, leave or station.
 const SENTENCE_DISPLAY_CORRECTIONS: Record<number, SentenceDisplayCorrection> = {
+  53: { category: "food" },
+  72: { category: "food" },
+  157: { category: "food" },
+  166: { category: "food" },
   199: { category: "social" },
   290: { category: "social" },
   751: { category: "shopping" },
@@ -25,8 +29,11 @@ const SENTENCE_DISPLAY_CORRECTIONS: Record<number, SentenceDisplayCorrection> = 
   1760: { category: "daily" },
   1764: { category: "daily" },
   1765: { category: "daily" },
+  // "Pay attention" means listen or notice, rather than pay for a purchase.
+  1771: { category: "daily" },
   1797: { category: "daily" },
   1821: { category: "daily" },
+  1858: { category: "daily" },
   1893: { category: "work" },
   1910: { category: "daily" },
   1912: { category: "work" },
@@ -39,6 +46,7 @@ const SENTENCE_DISPLAY_CORRECTIONS: Record<number, SentenceDisplayCorrection> = 
   2417: { category: "shopping" },
   2464: { category: "daily" },
   2615: { category: "daily" },
+  2689: { category: "social" },
   2707: { category: "daily" },
   2719: { category: "shopping" },
   2752: { category: "daily" },
@@ -58,6 +66,8 @@ const SENTENCE_DISPLAY_CORRECTIONS: Record<number, SentenceDisplayCorrection> = 
     text: "Grass needs water to grow, so we water the lawn when the weather is dry.",
     translation: "草需要水才能生长，所以天气干燥时我们会给草坪浇水。",
   },
+  // "In your shoes" describes someone's situation, not shopping for shoes.
+  2812: { category: "daily" },
   2813: { category: "daily" },
   2820: { category: "work" },
   2825: { category: "daily" },

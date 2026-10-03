@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -205,6 +205,49 @@ for (const engine of ['chromium', 'webkit']) {
       await page.waitForFunction(previous => window.__storageReadFault.keyFailures > previous, before.keyFailures);
       await assertPaused(page, first.documentId);
     }
+  });
+  await check('runtime-storage-getter-fault-still-pauses-on-real-other-window-update', 'runtime', async page => {
+    await page.locator('.word-card').waitFor();
+    await settleLearningStorage(page);
+    const other = await page.context().newPage();
+    const otherErrors = [];
+    other.on('pageerror', error => otherErrors.push(error.message));
+    await other.goto(origin, { waitUntil: 'domcontentloaded' });
+    await other.locator('.word-card').waitFor();
+    await settleLearningStorage(other);
+    const original = await snapshot(page);
+    const before = parseRecords(original.current);
+    assert.equal(Object.keys(before).length, 19);
+    await page.evaluate(() => {
+      window.__storageReadFault.mode = 'getter';
+      window.__storageReadFault.writes = [];
+    });
+    // This is a real other-page rating and a native StorageEvent. Only the
+    // unavailable getter on the first page is injected; no synthetic event
+    // or cross-window UI state is dispatched by the fixture.
+    await other.locator('.learn-actions .primary-action').click();
+    await other.waitForFunction(keys => {
+      const active = JSON.parse(localStorage.getItem(keys.word) || 'null');
+      return active?.index === 5 && active.ratings[5] === 'known'
+        && JSON.parse(localStorage.getItem(keys.mastered) || '[]').includes(5);
+    }, keys);
+    await settleLearningStorage(other);
+    await page.locator('.sync-dialog').waitFor();
+    assert.equal(await page.locator('.storage-warning').count(), 1, 'The access failure is visible while stale-page recovery stays available');
+    assert.ok((await snapshot(page)).getterFailures > original.getterFailures, 'The runtime getter refusal was actually exercised');
+    assert.deepEqual((await snapshot(page)).writes, [], 'The unavailable stale page cannot write a single replacement value');
+    const winner = await snapshot(other);
+    assert.deepEqual(JSON.parse(winner.current[keys.mastered]), [1, 3, 5]);
+    assert.equal(await other.locator('.sync-dialog').count(), 0, 'The saving page must not be falsely paused');
+    const ready = page.waitForEvent('download');
+    await page.locator('.sync-dialog').getByRole('button', { name: '导出本页备份', exact: true }).click();
+    const exported = JSON.parse(await readFile(await (await ready).path(), 'utf8'));
+    assert.equal(Object.keys(exported.data).length, 19, 'Rescue includes all original keys, including null values');
+    assert.deepEqual(exported.data, before, 'Every original in-memory record and paused position remains rescuable without accessing disk');
+    assert.equal((await snapshot(page)).documentId, original.documentId, 'A getter error and export do not implicitly reload the stale document');
+    assert.deepEqual((await snapshot(other)).current, winner.current, 'Read-only rescue never overwrites the winner');
+    assert.deepEqual(otherErrors, [], 'The real saving page has no uncaught browser error');
+    await other.close();
   });
   await browser.close();
 }

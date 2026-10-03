@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { navigate } from './browser-navigation.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
+import { checkNoticeLayoutMatrix } from './notice-layout-checks.mjs';
 import {pathToFileURL} from 'node:url';
 const pw=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
 const origin=process.env.BROWSER_TEST_URL||'http://127.0.0.1:4173';
@@ -20,12 +21,13 @@ async function assertActions(page){const m=await geometry(page);assert.equal(m.o
 async function tap(page,selector){const r=await page.locator('.learn-page '+selector).boundingBox();await page.touchscreen.tap(r.x+r.width/2,r.y+r.height/2);}
 async function finishThree(page,from){for(let i=0;i<3;i++)await page.evaluate(()=>window.__layoutSpeech.end());const text=await page.locator('.example-box p').innerText();assert.deepEqual(await page.evaluate(from=>window.__layoutSpeech.log.slice(from),from),[text,text,text]);}
 async function assertToastActions(page){
+ if(await page.locator('.status-toast-stack').evaluate(el=>getComputedStyle(el).position==='static'))await page.locator('.word-card-actions').scrollIntoViewIfNeeded();
  await page.waitForFunction(selectors=>selectors.every(selector=>{const button=document.querySelector('.learn-page '+selector),r=button.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===button||button.contains(hit);}),selectors);
  await assertActions(page);
  const placement=await page.evaluate(()=>{const toast=document.querySelector('.status-toast-stack').getBoundingClientRect(),actions=document.querySelector('.word-card-actions').getBoundingClientRect();return {toastBottom:toast.bottom,actionsTop:actions.top};});
  assert.ok(placement.toastBottom<=placement.actionsTop-4,JSON.stringify(placement));
 }
-async function tapVisibleButton(page,name){const button=page.getByRole('button',{name,exact:true}),r=await button.boundingBox();assert.ok(r&&r.y>=0&&r.y+r.height<=page.viewportSize().height,JSON.stringify({name,box:r,viewport:page.viewportSize(),scrollY:await page.evaluate(()=>scrollY)}));assert.equal(await button.evaluate(el=>{const r=el.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===el||el.contains(hit);}),true,`${name} must receive a direct tap`);await page.touchscreen.tap(r.x+r.width/2,r.y+r.height/2);}
+async function tapVisibleButton(page,name){const button=page.getByRole('button',{name,exact:true});await button.scrollIntoViewIfNeeded();const r=await button.boundingBox();assert.ok(r&&r.y>=0&&r.y+r.height<=page.viewportSize().height,JSON.stringify({name,box:r,viewport:page.viewportSize(),scrollY:await page.evaluate(()=>scrollY)}));assert.equal(await button.evaluate(el=>{const r=el.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===el||el.contains(hit);}),true,`${name} must receive a direct tap`);await page.touchscreen.tap(r.x+r.width/2,r.y+r.height/2);}
 async function checkStackedWarnings(page){
  await page.evaluate(()=>{window.__layoutSpeech.fail=true;window.dispatchEvent(new CustomEvent('english-flow-speech-error',{detail:'not-allowed'}));window.dispatchEvent(new Event('english-flow-offline-cache-error'));window.dispatchEvent(new Event('offline'));});
  await page.getByRole('button',{name:'关闭语音提示',exact:true}).waitFor();await page.getByRole('button',{name:'关闭离线保存提示',exact:true}).waitFor();await page.locator('.offline-status').waitFor();
@@ -109,6 +111,7 @@ for(const engine of baseline?['chromium']:['chromium','webkit']){
   }catch(e){results.push({engine,name:item.name,status:'FAIL',error:String(e),geometry:await geometry(page).catch(()=>null),errors});}
   finally{console.log(JSON.stringify(results.at(-1)||{engine,baseline:true}));await context.close();}
  }
+ if(!baseline)await checkNoticeLayoutMatrix(browser,engine,origin,results);
  await browser.close();
 }
 const failed=results.filter(r=>r.status==='FAIL').length;
