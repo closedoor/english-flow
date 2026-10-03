@@ -197,7 +197,7 @@ async function cacheCompleteBuildGraph(cache, initialUrls, tolerateFailures = fa
     }
     if (!response) {
       try {
-        response = await normalizeManifestResponse(url, await fetchWithTimeout(url, OPTIONAL_CACHE_TIMEOUT));
+        response = await normalizeManifestResponse(url, await fetchCompleteWithTimeout(url, OPTIONAL_CACHE_TIMEOUT));
       } catch (error) {
         if (tolerateFailures) continue;
         throw error;
@@ -265,6 +265,31 @@ async function deleteOldShellCaches() {
     await Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE).map((key) => caches.delete(key)));
   } catch {
     // Keeping an older shell is safer than blocking activation.
+  }
+}
+
+// The install/warm graph needs a complete resource before it can cache or
+// inspect it. Bound the whole fetch and clone read, including responses whose
+// streams do not settle when aborted. Ordinary runtime responses still stream.
+async function fetchCompleteWithTimeout(request, timeoutMs) {
+  const controller = new AbortController();
+  let timeout;
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(request, { signal: controller.signal });
+        await response.clone().arrayBuffer();
+        return response;
+      })(),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new Error("App resource request timed out"));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
   }
 }
 

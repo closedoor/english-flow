@@ -14,6 +14,14 @@ async function begin(page,{mode='英文卡片',band='短句'}={}){await ready(pa
 const log=page=>page.evaluate(()=>window.__sentenceSpeech.log);
 const stored=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),key);
 const exit=page=>page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
+async function openSentenceLookup(page,mode='英文卡片'){
+ await ready(page);await nav(page,'句子');await selectSentenceMethod(page,mode);
+ await openSetupDetails(page,'.sentence-find');await page.getByRole('searchbox',{name:'搜索长短句',exact:true}).fill('you');
+ const result=page.locator('.sentence-result-list button[data-sentence-id]').first();await result.waitFor();await result.click();
+ await page.locator('.sentence-study-card').waitFor();
+ await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)||'null')?.kind==='lookup',key);
+ const snapshot=await stored(page);assert.equal(snapshot.sentenceIds.length,1);assert.equal(snapshot.band,'short');return snapshot;
+}
 async function finishSequence(page,from){
  await page.waitForFunction(n=>window.__sentenceSpeech.log.length===n,from+1);
  const english=await page.locator('.sentence-english').innerText(),chinese=await page.locator('.sentence-translation').innerText();
@@ -57,6 +65,22 @@ for(const engine of ['chromium','webkit']){
   for(let i=0;i<3;i++){await exit(page);await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();assert.equal(await page.locator('#discard-title').count(),0);assert.deepEqual(await stored(page),before);}
   assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-practice-rotation-v1')),rotation);
  });
+ for(const reload of [false,true])await check(`searched-single-sentence-cannot-replace-the-normal-range-${reload?'after-reload':'same-visit'}`,async page=>{
+  await openSentenceLookup(page);if(reload){await page.reload();await page.locator('.sentence-study-card').waitFor();assert.equal((await stored(page)).kind,'lookup');}
+  await exit(page);await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();
+  await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)||'null')?.continuous===true,key);
+  const session=await stored(page);assert.equal(session.kind,'group');assert.ok(session.sentenceIds.length>20);assert.deepEqual(session.ratings,{});assert.equal(await page.locator('#discard-title').count(),0);
+  assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-days')||'[]')),[],'Looking up and starting a range must not award learning days');
+ });
+ await check('explicit-searched-sentence-continuation-stays-single-and-keeps-recall-hidden',async page=>{
+  const before=await openSentenceLookup(page,'看中文说英文');assert.equal(await page.locator('.sentence-english').count(),0);assert.equal((await log(page)).length,0);
+  await exit(page);await resumePausedSentence(page);await page.locator('.sentence-study-card').waitFor();assert.deepEqual(await stored(page),before);
+  assert.equal(await page.locator('.sentence-english').count(),0);assert.equal((await log(page)).length,0);
+ });
+ await check('unmarked-legacy-one-item-practice-retains-normal-and-explicit-continuation',async page=>{
+  await page.goto(origin,{waitUntil:'domcontentloaded'});await page.locator('.sentence-study-card').waitFor();const before=await stored(page);
+  for(const explicit of [false,true]){await exit(page);if(explicit)await resumePausedSentence(page);else await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();assert.deepEqual(await stored(page),before);assert.equal((await stored(page)).kind,undefined);assert.equal(await page.locator('#discard-title').count(),0);}
+ },{seed:{version:1,updatedAt:Date.now(),band:'short',category:'all',count:10,mode:'speak',sentenceIds:[1],index:0,ratings:{}}});
  await check('unrated-first-card-can-change-settings-without-discard-warning',async page=>{await begin(page);await exit(page);await openSetupDetails(page,'.sentence-range');await page.locator('.sentence-band-switch button').filter({hasText:'常用句'}).click();await page.waitForFunction(()=>!document.querySelector('.sentence-page .setup-start').disabled);await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();assert.equal(await page.locator('#discard-title').count(),0);const session=await stored(page);assert.equal(session.continuous,true);assert.ok(session.sentenceIds.length>20);assert.ok(session.sentenceIds.every(id=>id>1000&&id<=2000));});
  await check('real-progress-still-protected-for-a-changed-learning-range',async page=>{await begin(page);await page.locator('.learn-actions .secondary-action').click();await exit(page);const before=await stored(page);await openSetupDetails(page,'.sentence-range');await page.locator('.sentence-band-switch button').filter({hasText:'常用句'}).click();await page.waitForFunction(()=>!document.querySelector('.sentence-page .setup-start').disabled);await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('#discard-title').waitFor();await page.getByRole('button',{name:'保留进度',exact:true}).click();assert.deepEqual(await stored(page),before);await resumePausedSentence(page);await page.locator('.sentence-study-card').waitFor();assert.equal((await stored(page)).index,before.index);});
  await check('next-previous-known-difficult-and-swipe-own-their-current-audio',async page=>{

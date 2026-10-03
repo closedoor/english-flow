@@ -320,7 +320,9 @@ export function testSpeech(language: "en-US" | "zh-CN", alternate = false) {
     voiceOverrides.set(language, !usesPlatformVoice(language));
   }
   const text = language === "zh-CN" ? "你好，这是中文语音测试。" : "Hello. This is an English sound test.";
-  return queueUtterance(playbackRun, text, .82, language, () => {}, () => {}, emitSpeechError);
+  return queueUtterance(playbackRun, text, .82, language, () => {}, () => {}, (error) => {
+    emitSpeechError(language === "zh-CN" ? `chinese-${error}` : error);
+  });
 }
 
 function playCurrentSegment(run: number) {

@@ -238,3 +238,13 @@ test('an unavailable alternate voice stops old playback and reports the intended
   attempts[0].onend();attempts[0].onstart();t.mock.timers.tick(16000);
   assert.deepEqual(speech.getSpeechDiagnostic(),failed);
 });
+
+test('a Chinese diagnostic failure emits a Chinese learning warning and preserves the actual code',async t=>{
+  const {speech,engine,errors}=await fixture(t,{apple:true});
+  speech.testSpeech('zh-CN');engine.active.onerror({error:'language-unavailable'});
+  assert.deepEqual(errors,['chinese-language-unavailable']);
+  assert.equal(speech.getSpeechDiagnostic().language,'zh-CN');
+  assert.equal(speech.getSpeechDiagnostic().error,'language-unavailable');
+  speech.testSpeech('en-US');engine.active.onerror({error:'language-unavailable'});
+  assert.deepEqual(errors,['chinese-language-unavailable','language-unavailable']);
+});

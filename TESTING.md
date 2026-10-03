@@ -1,5 +1,15 @@
 # English Flow testing
 
+## Third-perspective daily-use audit
+
+Sentence lookups now carry an optional session kind, so the normal start button can distinguish a looked-up sentence from a paused course. Existing untagged snapshots retain their previous resume behavior, including single-item legacy practice. Behavior regressions cover the normal start after lookup, explicit resume, reload and backup compatibility, with unchanged storage keys and format version.
+
+The new-learner review empty state describes rating individual words, matching the existing immediate review scheduling in continuous practice. The existing review availability regression retains its coverage of empty, future-due and resumed queues.
+
+Voice-check alternate playback uses the language shown in its diagnostic, including after returning Home and remounting the settings screen. Native Chinese sample failures retain their language in the global warning. Runtime checks and real-button Chromium/WebKit scenarios cover completed, stopped and failed samples, alternate voice selection and unchanged learning records. Speech callbacks remain simulated; these checks do not verify physical audio.
+
+Offline-shell resource installation includes the response body within the existing network deadline. Actual-worker tests use stalled readable streams for application resources and verify that installation rejects while the previous complete shell remains available. Ordinary runtime responses keep their existing streaming/cache behavior; the simulated stream faults do not replace installed-iPhone cold-start acceptance.
+
 ## Explicit update completeness and canceled voice checks
 
 Explicit update preflight requires one matching full build identity and a runnable same-origin application entry. `version-utils.test.mjs` covers malformed identity and script forms; `browser-version.mjs` rejects matching but incomplete future HTML, retains a real paused word position and all saved records, and accepts a retry using the actual built shell. Future releases and response faults are explicitly simulated.

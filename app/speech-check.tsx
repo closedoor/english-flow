@@ -15,14 +15,12 @@ export function speechFailureMessage(error: string) {
 
 export default function SpeechCheck() {
   const [result, setResult] = useState<SpeechDiagnostic>(getSpeechDiagnostic);
-  const [language, setLanguage] = useState<"en-US" | "zh-CN">("en-US");
   useEffect(() => {
     const update = (event: Event) => setResult((event as CustomEvent<SpeechDiagnostic>).detail);
     window.addEventListener(SPEECH_DIAGNOSTIC_EVENT, update);
     return () => window.removeEventListener(SPEECH_DIAGNOSTIC_EVENT, update);
   }, []);
   const play = (next: "en-US" | "zh-CN", alternate = false) => {
-    setLanguage(next);
     testSpeech(next, alternate);
   };
   const message = result.phase === "requested" ? "正在等待系统语音启动…"
@@ -42,7 +40,7 @@ export default function SpeechCheck() {
         <button onClick={() => play("zh-CN")}>试听中文</button>
       </div>
       <div className="speech-check-actions">
-        <button onClick={() => play(language, true)}>换个声音试播</button>
+        <button onClick={() => play(result.language === "zh-CN" ? "zh-CN" : "en-US", true)}>换个声音试播</button>
         <button onClick={() => { stopSpeech(); setResult({ ...getSpeechDiagnostic(), phase: "idle" }); }}>停止试听</button>
       </div>
       <p role="status" aria-live="polite">{message}</p>

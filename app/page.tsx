@@ -45,6 +45,7 @@ type SentenceSessionSnapshot = {
   version: 1;
   continuous?: true;
   reviewOnly?: true;
+  kind?: "group" | "lookup";
   updatedAt: number;
   band: SentenceBand;
   category: SentenceCategory;
@@ -266,13 +267,15 @@ function cleanSentenceSession(value: unknown): SentenceSessionSnapshot | null {
   const [minimumId, maximumId] = item.band === "short" ? [1, 1000] : item.band === "medium" ? [1001, 2000] : [2001, 3000];
   const sentenceIds = cleanSentenceIds(item.sentenceIds).filter((id) => id >= minimumId && id <= maximumId).slice(0, item.continuous === true ? 1000 : item.count);
   if (!sentenceIds.length) return null;
+  if (item.kind === "lookup" && (item.continuous === true || item.reviewOnly === true || sentenceIds.length !== 1)) return null;
   const allowedIds = new Set(sentenceIds);
   const rawRatings = item.ratings && typeof item.ratings === "object" && !Array.isArray(item.ratings) ? item.ratings : {};
   const ratings = Object.fromEntries(Object.entries(rawRatings).filter(([rawId, rating]) => allowedIds.has(Number(rawId)) && (rating === "known" || rating === "difficult")).map(([rawId, rating]) => [Number(rawId), rating])) as Record<number, SentenceRating>;
   if (!hasUnfinishedRatings(sentenceIds, ratings)) return null;
   const index = Math.min(Math.max(Number.isInteger(item.index) ? Number(item.index) : 0, 0), sentenceIds.length - 1);
   const mode: SentenceLearningMode = isSentenceLearningMode(item.mode) ? item.mode : "bilingual";
-  return { version: 1, ...(item.continuous === true ? { continuous: true } : {}), ...(item.reviewOnly === true ? { reviewOnly: true } : {}), updatedAt: Number(item.updatedAt), band: item.band, category: item.category, count: item.count, mode, sentenceIds, index, ratings };
+  const kind = item.kind === "group" || item.kind === "lookup" ? item.kind : undefined;
+  return { version: 1, ...(item.continuous === true ? { continuous: true } : {}), ...(item.reviewOnly === true ? { reviewOnly: true } : {}), ...(kind ? { kind } : {}), updatedAt: Number(item.updatedAt), band: item.band, category: item.category, count: item.count, mode, sentenceIds, index, ratings };
 }
 
 function cleanPatternSession(value: unknown): PatternSessionSnapshot | null {
@@ -467,6 +470,7 @@ export default function Home() {
   const [sentenceStage, setSentenceStage] = useState<SentenceStage>("setup");
   const [sentenceContinuous, setSentenceContinuous] = useState(false);
   const [sentenceSessionReview, setSentenceSessionReview] = useState(false);
+  const [sentenceSessionKind, setSentenceSessionKind] = useState<SentenceSessionSnapshot["kind"]>(undefined);
   const [sentenceSearch, setSentenceSearch] = useState("");
   const [sentenceSavedOnly, setSentenceSavedOnly] = useState(false);
   const [sentenceReviewOnly, setSentenceReviewOnly] = useState(false);
@@ -830,6 +834,7 @@ export default function Home() {
       sentenceResumeSnapshotRef.current = storedSentenceActiveSession;
       setSentenceContinuous(storedSentenceActiveSession.continuous === true);
       setSentenceSessionReview(storedSentenceActiveSession.reviewOnly === true);
+      setSentenceSessionKind(storedSentenceActiveSession.kind);
       setSentenceSessionIds(storedSentenceActiveSession.sentenceIds);
       setSentenceIndex(storedSentenceActiveSession.index);
       setSentenceRatings(storedSentenceActiveSession.ratings);
@@ -975,6 +980,7 @@ export default function Home() {
         version: 1,
         ...(sentenceContinuous ? { continuous: true as const } : {}),
         ...(sentenceSessionReview ? { reviewOnly: true as const } : {}),
+        ...(sentenceSessionKind ? { kind: sentenceSessionKind } : {}),
         band: sentenceBand,
         category: sentenceCategory,
         count: sentenceCount,
@@ -991,7 +997,7 @@ export default function Home() {
       sentenceResumeSnapshotRef.current = null;
       removeStoredValue(STORAGE.sentenceActiveSession);
     }
-  }, [externalUpdateDetected, hydrated, sentenceBand, sentenceCategory, sentenceContinuous, sentenceSessionReview, sentenceCount, sentenceIndex, sentenceMode, sentenceRatings, sentenceSection, sentenceSessionIds, sentenceStage]);
+  }, [externalUpdateDetected, hydrated, sentenceBand, sentenceCategory, sentenceContinuous, sentenceSessionReview, sentenceSessionKind, sentenceCount, sentenceIndex, sentenceMode, sentenceRatings, sentenceSection, sentenceSessionIds, sentenceStage]);
 
   useEffect(() => {
     if (!hydrated || externalUpdateDetected) return;
@@ -1849,6 +1855,7 @@ export default function Home() {
     setSentenceDifficult([]);
     restoreSentenceSetupPreferences();
     setSentenceSessionIds([]);
+    setSentenceSessionKind(undefined);
     setSentenceRatings({});
     setSentenceIndex(0);
     sentenceResumeSnapshotRef.current = null;
@@ -2215,6 +2222,7 @@ export default function Home() {
     setSentenceSessionIds(selected.map((item) => item.id));
     setSentenceContinuous(!singleSentence);
     setSentenceSessionReview(reviewOnly);
+    setSentenceSessionKind(singleSentence ? "lookup" : "group");
     setSentenceIndex(0);
     setSentenceRatings({});
     setSentenceTranslationOpen(false);
@@ -2226,7 +2234,7 @@ export default function Home() {
     const snapshot = newestSnapshot(cleanSentenceSession(readJson<unknown>(STORAGE.sentenceActiveSession, null)), sentenceResumeSnapshotRef.current);
     if (sentenceStage === "setup" && sentenceSessionIds.length && snapshot) {
       const sameChoices = snapshot.band === sentenceBand && snapshot.category === sentenceCategory
-        && snapshot.mode === sentenceMode && !snapshot.reviewOnly;
+        && snapshot.mode === sentenceMode && !snapshot.reviewOnly && snapshot.kind !== "lookup";
       // Returning to the same practice means resume, not discard and restart.
       if (!forceNew && !reviewOnly && !singleSentence && sameChoices) {
         resumeSentenceSession();
@@ -2251,6 +2259,7 @@ export default function Home() {
     setSentenceMode(snapshot.mode);
     setSentenceContinuous(snapshot.continuous === true);
     setSentenceSessionReview(snapshot.reviewOnly === true);
+    setSentenceSessionKind(snapshot.kind);
     setSentenceSessionIds(snapshot.sentenceIds);
     setSentenceIndex(snapshot.index);
     setSentenceRatings(snapshot.ratings);
@@ -2689,7 +2698,7 @@ export default function Home() {
         <h2 ref={reviewHeadingRef} tabIndex={-1} lang="en">{reviewWord.word}</h2><p>{reviewWord.phonetic || "点击播放发音"}</p>
         {answerOpen ? <div id={`review-answer-${reviewWord.id}`} ref={reviewAnswerRef} className="review-answer" tabIndex={-1} role="status" aria-live="polite"><strong>{reviewWord.meaning}</strong><div className="mini-example"><p lang="en">{highlightedExample(reviewWord)}</p><small>{reviewWord.translation}</small></div></div> : <button className="review-reveal" aria-expanded="false" aria-controls={`review-answer-${reviewWord.id}`} onClick={() => revealReviewAnswer(reviewWord.id)}>显示答案</button>}
         <div className="review-pager" role="group" aria-label="切换复习词"><button aria-label="上一个复习词" disabled={safeReviewIndex === 0} onClick={() => { setReviewIndex(safeReviewIndex - 1); setReviewRevealedWordId(null); }}>‹</button><span>{safeReviewIndex + 1} / {reviewWords.length}</span><button aria-label="下一个复习词" disabled={safeReviewIndex === reviewWords.length - 1} onClick={() => { setReviewIndex(safeReviewIndex + 1); setReviewRevealedWordId(null); }}>›</button></div>
-      </div> : <div className="empty-state"><span>✓</span><h2 ref={reviewHeadingRef} tabIndex={-1}>{reviewView === "due" ? (nextReviewDue !== null ? "暂时没有到期的词" : hasWordStudyHistory ? "当前没有待复习的词" : "还没有需要复习的词") : "生词本还是空的"}</h2><p>{reviewView === "due" ? (nextReviewDue !== null ? <>下次复习<strong className="next-review-time">{formatReviewDue(nextReviewDue, todayKey)}</strong>到时会自动出现在这里，也可以先去学习新词。</> : hasWordStudyHistory ? "继续学习新词，系统会安排下一次复习。" : "先完成一组学习，系统会按记忆规律安排复习。") : "标记“还不熟悉”的词会出现在这里。"}</p><button onClick={() => openLearningSetup()}>去学习新词</button></div>}
+      </div> : <div className="empty-state"><span>✓</span><h2 ref={reviewHeadingRef} tabIndex={-1}>{reviewView === "due" ? (nextReviewDue !== null ? "暂时没有到期的词" : hasWordStudyHistory ? "当前没有待复习的词" : "还没有需要复习的词") : "生词本还是空的"}</h2><p>{reviewView === "due" ? (nextReviewDue !== null ? <>下次复习<strong className="next-review-time">{formatReviewDue(nextReviewDue, todayKey)}</strong>到时会自动出现在这里，也可以先去学习新词。</> : hasWordStudyHistory ? "继续学习新词，系统会安排下一次复习。" : "先学习单词并标记掌握程度，系统会按记忆规律安排复习。") : "标记“还不熟悉”的词会出现在这里。"}</p><button onClick={() => openLearningSetup()}>去学习新词</button></div>}
       {reviewWord && answerOpen && reviewView === "due" && <div className="rating-grid" role="group" aria-label="评价记忆程度"><button onClick={() => rateReview("again")}><b>忘了</b><small>10 分钟后</small></button><button onClick={() => rateReview("hard")}><b>困难</b><small>1 天后</small></button><button onClick={() => rateReview("good")}><b>记得</b><small>{reviewIntervalDays(schedule[reviewWord.id]?.stage ?? 0, "good")} 天后</small></button><button onClick={() => rateReview("easy")}><b>简单</b><small>{reviewIntervalDays(schedule[reviewWord.id]?.stage ?? 0, "easy")} 天后</small></button></div>}
       {reviewWord && answerOpen && reviewView === "wordbook" && <button className="primary-action full-button" onClick={() => markWordbookMastered(reviewWord.id)}>这个词已经会了</button>}
     </section>;

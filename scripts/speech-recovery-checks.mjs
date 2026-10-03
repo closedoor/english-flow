@@ -193,6 +193,46 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
       await page.waitForFunction(()=>window.__speechRecovery.active===null);
       assert.equal(await page.evaluate(()=>window.__speechRecovery.active),null,'An unavailable alternate must stop the previous sample');
     });
+    for(const terminal of ['ended','stopped','failed']){
+      await check(`voice-check-alternate-keeps-visible-Chinese-after-${terminal}-and-remount`,async page=>{
+        await page.evaluate(terminal=>{
+          const s=window.__speechRecovery;s.apple=true;
+          s.voices=terminal==='failed'?[]:[{name:'Installed English',lang:'en-US',localService:true},{name:'Installed Chinese',lang:'zh-CN',localService:true}];
+          if(terminal==='failed')s.failAll='language-unavailable';
+        },terminal);
+        await page.locator('.home-settings-entry').click();await page.locator('.speech-check summary').click();
+        const before=await page.evaluate(()=>JSON.stringify(Object.entries(localStorage)));
+        await page.getByRole('button',{name:'试听中文',exact:true}).click();
+        if(terminal==='failed'){
+          await waitForDiagnostic(page,'中文音色不可用');
+          await page.waitForFunction(()=>document.querySelector('.speech-warning')?.textContent.includes('中文音色不可用'));
+          assert.ok(!(await page.locator('.speech-warning').innerText()).includes('英文音色不可用'),'The global warning must match the Chinese diagnostic');
+          await page.evaluate(()=>{
+            const s=window.__speechRecovery;s.failAll=null;
+            s.voices=[{name:'Installed English',lang:'en-US',localService:true},{name:'Installed Chinese',lang:'zh-CN',localService:true}];
+          });
+        }else{
+          await page.waitForFunction(()=>window.__speechRecovery.started.length===1);
+          if(terminal==='ended'){
+            await page.evaluate(()=>window.__speechRecovery.end());await waitForDiagnostic(page,'系统报告朗读结束');
+          }else{
+            await page.getByRole('button',{name:'停止试听',exact:true}).click();
+            await page.waitForFunction(()=>window.__speechRecovery.active===null);
+            await waitForDiagnostic(page,'点下面的按钮试听');
+          }
+        }
+        await page.getByRole('button',{name:'返回首页',exact:true}).click();
+        await page.locator('.home-settings-entry').click();await page.locator('.speech-check summary').click();
+        assert.match(await page.locator('.speech-check').innerText(),/中文 ·/,'The remounted diagnostic still displays the last Chinese sample');
+        const offset=await page.evaluate(()=>window.__speechRecovery.started.length);
+        await page.getByRole('button',{name:'换个声音试播',exact:true}).click();
+        await page.waitForFunction(n=>window.__speechRecovery.started.length===n,offset+1);
+        const last=await page.evaluate(()=>window.__speechRecovery.started.at(-1));
+        assert.equal(last.lang,'zh-CN','Alternate playback must use the language displayed by the remounted diagnostic');
+        assert.equal(last.voice,'Installed Chinese');
+        assert.equal(await page.evaluate(()=>JSON.stringify(Object.entries(localStorage))),before,'Checking another voice must not change learning records');
+      });
+    }
     await browser.close();
   }
   const failed=results.filter(r=>r.status==='FAIL').length;

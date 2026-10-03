@@ -75,7 +75,7 @@ test("review dates distinguish today from later dates across a year boundary", (
 test("new learners and learners without a schedule get truthful empty states", () => {
   const fresh = find(render({ history: false }).tree, (node) => node.props.className === "empty-state");
   assert.match(textOf(fresh), /还没有需要复习的词/);
-  assert.match(textOf(fresh), /先完成一组学习/);
+  assert.match(textOf(fresh), /先学习单词并标记掌握程度/);
   const existing = find(render().tree, (node) => node.props.className === "empty-state");
   assert.match(textOf(existing), /当前没有待复习的词/);
   assert.doesNotMatch(textOf(existing), /下次复习|今天已经复习完/);

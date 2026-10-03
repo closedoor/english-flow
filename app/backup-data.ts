@@ -99,6 +99,7 @@ function validBackupRecord(key: string, value: unknown): boolean {
       if (key === "wordflow-sentence-active-session-v1") {
         return sentenceBand(value.band) && sentenceCategory(value.category) && sessionCount(value.count) && optional(value, "mode", sentenceMode) && continuous(value)
           && optional(value, "reviewOnly", (flag) => flag === true)
+          && optional(value, "kind", (kind) => kind === "group" || (kind === "lookup" && value.continuous !== true && value.reviewOnly !== true && Array.isArray(value.sentenceIds) && value.sentenceIds.length === 1))
           && (value.continuous === true ? continuousSentenceIds(value.sentenceIds, value.band)
             : Array.isArray(value.sentenceIds) && value.sentenceIds.length > 0 && value.sentenceIds.every(positiveId));
       }

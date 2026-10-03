@@ -48,7 +48,7 @@ function harness(patch = {}) {
     sentenceSearch: "train", sentenceSavedOnly: false, sentenceReviewOnly: false, sentenceResultLimit: 90,
     wordBrowserOpen: false, sentenceBrowserOpen: false, patternCategory: "all",
     sentenceMastered: [], sentenceDifficult: [], sentenceSeen: [], sentenceSaved: items.map((item) => item.id),
-    sentenceContinuous: false, sentenceSessionReview: false, wordContinuous: false,
+    sentenceContinuous: false, sentenceSessionReview: false, sentenceSessionKind: undefined, wordContinuous: false,
     sentenceIndex: 0, sentenceSessionIds: [], sentenceRatings: {}, sentenceTranslationOpen: false,
     index: 0, learnStage: "setup", patternDrillIndex: 0, patternIndex: 0, patternStage: "setup",
     quizIndex: 0, readingId: null, readingLevel: "A1", readingNavigation: 0, reviewIndex: 0, reviewView: "due",

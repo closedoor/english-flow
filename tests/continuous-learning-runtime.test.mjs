@@ -56,7 +56,7 @@ function runtime(patch = {}, stored = {}) {
     mastered: [], difficult: [], schedule: {}, studyDays: [], path: "frequency", mode: "free", count: 10, discardRequest: null,
     wordBrowserOpen: false, librarySearch: "", libraryLimit: 24, speechNotice: null,
     sentenceBand: "short", sentenceCategory: "all", sentenceCount: 10, sentenceMode: "bilingual", sentenceStage: "setup", sentenceSection: "library",
-    sentenceContinuous: false, sentenceSessionReview: false, sentenceSessionIds: [], sentenceIndex: 0, sentenceRatings: {}, sentenceTranslationOpen: false,
+    sentenceContinuous: false, sentenceSessionReview: false, sentenceSessionKind: undefined, sentenceSessionIds: [], sentenceIndex: 0, sentenceRatings: {}, sentenceTranslationOpen: false,
     sentenceSearch: "", sentenceSavedOnly: false, sentenceReviewOnly: false, sentenceSeen: [], sentenceMastered: [], sentenceDifficult: [],
     ...patch,
   };
@@ -126,6 +126,42 @@ test("word learning passes card twenty and pauses, looks up a word, then resumes
   assert.equal(app.saved.get("word"), before);
   assert.ok(app.state.mastered.includes(81), "the lookup's real learning mark remains separate from the range position");
   assert.ok(app.speech.some((event) => event.kind === "word" && event.text === "Example 26." && event.times === 3));
+});
+
+test("exiting a searched sentence and using normal start begins the full range instead of the lookup", () => {
+  const app = runtime({ tab: "sentences" });
+  app.invoke("beginSentenceSession", false, app.sentences[12]);
+  const lookup = app.snapshot("sentence");
+  assert.equal(lookup.kind, "lookup");
+  assert.deepEqual(lookup.sentenceIds, [13]);
+  app.invoke("restoreSentenceSetupPreferences");
+  app.invoke("startSentenceSession");
+  assert.equal(app.state.discardRequest, null);
+  assert.equal(app.state.sentenceContinuous, true);
+  assert.equal(app.snapshot("sentence").kind, "group");
+  assert.equal(app.state.sentenceSessionIds.length, 90);
+  assert.deepEqual(app.state.sentenceMastered, []);
+  assert.deepEqual(app.state.studyDays, [], "looking up and starting practice do not fabricate learning");
+});
+
+test("a searched sentence retains its identity on explicit resume and after recreating memory", () => {
+  const app = runtime({ tab: "sentences", sentenceMode: "speak" });
+  app.invoke("beginSentenceSession", false, app.sentences[12]);
+  const snapshot = app.snapshot("sentence");
+  const before = app.saved.get("sentence");
+  const reopened = runtime({
+    tab: "sentences", sentenceSessionIds: snapshot.sentenceIds, sentenceMode: "speak",
+  }, Object.fromEntries(app.saved));
+  reopened.invoke("resumeSentenceSession");
+  assert.equal(reopened.state.sentenceSessionKind, "lookup");
+  assert.equal(reopened.state.sentenceTranslationOpen, false);
+  assert.deepEqual(plain(reopened.state.sentenceSessionIds), [13]);
+  assert.equal(reopened.saved.get("sentence"), before, "explicit lookup continuation preserves the saved position and timestamp");
+  reopened.invoke("restoreSentenceSetupPreferences");
+  reopened.invoke("startSentenceSession");
+  assert.equal(reopened.state.sentenceSessionIds.length, 90);
+  assert.equal(reopened.snapshot("sentence").kind, "group");
+  assert.deepEqual(reopened.speech, [], "speaking-first lookup and normal practice must keep answers silent");
 });
 
 test("changing a progressed word range requires confirmation, cancel preserves bytes and confirm starts the requested range", () => {

@@ -135,6 +135,7 @@ test("resuming an interrupted sentence and returning to setup preserves chosen s
     setSentenceMode: (value) => { state.mode = value; },
     setSentenceContinuous: (value) => { state.continuous = value; },
     setSentenceSessionReview: (value) => { state.sessionReview = value; },
+    setSentenceSessionKind() {},
     setSentenceStage: (value) => { state.stage = value; },
     setSentenceSessionIds: (value) => { state.ids = value; },
     setSentenceIndex: (value) => { state.index = value; },

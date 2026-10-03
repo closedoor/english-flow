@@ -15,6 +15,10 @@ function invoke({snapshot=base,preferences={},args=[]}={}){
  fn(...args);assert.equal(JSON.stringify(snapshot),before,'dispatch must never mutate the saved snapshot');return JSON.parse(JSON.stringify(calls));
 }
 test('the reported untouched ten-sentence group resumes with no discard dialog',()=>assert.deepEqual(invoke(),['resume']));
+test('a searched single sentence cannot masquerade as the normal learning range',()=>assert.deepEqual(invoke({snapshot:{...base,kind:'lookup',sentenceIds:[1]}}),['start']));
+test('legacy single-sentence practice and a continuous one-item range keep their existing continuation',()=>{
+ for(const snapshot of [{...base,sentenceIds:[1]},{...base,kind:'group',sentenceIds:[1]},{...base,kind:'group',continuous:true,sentenceIds:[1]}])assert.deepEqual(invoke({snapshot}),['resume']);
+});
 test('partially rated or merely browsed groups retain their position when resuming',()=>{for(const snapshot of [{...base,index:1},{...base,ratings:{1:'known'}}])assert.deepEqual(invoke({snapshot}),['resume']);});
 test('removed group-count preference cannot interrupt an unchanged saved range',()=>{for(const snapshot of [base,{...base,index:1}])assert.deepEqual(invoke({snapshot,preferences:{sentenceCount:20}}),['resume']);});
 test('changed ranges may replace only an untouched first card silently',()=>{assert.deepEqual(invoke({preferences:{sentenceBand:'long'}}),['start']);assert.equal(invoke({snapshot:{...base,index:1},preferences:{sentenceBand:'long'}})[0].confirm.sentence,true);});

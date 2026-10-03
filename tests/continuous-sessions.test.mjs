@@ -68,6 +68,37 @@ test("complete continuous word and sentence snapshots remain within format one b
   assert.ok(JSON.stringify(data).length < backups.BACKUP_MAX_BYTES);
 });
 
+test("sentence lookup identity survives format-one export, restore and session cleaning", () => {
+  const lookup = sentenceSnapshot({ kind: "lookup", updatedAt: Date.now(), sentenceIds: [17], index: 0, ratings: {}, mode: "speak" });
+  delete lookup.continuous;
+  const original = backup({ [storage.sentenceActiveSession]: lookup, [storage.sentenceSaved]: [17] });
+  const source = { getItem: (key) => original.data[key] === null ? null : JSON.stringify(original.data[key]) };
+  const exported = JSON.parse(JSON.stringify(backups.createLearningBackup(source, keys)));
+  assert.equal(valid(exported), true);
+  const restored = new Map();
+  const target = { getItem: (key) => restored.get(key) ?? null, setItem: (key, value) => restored.set(key, value), removeItem: (key) => restored.delete(key) };
+  assert.equal(backups.restoreLearningBackupData(target, keys, exported), true);
+  const storedLookup = JSON.parse(restored.get(storage.sentenceActiveSession));
+  assert.deepEqual(plain(cleaners.cleanSentenceSession(storedLookup)), lookup);
+  assert.deepEqual(JSON.parse(restored.get(storage.sentenceSaved)), [17]);
+  assert.equal(exported.formatVersion, 1);
+  assert.equal(keys.length, 19);
+});
+
+test("lookup markers cannot describe a continuous or multi-sentence range", () => {
+  const lookup = sentenceSnapshot({ kind: "lookup", updatedAt: Date.now(), sentenceIds: [17], index: 0, ratings: {} });
+  delete lookup.continuous;
+  for (const patch of [{ kind: "unsupported" }, { continuous: true }, { reviewOnly: true }, { sentenceIds: [17, 18] }]) {
+    assert.equal(valid(backup({ [storage.sentenceActiveSession]: { ...lookup, ...patch } })), false);
+  }
+  for (const patch of [{ continuous: true }, { reviewOnly: true }, { sentenceIds: [17, 18] }]) {
+    assert.equal(cleaners.cleanSentenceSession({ ...lookup, ...patch }), null);
+  }
+  const legacy = { ...lookup };
+  delete legacy.kind;
+  assert.deepEqual(plain(cleaners.cleanSentenceSession(legacy)), legacy, "unmarked legacy one-item practice keeps its original identity");
+});
+
 test("export and restore preserve continuous positions, IDs and ratings alongside legacy records", () => {
   const oldPattern = { version: 1, updatedAt: 1, category: "all", patternIds: ["p01", "p02"], index: 1, drillIndex: 2, ratings: { p01: "known" } };
   const initial = backup({
