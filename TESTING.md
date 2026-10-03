@@ -2,6 +2,8 @@
 
 ## Comprehensive edge-case audit
 
+The changed maintenance, learning-boundary and speech scenarios run first for early failure feedback. Every existing browser suite still runs once; no check is skipped or duplicated.
+
 `browser-learning-boundaries.mjs` uses isolated records with all 2,809 word IDs or a complete 1,000-item sentence band. It checks continuous snapshots older than 30 days, final-card corrections and completion, wrapping to unrated cards, difficult-only retry and pause/resume, recall answer protection, final review/bookmark undo, and legacy final-exam retries. Keyboard repetition checks distinguish a held key from separate intentional activations.
 
 `lookup-return-focus-runtime.test.mjs` executes the actual navigation effect. The shared `lookup-return-checks.mjs` browser scenarios use visible return controls and delay the return frame, covering normal focus restoration, newly entered input, real wheel scrolling and cancellation by later navigation. A user's later action takes precedence over an old return callback, with unchanged learning records. This frame scheduling is simulated and does not verify a physical iPhone keyboard.
