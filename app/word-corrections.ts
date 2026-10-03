@@ -23,6 +23,15 @@ export const wordCardCorrections: Record<string, WordCardCorrection> = {
   we: { example: "We study English every morning.", translation: "我们每天早上学习英语。", exampleForm: "We", collocations: ["we study", "we study English"] },
   // Avoid the source sentence's incorrect claim about Earth's total surface.
   desert: { example: "We drove through the desert before sunset.", translation: "我们在日落前开车穿过了沙漠。", exampleForm: "desert", collocations: ["through the desert", "a dry desert"] },
+  // Match the noun sense, waiting endpoint and direction of the offer shown
+  // in these existing examples. Ranked IDs and canonical packs remain intact.
+  increase: { phonetic: "/ˈɪn.kriːs/", example: "The number of cars is on the increase.", translation: "汽车的数量在增长。", exampleForm: "increase", collocations: ["the increase", "on the increase"] },
+  consider: { phonetic: "/kənˈsɪd.ə/", example: "Let's consider it again when the time comes.", translation: "到时候我们再考虑吧。", exampleForm: "consider", collocations: ["let's consider", "consider it"] },
+  offer: { example: "Of course I accepted his offer of support.", translation: "我当然接受了他主动提供的支持。", exampleForm: "offer", collocations: ["his offer", "offer of"] },
+  end: { example: "Please wait until the end of this month.", translation: "请等到这个月底。", exampleForm: "end", collocations: ["the end", "end of"] },
+  month: { example: "Please wait until the end of this month.", translation: "请等到这个月底。", exampleForm: "month", collocations: ["this month", "of this month"] },
+  until: { meaning: "直到；到……为止", example: "Please wait until the end of this month.", translation: "请等到这个月底。", exampleForm: "until", collocations: ["wait until", "until the"] },
+  information: { example: "Do you have any information on classical music concerts?", translation: "你有关于古典音乐会的信息吗？", exampleForm: "information", collocations: ["any information", "information on"] },
   down: { example: "Please sit down.", translation: "请坐下。", exampleForm: "down", collocations: ["sit down", "walk down the stairs"] },
   little: { example: "Could you cook this meat a little more?", translation: "能把这块肉再做熟一点吗？", exampleForm: "little", collocations: ["a little more", "a little water"] },
   something: { example: "I have something to tell you.", translation: "我有件事想告诉你。", exampleForm: "something", collocations: ["something to tell you", "something useful"] },

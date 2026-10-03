@@ -589,3 +589,12 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .is-immersive:has(.storage-warning) .immersive-learning>.word-card,
 .is-immersive:has(.storage-warning) .immersive-learning>.sentence-study-card{overflow-y:visible;margin-bottom:0}
 .is-immersive:has(.storage-warning) .immersive-learning>.word-card-actions{position:static}
+
+/* Multiple notices can occupy the whole lesson viewport with enlarged text.
+   Keep every notice, lesson and recovery action reachable by normal scrolling. */
+.is-immersive:has(.status-toast-stack>:nth-child(2))>div:first-child{height:auto;min-height:100dvh}
+.is-immersive:has(.status-toast-stack>:nth-child(2)) .status-toast-stack{position:static;left:auto;bottom:auto;transform:none;width:calc(100% - 24px);margin:10px 12px 0}
+.is-immersive:has(.status-toast-stack>:nth-child(2)) .immersive-learning{min-height:100dvh}
+.is-immersive:has(.status-toast-stack>:nth-child(2)) .immersive-learning>.word-card,
+.is-immersive:has(.status-toast-stack>:nth-child(2)) .immersive-learning>.sentence-study-card{overflow-y:visible;margin-bottom:0}
+.is-immersive:has(.status-toast-stack>:nth-child(2)) .immersive-learning>.word-card-actions{position:static}

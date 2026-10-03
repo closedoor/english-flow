@@ -63,6 +63,22 @@ jobs:
           PRODUCTION_URL: https://english-flow-mwnn.onrender.com/
           EXPECTED_COMMIT: ${{ github.sha }}
 
+      - name: Verify actual live warning layout and reachable learning controls
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: node scripts/verify-live-notices.mjs
+        env:
+          PLAYWRIGHT_MODULE: /tmp/english-flow-live/node_modules/playwright/index.mjs
+          PRODUCTION_URL: https://english-flow-mwnn.onrender.com/
+          EXPECTED_COMMIT: ${{ github.sha }}
+
+      - name: Verify actual live offline reopening and learning records
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: node scripts/verify-live-offline.mjs
+        env:
+          PLAYWRIGHT_MODULE: /tmp/english-flow-live/node_modules/playwright/index.mjs
+          PRODUCTION_URL: https://english-flow-mwnn.onrender.com/
+          EXPECTED_COMMIT: ${{ github.sha }}
+
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -88,3 +104,5 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
           npm run test:browser
+          PRODUCTION_URL=http://127.0.0.1:4173 EXPECTED_COMMIT=${{ github.sha }} node scripts/verify-live-offline.mjs
+          node scripts/browser-content-context.mjs
