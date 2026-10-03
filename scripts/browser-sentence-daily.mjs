@@ -16,6 +16,7 @@ const stored=page=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),key)
 const exit=page=>page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
 async function openSentenceLookup(page,mode='英文卡片'){
  await ready(page);await nav(page,'句子');await selectSentenceMethod(page,mode);
+ await page.waitForFunction(()=>{const button=document.querySelector('.sentence-page .setup-start');return button&&!button.disabled;});
  await openSetupDetails(page,'.sentence-find');await page.getByRole('searchbox',{name:'搜索长短句',exact:true}).fill('you');
  const result=page.locator('.sentence-result-list button[data-sentence-id]').first();await result.waitFor();await result.click();
  await page.locator('.sentence-study-card').waitFor();

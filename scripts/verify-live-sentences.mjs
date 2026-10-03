@@ -79,6 +79,7 @@ for(const engine of ['chromium','webkit']){
  try{
   const url=new URL('/',base);url.searchParams.set('ef-update',expected);const response=await lookupPage.goto(url.href,{waitUntil:'domcontentloaded',timeout:45000});assert.equal(response.status(),200);
   await lookupPage.locator('.bottom-nav').waitFor();await identifyLookupClient();
+  await lookupPage.waitForFunction(()=>{const button=document.querySelector('.sentence-page .setup-start');return button&&!button.disabled;});
   await openSetupDetails(lookupPage,'.sentence-find');await lookupPage.getByRole('searchbox',{name:'搜索长短句',exact:true}).fill('you');
   const result=lookupPage.locator('.sentence-result-list button[data-sentence-id]').first();await result.waitFor();await result.click();await lookupPage.locator('.sentence-study-card').waitFor();
   await lookupPage.waitForFunction(key=>JSON.parse(localStorage.getItem(key)||'null')?.kind==='lookup',sentenceKey);
