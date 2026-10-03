@@ -210,9 +210,20 @@ for (const engine of ['chromium', 'webkit']) {
     await nav(page,'句子');
     await page.waitForFunction(()=>performance.getEntriesByType('resource').some(x=>x.name.includes('tatoeba-sentences-1')));
     await nav(page,'首页');
-    await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistration())?.active?.state === 'activated', null, {timeout:30000});
+    const activationDeadline = Date.now() + 30000;
+    await page.evaluate(async () => {
+      let timer;
+      try {
+        await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Service Worker readiness timed out')), 30000); }),
+        ]);
+      } finally { clearTimeout(timer); }
+    });
+    await page.waitForFunction(() => navigator.serviceWorker.controller?.state === 'activated', null, { timeout: Math.max(1, activationDeadline - Date.now()) });
+    assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())?.active?.state), 'activated', 'The real registration must be activated before reload');
     await page.reload(); await page.locator('.bottom-nav').waitFor();
-    await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
+    await page.waitForFunction(()=>navigator.serviceWorker.controller?.state === 'activated');
     if (engine === 'webkit') {
       // WebKit covers sentence content loaded in this document; reload drops
       // its in-memory packs, so load the selected pack before going offline.

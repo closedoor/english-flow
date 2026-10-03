@@ -29,9 +29,32 @@ async function records(page) {
     .filter(key => key.startsWith('wordflow-')).sort().map(key => [key, localStorage.getItem(key)])));
 }
 
+// waitForFunction polls synchronously: an async predicate returns a truthy
+// Promise even when its eventual value is false. Await readiness explicitly,
+// then poll the actual controlling worker with a synchronous Boolean.
+async function waitForActivatedController(page, timeout = 45_000) {
+  await page.evaluate(async timeout => {
+    let timer;
+    try {
+      await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Service Worker readiness timed out')), timeout);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }, timeout);
+  await page.waitForFunction(() => navigator.serviceWorker.controller?.state === 'activated', null, { timeout });
+  assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())?.active?.state),
+    'activated', 'The document must have an activated registration and an activated controller');
+}
+
 async function documentIdentity(page) {
   assert.equal(await page.title(), '词流英语');
   assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'), expected);
+  await waitForActivatedController(page);
   assert.equal(await page.evaluate(() => navigator.serviceWorker.controller?.state), 'activated');
   const workerUrl = await page.evaluate(() => navigator.serviceWorker.controller.scriptURL);
   const worker = page.context().serviceWorkers().find(candidate => candidate.url() === workerUrl);
@@ -112,10 +135,6 @@ async function check(name, body) {
     const response = await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     assert.equal(response.status(), 200);
     await page.locator('.bottom-nav').waitFor();
-    await page.waitForFunction(async () => {
-      const registration = await navigator.serviceWorker.getRegistration();
-      return registration?.active?.state === 'activated' && navigator.serviceWorker.controller?.state === 'activated';
-    }, null, { timeout: 45_000 });
     await documentIdentity(page);
     await navigate(page, '进度');
     assert.ok((await page.locator('.app-version-panel').innerText()).includes(`当前版本 ${expected.slice(0, 7)}`), 'The executing client must match the document identity');

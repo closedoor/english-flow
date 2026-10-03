@@ -103,6 +103,6 @@ jobs:
           python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/english-flow-http.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
-          npm run test:browser
           PRODUCTION_URL=http://127.0.0.1:4173 EXPECTED_COMMIT=${{ github.sha }} node scripts/verify-live-offline.mjs
           node scripts/browser-content-context.mjs
+          npm run test:browser
