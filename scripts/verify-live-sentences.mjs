@@ -1,3 +1,4 @@
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 import {openSetupDetails,selectSentenceMethod} from './browser-disclosures.mjs';
@@ -35,15 +36,17 @@ for(const engine of ['chromium','webkit']){
    const spoken=await page.evaluate(n=>window.__liveSentence.log.slice(n),offset);assert.deepEqual(spoken.map(u=>u.text),[english,english,english,chinese]);assert.deepEqual(spoken.map(u=>u.lang),['en-US','en-US','en-US','zh-CN']);assert.equal(spoken[0].gesture,true);offset+=4;checks.push({action,englishRepeats:3,chineseRepeats:1,translationVisible:true});
   }
   const geometry=await assertSentenceCardGeometry(page);const replay=page.getByRole('button',{name:'重播本句',exact:true});const replayRect=await replay.boundingBox();
+  await settleLearningStorage(page);
   const beforeReplay=await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1'));
   await page.touchscreen.tap(replayRect.x+replayRect.width/2,replayRect.y+replayRect.height/2);await page.waitForFunction(n=>window.__liveSentence.log.length===n,offset+1);
   const replayEnglish=await page.locator('.sentence-english').innerText(),replayChinese=await page.locator('.sentence-translation').innerText();
   for(let i=0;i<4;i++)await page.evaluate(()=>window.__liveSentence.end());
   assert.deepEqual(await page.evaluate(n=>window.__liveSentence.log.slice(n).map(u=>u.text),offset),[replayEnglish,replayEnglish,replayEnglish,replayChinese]);
   assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1')),beforeReplay);
+  await settleLearningStorage(page);
   const snapshot=await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1'));
   const session=JSON.parse(snapshot);assert.equal(session.continuous,true);assert.ok(session.sentenceIds.length>20,'Live sentence learning must include the selected range beyond twenty cards');
-  for(let i=0;i<2;i++){await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();assert.equal(await page.locator('#discard-title').count(),0);assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1')),snapshot);}
+  for(let i=0;i<2;i++){await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();await settleLearningStorage(page);assert.equal(await page.locator('#discard-title').count(),0);assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-sentence-active-session-v1')),snapshot);}
   await page.getByRole('button',{name:'返回句库设置并保留进度',exact:true}).click();
   assert.equal(await page.locator('.session-choice-summary,.resume-session-card,.setup-footnote').count(),0);
   await selectSentenceMethod(page,'看中文说英文');assert.equal(await page.locator('.sentence-range .practice-methods').isVisible(),true);

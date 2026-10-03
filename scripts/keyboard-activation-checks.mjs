@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 
 const keys = {
   word: 'wordflow-active-session-v1', mastered: 'wordflow-ngsl-mastered-v1', difficult: 'wordflow-ngsl-difficult-v1',
@@ -24,6 +25,7 @@ async function ready(page, origin) {
       if (event.key === 'Enter' || event.key === ' ') window.__keyboardActivationEvents.push({ key: event.key, repeat: event.repeat });
     }, true);
   });
+  await settleLearningStorage(page);
 }
 async function assertNativeRepeat(page, key) {
   const events = await page.evaluate(() => window.__keyboardActivationEvents.slice(-2));

@@ -140,6 +140,7 @@ for (const engine of ['chromium','webkit']) {
         await route.continue().catch(()=>{});
       });
       await ready(page);
+      await settleLearningStorage(page);
       const before=await page.evaluate(()=>({...localStorage}));
       for(let cycle=0;cycle<6;cycle++){
         for(const label of ['句子','生词本','今天','单词','复习','进度'])await nav(page,label);
@@ -201,6 +202,7 @@ for (const engine of ['chromium','webkit']) {
     };
     await check('year-of-learning-and-two-thousand-word-records-backup-roundtrip',async page=>{
       await ready(page);await nav(page,'进度');
+      await settleLearningStorage(page);
       const before=await page.evaluate(()=>({...localStorage}));
       const pending=page.waitForEvent('download');
       await page.getByRole('button',{name:'导出备份',exact:true}).click();

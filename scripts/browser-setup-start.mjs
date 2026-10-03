@@ -1,5 +1,6 @@
 import { openSetupDetails, selectSentenceMethod, resumePausedSentence, sentenceChoices } from './browser-disclosures.mjs';
 import { navigate, openLegacyPatterns } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 
@@ -81,11 +82,12 @@ for (const engine of ['chromium', 'webkit']) {
   for (const [label, width, height, largeText] of [['small-phone', 320, 568, false], ['compact-phone', 375, 667, false], ['browser-bars', 390, 700, false], ['reported-phone', 390, 844, false], ['large-text', 430, 932, true], ['desktop', 1280, 900, false]]) {
     await check(label + '-two-module-starts-directly-tappable-with-continuous-ranges', async page => {
       await navigate(page, '单词'); await tapStart(page, wordStart); await page.locator('.word-card').waitFor();
+      await settleLearningStorage(page);
       const word = await saved(page, wordKey); assert.equal(word.continuous, true); assert.equal(word.mode, 'free'); assert.ok(word.wordIds.length > 20);
       assert.equal(await page.locator('.immersive-learning').count(), 1); assert.equal(await page.locator('.bottom-nav').count(), 0);
       assert.equal(await page.locator('.word-auto-controls').count(), 0);
       await exitWord(page); await navigate(page, '句子'); await enabled(page, sentenceStart); await tapStart(page, sentenceStart);
-      await page.locator('.sentence-study-card').waitFor(); const sentence = await saved(page, sentenceKey);
+      await page.locator('.sentence-study-card').waitFor(); await settleLearningStorage(page); const sentence = await saved(page, sentenceKey);
       assert.equal(sentence.continuous, true); assert.ok(sentence.sentenceIds.length > 20); assert.equal(sentence.mode, 'bilingual');
     }, { width, height, largeText });
   }
@@ -94,7 +96,7 @@ for (const engine of ['chromium', 'webkit']) {
     for (const name of ['自由学习', '学习＋考试', '10 个', '20 个']) assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0);
     await openSetupDetails(page, '.word-range'); await page.locator('.scene-list button').filter({ hasText: '日常' }).first().click();
     await page.evaluate(() => scrollTo(0, 0)); assert.match(await page.locator('#word-session-choice').innerText(), /日常/);
-    await tapStart(page, wordStart); await page.locator('.word-card').waitFor(); const word = await saved(page, wordKey);
+    await tapStart(page, wordStart); await page.locator('.word-card').waitFor(); await settleLearningStorage(page); const word = await saved(page, wordKey);
     assert.equal(word.mode, 'free'); assert.equal(word.path, 'daily'); assert.equal(word.continuous, true); assert.ok(word.wordIds.length > 0);
     await exitWord(page); await openSetupDetails(page, '.word-find'); await page.getByRole('searchbox', { name: '搜索词库' }).fill('the');
     await page.locator('.library-list button').first().waitFor();
@@ -132,7 +134,7 @@ for (const engine of ['chromium', 'webkit']) {
     await selectSentenceMethod(page, '看中文说英文'); await sentenceBand(page, '常用句');
     const choices = (await sentenceChoices(page)).join(' '); assert.match(choices, /看中文说英文/); assert.match(choices, /常用句/);
     await page.evaluate(() => scrollTo(0, 0));
-    await tapStart(page, sentenceStart); await page.locator('.speak-prompt').waitFor(); const session = await saved(page, sentenceKey);
+    await tapStart(page, sentenceStart); await page.locator('.speak-prompt').waitFor(); await settleLearningStorage(page); const session = await saved(page, sentenceKey);
     assert.equal(session.continuous, true); assert.ok(session.sentenceIds.length > 20); assert.ok(session.sentenceIds.every(id => id > 1000 && id <= 2000));
     assert.equal(await page.locator('.sentence-english').count(), 0);
   });
@@ -193,7 +195,7 @@ for (const engine of ['chromium', 'webkit']) {
   await check('new-method-after-single-sentence-lookup-opens-setup-at-top-and-retains-query', async page => {
     await navigate(page, '句子'); await enabled(page, sentenceStart); await openSetupDetails(page, '.sentence-find');
     await page.getByRole('searchbox', { name: '搜索长短句' }).fill('I'); await page.locator('.sentence-result-list button[data-sentence-id]').nth(5).click();
-    await page.locator('.sentence-study-card').waitFor(); const before = await saved(page, sentenceKey);
+    await page.locator('.sentence-study-card').waitFor(); await settleLearningStorage(page); const before = await saved(page, sentenceKey);
     await navigate(page, '首页'); await navigate(page, '句子');
     await selectSentenceMethod(page, '看中文说英文'); await settleNavigation(page); await page.waitForFunction(() => scrollY === 0);
     await topStart(page, sentenceStart); assert.deepEqual(await saved(page, sentenceKey), before);
@@ -242,6 +244,7 @@ for (const engine of ['chromium', 'webkit']) {
     await tapStart(page, patternStart); await page.locator('#discard-title').waitFor(); await page.getByRole('button', { name: '保留进度', exact: true }).click();
     assert.deepEqual(await saved(page, patternKey), before); await tapStart(page, patternStart);
     await page.getByRole('button', { name: '结束并开始新练习', exact: true }).click(); await page.locator('.pattern-prompt').waitFor();
+    await settleLearningStorage(page);
     assert.equal((await saved(page, patternKey)).category, 'travel'); assert.equal(await page.locator('.pattern-answer').count(), 0);
   }, { seed: legacyPattern });
   await browser.close();

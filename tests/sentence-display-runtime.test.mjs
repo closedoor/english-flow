@@ -22,18 +22,18 @@ function loadModule(name) {
     },
   };
   assert.ok(Object.hasOwn(sources, name), `unexpected imported module: ${name}`);
-  const module = { exports: {} };
-  modules.set(name, module);
+  const compiledModule = { exports: {} };
+  modules.set(name, compiledModule);
   const compiled = ts.transpileModule(sources[name], {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
     reportDiagnostics: true,
   });
   assert.deepEqual(compiled.diagnostics.filter((item) => item.category === ts.DiagnosticCategory.Error), []);
   vm.runInNewContext(compiled.outputText, {
-    module, exports: module.exports,
+    module: compiledModule, exports: compiledModule.exports,
     require: (specifier) => loadModule(specifier.replace(/^\.\//, "")),
   }, { filename: `app/${name}.ts` });
-  return module.exports;
+  return compiledModule.exports;
 }
 const load = loadModule("sentence-data").loadSentencePack;
 const displayed = (await Promise.all([1, 2, 3].map(load))).flat();

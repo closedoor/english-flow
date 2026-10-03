@@ -1,4 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -163,6 +164,7 @@ await runCheck("chromium", "word-cards-and-progress-dialogs-remain-readable", as
   await page.locator(".reset-dialog").waitFor();
   await checkAccessibility(page, "重置确认");
   await page.getByRole("button", { name: "取消", exact: true }).click();
+  await settleLearningStorage(page);
   const backup = await page.evaluate(() => ({
     app: "english-flow", formatVersion: 1, exportedAt: new Date().toISOString(),
     data: Object.fromEntries(Object.keys(localStorage).filter((key) => key.startsWith("wordflow-")).map((key) => [key, JSON.parse(localStorage.getItem(key))])),

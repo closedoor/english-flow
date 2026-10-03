@@ -1,3 +1,4 @@
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import { navigate, openLegacyPatterns, openLegacyWords } from './browser-navigation.mjs';
 import { legacyReadingRecords, verifyReadingRemoval } from './reading-removal-checks.mjs';
 import { openSetupDetails, selectSentenceMethod, sentenceChoices } from './browser-disclosures.mjs';
@@ -278,6 +279,7 @@ for (const engine of ['chromium', 'webkit']) {
     }
     await page.getByRole('button', { name: /^开始学习(?:句子)?$/, exact: true }).click();
     await page.locator('.sentence-study-card').waitFor();
+    await settleLearningStorage(page);
     const session = await stored(page, keys.sentence);
     for (const [key, value] of Object.entries(choices)) assert.equal(session[key], value);
     assert.equal(session.continuous,true); assert.ok(session.sentenceIds.length>20);
@@ -335,6 +337,7 @@ for (const engine of ['chromium', 'webkit']) {
       'Pattern Start precedes the category options');
     await tapVisible(page, start);
     await page.locator('.pattern-prompt').waitFor();
+    await settleLearningStorage(page);
     const original = await stored(page, keys.pattern);
     for (let drill = 0; drill < 3; drill++) {
       assert.equal(await page.locator('.pattern-answer').count(), 0, 'Each substitution starts with recall');
@@ -382,6 +385,7 @@ for (const engine of ['chromium', 'webkit']) {
     await tapVisible(page, page.locator('.quiz-page .sticky-start'), 'question');
     await page.locator('.feedback-box.wrong').waitFor();
     await quizFeedbackVisible(page, 'The');
+    await settleLearningStorage(page);
     let session = await stored(page, keys.word);
     assert.equal(session.quizIndex, 0);
     assert.deepEqual(session.quizResults, [false]);
@@ -393,6 +397,7 @@ for (const engine of ['chromium', 'webkit']) {
     await tapVisible(page, page.locator('.quiz-skip'), 'question');
     await page.locator('.feedback-box.wrong').waitFor();
     await quizFeedbackVisible(page, 'Be');
+    await settleLearningStorage(page);
     session = await stored(page, keys.word);
     assert.equal(session.quizIndex, 1);
     assert.equal(session.quizAnswer, '');

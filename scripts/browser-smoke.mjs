@@ -141,6 +141,7 @@ for (const engine of ['chromium', 'webkit']) {
   }, readingHistory);
   await check('invalid-backup-preserves-progress', async page => {
     await ready(page); await nav(page,'进度');
+    await settleLearningStorage(page);
     const before=await page.evaluate(()=>({...localStorage}));
     await page.locator('input[type=file]').setInputFiles({name:'bad.json',mimeType:'application/json',buffer:Buffer.from('{broken')});
     await page.locator('.backup-notice.error').waitFor();

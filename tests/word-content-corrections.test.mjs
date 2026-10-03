@@ -25,17 +25,17 @@ function loadModule(name) {
     },
   };
   assert.ok(Object.hasOwn(sources, name), `unexpected module: ${name}`);
-  const module = { exports: {} };
-  modules.set(name, module);
+  const compiledModule = { exports: {} };
+  modules.set(name, compiledModule);
   const javascript = ts.transpileModule(sources[name], {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   vm.runInNewContext(javascript, {
-    module,
-    exports: module.exports,
+    module: compiledModule,
+    exports: compiledModule.exports,
     require(specifier) { return loadModule(specifier.replace(/^\.\//, "")); },
   }, { filename: `app/${name}.ts` });
-  return module.exports;
+  return compiledModule.exports;
 }
 
 const loaded = await loadModule("word-data").loadWordData();

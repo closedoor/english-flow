@@ -25,19 +25,19 @@ function loadModule(name) {
     },
   };
   assert.ok(Object.hasOwn(sources, name), `unexpected module: ${name}`);
-  const module = { exports: {} };
-  modules.set(name, module);
+  const compiledModule = { exports: {} };
+  modules.set(name, compiledModule);
   const result = ts.transpileModule(sources[name], {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     reportDiagnostics: true,
   });
   assert.deepEqual(result.diagnostics.filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error), [], `TypeScript compilation failed for ${name}`);
   vm.runInNewContext(result.outputText, {
-    module,
-    exports: module.exports,
+    module: compiledModule,
+    exports: compiledModule.exports,
     require(specifier) { return loadModule(specifier.replace(/^\.\//, "")); },
   }, { filename: `app/${name}.ts` });
-  return module.exports;
+  return compiledModule.exports;
 }
 
 const loader = loadModule("sentence-data");

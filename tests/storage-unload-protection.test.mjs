@@ -35,11 +35,11 @@ const compile = (source, module = ts.ModuleKind.ESNext) => ts.transpileModule(so
   compilerOptions: { target: ts.ScriptTarget.ES2022, module },
 }).outputText;
 function evaluate(expression, globals = {}) {
-  const module = { exports: {} };
+  const compiledModule = { exports: {} };
   vm.runInNewContext(compile(`export default (${expression});`, ts.ModuleKind.CommonJS), {
-    ...globals, module, exports: module.exports,
+    ...globals, module: compiledModule, exports: compiledModule.exports,
   });
-  return module.exports.default;
+  return compiledModule.exports.default;
 }
 async function load(name) {
   const source = await readFile(new URL(`../app/${name}`, import.meta.url), "utf8");
@@ -253,7 +253,7 @@ test("a successful partial progress reset retains protection for a bookmark whos
     const reset = declarations.get("resetLearningProgress");
     const setterNames = [...new Set(reset.match(/\bset[A-Z]\w+(?=\()/g))];
     assert.equal(setterNames.includes("setSentenceSaved"), false, "reset deliberately retains bookmarks");
-    const setters = Object.fromEntries(setterNames.map((name) => [name, (value) => {
+    const setters = Object.fromEntries(setterNames.map((name) => [name, () => {
       if (name === "setStorageWriteError") assert.fail("the partial reset must succeed");
     }]));
     await evaluate(reset, {

@@ -1,5 +1,6 @@
 import { openSetupDetails } from './browser-disclosures.mjs';
 import { openLegacyPatterns } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 
@@ -11,8 +12,14 @@ if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname)) {
 }
 const sessionKey = "wordflow-pattern-active-session-v1";
 const results = [];
-const stored = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), sessionKey);
-const rotation = page => page.evaluate(() => JSON.parse(localStorage.getItem("wordflow-practice-rotation-v1"))?.pattern ?? 0);
+const stored = async page => {
+  await settleLearningStorage(page);
+  return page.evaluate(key => JSON.parse(localStorage.getItem(key)), sessionKey);
+};
+const rotation = async page => {
+  await settleLearningStorage(page);
+  return page.evaluate(() => JSON.parse(localStorage.getItem("wordflow-practice-rotation-v1"))?.pattern ?? 0);
+};
 const speechCount = page => page.evaluate(() => window.__patternSpeech.length);
 const exit = page => page.getByRole("button", { name: "返回句型设置并保留进度", exact: true }).click();
 const start = page => page.getByRole("button", { name: "开始句型替换练习", exact: true }).click();

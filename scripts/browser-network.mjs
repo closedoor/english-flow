@@ -1,5 +1,6 @@
 import { navigate } from './browser-navigation.mjs';
 import { openSetupDetails } from './browser-disclosures.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -46,6 +47,7 @@ for(const engine of ['chromium','webkit']) {
     const sentenceId=Number(await page.locator('.sentence-result-list button[data-sentence-id]').first().getAttribute('data-sentence-id'));
     await page.locator('.sentence-result-list button[data-sentence-id]').first().click();
     await page.locator('.sentence-study-card').waitFor();
+    await settleLearningStorage(page);
     const ids=await page.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-sentence-active-session-v1')).sentenceIds);
     assert.deepEqual(ids,[sentenceId]);
   });

@@ -1,4 +1,5 @@
 import { navigate } from './browser-navigation.mjs';
+import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 const pw=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
@@ -49,6 +50,7 @@ for(const engine of ['chromium','webkit']){
    await route.fulfill({contentType:'text/html',body:`<!doctype html><title>词流英语</title><meta name="english-flow-build" content="${meta.commit}">`});
   });
   await progress(page);
+  await settleLearningStorage(page);
   const before=await page.evaluate(()=>({...localStorage}));
   for(let attempt=1;attempt<=2;attempt++){
    await page.getByRole('button',{name:'更新并保留进度',exact:true}).click();
@@ -80,6 +82,7 @@ for(const engine of ['chromium','webkit']){
   await navigate(page,'单词');await page.getByRole('button',{name:/^开始学习(?:句子)?$/,exact:true}).click();
   await page.locator('.word-card').waitFor();await page.locator('.learn-actions .primary-action').click();
   await progress(page);
+  await settleLearningStorage(page);
   const before=await page.evaluate(()=>({...localStorage}));
   assert.ok(JSON.parse(before['wordflow-active-session-v1']).index>0,'A real paused learning position must survive failed updates');
   for(let index=0;index<invalidDocuments.length;index++){
