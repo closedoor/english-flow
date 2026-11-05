@@ -161,6 +161,16 @@ export function isBackupContentCompatible(backup: LearningBackup, validators: Ba
     optional(value, "ratings", (entries) => isRecord(entries)
       && Object.keys(entries).every((id) => valid(numeric ? Number(id) : id)))
   );
+  const sessionFits = (value: Record<string, unknown>, ids: unknown[], numeric: boolean) => {
+    const members = new Set(ids.map((id) => numeric ? Number(id) : String(id)));
+    // Hydration can clamp an invalid position or drop another course's ratings.
+    // Reject those damaged relationships before replacing existing records.
+    // Older backups may omit positions/ratings or repeat IDs; retain that
+    // format-1 compatibility without applying hydration's session expiry here.
+    return optional(value, "index", (index) => integer(index) && Number(index) < ids.length)
+      && optional(value, "ratings", (entries) => isRecord(entries)
+        && Object.keys(entries).every((id) => members.has(numeric ? Number(id) : id)));
+  };
   try {
     return Object.entries(backup.data).every(([key, value]) => {
       if (value === null) return true;
@@ -181,11 +191,15 @@ export function isBackupContentCompatible(backup: LearningBackup, validators: Ba
           // "1" entry. Backups must use exactly the keys the scheduler updates.
           return isRecord(value) && Object.keys(value).every((id) => String(Number(id)) === id && knownWord(Number(id)));
         case "wordflow-active-session-v1":
-          return isRecord(value) && listOf(value.wordIds, knownWord) && knownRatings(value, knownWord, true);
+          return isRecord(value) && listOf(value.wordIds, knownWord) && knownRatings(value, knownWord, true)
+            && sessionFits(value, value.wordIds as unknown[], true)
+            && (value.stage !== "quiz" || optional(value, "quizIndex", (index) => integer(index) && Number(index) < (value.wordIds as unknown[]).length));
         case "wordflow-sentence-active-session-v1":
-          return isRecord(value) && listOf(value.sentenceIds, knownSentence) && knownRatings(value, knownSentence, true);
+          return isRecord(value) && listOf(value.sentenceIds, knownSentence) && knownRatings(value, knownSentence, true)
+            && sessionFits(value, value.sentenceIds as unknown[], true);
         case "wordflow-pattern-active-session-v1":
-          return isRecord(value) && listOf(value.patternIds, knownPattern) && knownRatings(value, knownPattern, false);
+          return isRecord(value) && listOf(value.patternIds, knownPattern) && knownRatings(value, knownPattern, false)
+            && sessionFits(value, value.patternIds as unknown[], false);
         default: return true;
       }
     });
