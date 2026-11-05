@@ -1,5 +1,9 @@
 # English Flow testing
 
+## Fixed browser runner platform
+
+The two CI jobs use Ubuntu 24.04 with the existing Node 22.13.0 and Playwright 1.56.1. The moving `ubuntu-latest` image advanced to Ubuntu 26.04 and caused Playwright browser dependency installation to fail before any browser scenario could run. Pinning the supported OS retains the locked application dependencies, browser versions and every test; it does not skip unsupported engines or weaken assertions.
+
 ## Backup course relationships and readable controls (2026-11-05)
 
 `browser-backup-relationships.mjs` exports actual version-1 backups in disposable Chromium/WebKit profiles and imports files with out-of-range course positions, ratings from another course, or an out-of-range quiz position through the real file input. It requires refusal before the restore confirmation, exact retention of all 19 saved record fields and unchanged Home progress. The original exported file must still reach confirmation and cancel without changing records. Unit regressions retain optional old fields, expired courses, duplicate legacy IDs, final cards and final quiz feedback. Damaged files are deliberate fixtures, not observed corruption of user records.
