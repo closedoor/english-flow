@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out repository
@@ -80,7 +80,7 @@ jobs:
           EXPECTED_COMMIT: ${{ github.sha }}
 
   browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       RENDER_EXTERNAL_URL: http://127.0.0.1:4173

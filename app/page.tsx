@@ -1843,7 +1843,7 @@ export default function Home() {
         pattern: (id) => PATTERN_IDS.has(id),
         reading: (id) => READING_IDS.has(id),
       })) {
-        setBackupNotice({ kind: "error", message: "这份备份包含当前版本不支持的内容编号或复习计划，未导入；原有记录没有被替换。请保留文件，并在生成备份的版本中检查或重新导出。" });
+        setBackupNotice({ kind: "error", message: "这份备份的内容编号、课程位置、评级或复习计划与当前版本不兼容，未导入；原有记录没有被替换。请保留文件，并在生成备份的版本中检查或重新导出。" });
         return;
       }
       setBackupNotice(null);
@@ -2654,7 +2654,7 @@ export default function Home() {
     const wordPercent = percentFor(studiedWordCount, words.length);
     const sentencePercent = percentFor(studiedSentenceCount, 3000);
     return <section className="page home-page home-dashboard">
-      <header className="section-heading dashboard-heading" aria-label={`本周节奏，连续学习 ${streak} 天`}><h1>本周节奏</h1><span className="percent">{weeklyStudyCount}/7 天</span></header>
+      <header className="section-heading dashboard-heading" aria-label={`本周节奏，连续学习 ${streak} 天`}><div><p className="dashboard-brand">词流英语</p><h1>本周节奏</h1></div><span className="percent">{weeklyStudyCount}/7 天</span></header>
       <div className="week-card">
         {["一", "二", "三", "四", "五", "六", "日"].map((day, dayIndex) => { const key = weekKeys[dayIndex]; const done = Boolean(key && visibleStudyDays.includes(key)); const today = key === todayKey; const state = (today ? "今天，" : "") + (done ? "已学习" : "未学习"); return <div key={day} role="img" aria-label={"星期" + day + "，" + state}><span className={[done ? "done" : "", today ? "today" : ""].filter(Boolean).join(" ")} aria-hidden="true">{done ? "✓" : today ? "•" : ""}</span><small aria-hidden="true">{day}</small></div>; })}
       </div>

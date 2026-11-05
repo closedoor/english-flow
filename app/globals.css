@@ -432,6 +432,8 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 
 /* Home follows one clear reading order: this week, progress, then practice. */
 .home-dashboard .dashboard-heading{align-items:center;margin:0 0 14px}
+.dashboard-brand{margin:0 0 5px;color:var(--muted);font-size:.75rem;line-height:1.5;font-weight:700;letter-spacing:.12em}
+.dashboard-heading>div{min-width:0}
 .dashboard-heading h1{margin:0;font-size:1.5rem;line-height:1.4;letter-spacing:-.035em}
 .home-dashboard .percent{flex:0 0 auto;font-size:.875rem}
 .home-dashboard .week-card{padding:16px 8px;border-radius:20px;gap:2px}
@@ -455,6 +457,10 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .dashboard-progress-copy small{display:block;margin-top:3px;color:#526071;font-size:.75rem;line-height:1.6;overflow-wrap:anywhere}
 .dashboard-progress-track{display:block;height:5px;margin-top:10px;border-radius:99px;background:#e8eee8;overflow:hidden}
 .dashboard-progress-track em{display:block;height:100%;border-radius:inherit;background:var(--green-dark)}
+.home-sentence-progress .dashboard-progress-copy strong{color:#6657a6}
+.home-sentence-progress .dashboard-progress-track{background:#eeeaf8}
+.home-sentence-progress .dashboard-progress-track em{background:#6657a6}
+.home-sentence-progress:active{background:#f5f2fb}
 .dashboard-progress-row.reading-progress-panel{margin:0}
 .dashboard-progress-row.reading-progress-panel>span:last-child{background:transparent!important;color:#596d63!important}
 .dashboard-review-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:20px}
@@ -467,9 +473,22 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .home-settings-entry{width:100%;min-height:48px;display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;padding:10px 14px;border:0;border-radius:14px;background:transparent;color:#526071;font-size:.875rem;line-height:1.5;text-align:left}
 .home-settings-entry>span{font-size:1.25rem}
 .home-settings-entry:active{background:#ecefea}
+.dashboard-review-grid>button:active{background:#f3f8f5}
+@media(hover:hover) and (pointer:fine){
+  .dashboard-progress-row,.dashboard-review-grid>button,.home-settings-entry,.simple-setup .setup-details>summary,.records-page .setup-details>summary{transition:background-color .16s ease,border-color .16s ease}
+  .dashboard-progress-row:hover,.dashboard-review-grid>button:hover,.simple-setup .setup-details>summary:hover,.records-page .setup-details>summary:hover{background:#f3f8f5}
+  .home-sentence-progress:hover{background:#f5f2fb}
+  .dashboard-review-grid>button:hover{border-color:#bfd2c8}
+  .home-settings-entry:hover{background:#ecefea}
+}
 .records-page .record-study-days{display:flex;align-items:baseline;gap:10px;margin-top:14px}
 .record-study-days>b{color:var(--green-dark);font-size:2rem;line-height:1.2}
 .record-study-days>small{margin:0;font-size:.875rem}
+.records-page .data-management{flex-wrap:wrap}
+.records-page .data-management>div{min-width:0;flex:1 1 170px;overflow-wrap:anywhere}
+.records-page .data-management b{font-size:.875rem;line-height:1.5}
+.records-page .data-management small{font-size:.75rem;line-height:1.6}
+.records-page .data-management button{flex:0 0 auto;padding:10px 14px;font-size:.8125rem;line-height:1.5}
 .records-page .setup-details{margin-top:20px;border:1px solid #dfe4dd;border-radius:18px;background:#fff}
 .records-page .setup-details>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:52px;padding:13px 15px;list-style:none;cursor:pointer;color:#334a40;font-size:.875rem;font-weight:750;line-height:1.5}
 .records-page .setup-details>summary::-webkit-details-marker{display:none}
@@ -509,7 +528,7 @@ button:focus-visible,input:focus-visible,a:focus-visible,[tabindex="-1"]:focus-v
 .phone-stage.is-immersive:has(.sentence-learn-page),.sentence-learn-page.immersive-learning{background:#f8faf7}
 .sentence-utility-actions{display:flex;align-items:center;gap:8px}
 .sentence-utility-actions>.round-button{width:44px;height:44px;flex:0 0 44px;background:#fff;border-color:#e1e8e2}
-.sentence-utility-actions>.sentence-slow{font-size:.875rem;letter-spacing:0}
+.sentence-utility-actions>.sentence-slow{width:auto;min-width:44px;flex:0 0 auto;padding-inline:10px;font-size:.875rem;letter-spacing:0}
 .sentence-learn-page .sentence-utility-actions>.sentence-bookmark{color:#8b6b26;font-size:24px;letter-spacing:0}
 .sentence-utility-actions>.sentence-bookmark.saved{background:#fff3d9;border-color:#e8d49f;color:#805c12}
 .sentence-copy{flex:0 0 auto;min-width:0;width:100%;margin:auto 0;padding:26px 22px;border:1px solid #e3eae4;border-radius:24px;background:#fff;box-shadow:0 12px 36px rgba(37,63,50,.06)}

@@ -10,7 +10,11 @@ export function speechFailureMessage(error: string) {
   if (code === "start-timeout") return `${language}语音一直没有启动。可到首页的“记录与设置”检查语音，或换个声音试播。`;
   if (code === "language-unavailable" || code === "voice-unavailable") return `${language}音色不可用。可到首页的“记录与设置”换个声音试播。`;
   if (code === "unsupported") return "当前浏览器不支持系统朗读，请在 Safari、Chrome 或 Edge 打开。";
-  return `${language}语音未能完成（${code}）。可到首页的“记录与设置”检查语音。`;
+  if (code === "audio-busy") return `${language}语音暂时无法播放，声音可能正被其他应用占用。请暂停其他音频，再点一次播放。`;
+  if (code === "audio-hardware") return `${language}语音无法使用当前音频设备。请检查媒体音量和蓝牙输出，再点一次播放。`;
+  if (code === "network") return `${language}语音需要的网络连接失败。请检查网络，或到首页的“记录与设置”换个声音试播。`;
+  if (code === "text-too-long") return `${language}朗读内容超过了当前音色的长度限制。可到首页的“记录与设置”换个声音试播。`;
+  return `${language}语音未能完成。请点一次重播；仍无声可到首页的“记录与设置”检查语音或换个声音试播。`;
 }
 
 export default function SpeechCheck() {

@@ -1,5 +1,17 @@
 # English Flow testing
 
+## Fixed browser runner platform
+
+The two CI jobs use Ubuntu 24.04 with the existing Node 22.13.0 and Playwright 1.56.1. The moving `ubuntu-latest` image advanced to Ubuntu 26.04 and caused Playwright browser dependency installation to fail before any browser scenario could run. Pinning the supported OS retains the locked application dependencies, browser versions and every test; it does not skip unsupported engines or weaken assertions.
+
+## Backup course relationships and readable controls (2026-11-05)
+
+`browser-backup-relationships.mjs` exports actual version-1 backups in disposable Chromium/WebKit profiles and imports files with out-of-range course positions, ratings from another course, or an out-of-range quiz position through the real file input. It requires refusal before the restore confirmation, exact retention of all 19 saved record fields and unchanged Home progress. The original exported file must still reach confirmation and cancel without changing records. Unit regressions retain optional old fields, expired courses, duplicate legacy IDs, final cards and final quiz feedback. Damaged files are deliberate fixtures, not observed corruption of user records.
+
+`browser-polish.mjs` uses DOM Range and direct hit testing at 320 CSS pixels with ordinary and 200% root font size to ensure the sentence slow-play label fits its button and does not overlap bookmarking. Actual slow-play taps retain exact learning records; recall keeps English hidden and playback disabled before reveal. The same suite checks the Home entries, distinct word/sentence accents, large-text record tools and reset cancellation. Speech is instrumented and larger text is emulated; physical audio and device accessibility settings remain separate acceptance.
+
+Both scripts are included in `npm run test:browser` with Chromium and WebKit by default. `BROWSER_ENGINES=chromium` can run only these two additions for local diagnosis; CI does not set it and still runs both engines. All older browser scenarios remain in the standard command. Native speech failure notices now describe a recovery action in the attempted language while the diagnostic section retains the underlying code.
+
 ## Offline reopening and recovery after storage access changes
 
 `scripts/verify-live-offline.mjs` runs against the built local production site in the browser CI job, then against the actual Render commit after a main-branch deployment. Each scenario uses a new disposable Chromium profile and checks both the full HTML identity and a loaded client module containing the expected full commit. With the actual worker activated, it switches the context fully offline, closes the original page and opens new root and index documents. Navigation must come from the Service Worker; saved word/sentence courses, an additional offline rating and subsequent online reopening must preserve the exact learning records.

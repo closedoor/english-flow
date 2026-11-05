@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 import ts from "typescript";
 
 const compile = (source) => ts.transpileModule(source, {
@@ -68,6 +69,68 @@ for (const [key, idField, validId, invalidId, preferences] of [
     }
   });
 }
+
+for (const [key, idField, ids, otherId, preferences] of [
+  ["wordflow-active-session-v1", "wordIds", [1, 2], 3, { path: "frequency", mode: "free", stage: "cards", continuous: true }],
+  ["wordflow-sentence-active-session-v1", "sentenceIds", [1, 2], 3, { band: "short", category: "all", count: 10, continuous: true }],
+  ["wordflow-pattern-active-session-v1", "patternIds", [corePatterns[0].id, corePatterns[1].id], corePatterns[2].id, { category: "all" }],
+]) {
+  test(`${key} refuses invalid positions and another course's ratings before record replacement`, () => {
+    const session = { version: 1, updatedAt: 1, index: ids.length - 1, ...preferences, [idField]: ids, ratings: { [ids[0]]: "known" } };
+    assert.equal(compatible(backup({ [key]: session })), true, "the final card of an expired course remains compatible");
+    for (const patch of [{ index: ids.length }, { index: 900 }, { ratings: { [otherId]: "known" } }]) {
+      const value = backup({ [key]: { ...session, ...patch } });
+      const before = structuredClone(value);
+      assert.equal(backupApi.isLearningBackup(value, keys, optional), true, "shape and vocabulary membership alone do not detect the broken relationship");
+      assert.equal(compatible(value), false);
+      assert.deepEqual(value, before, "validation must not repair or alter a backup before the learner decides");
+    }
+    const omitted = { ...session };
+    delete omitted.index;
+    delete omitted.ratings;
+    assert.equal(compatible(backup({ [key]: omitted })), true, "old optional positions and ratings stay optional");
+    assert.equal(compatible(backup({ [key]: { ...session, [idField]: [ids[0], ids[0], ids[1]], index: 2 } })), true, "duplicate IDs in old courses remain supported");
+  });
+}
+
+test("quiz position bounds preserve a valid final question, completed feedback and omitted old fields", () => {
+  const key = "wordflow-active-session-v1";
+  const session = { version: 1, updatedAt: 1, path: "frequency", mode: "test", stage: "quiz", wordIds: [1, 2], index: 1,
+    ratings: { 1: "known", 2: "difficult" }, quizIndex: 1, quizAnswer: "", quizFeedback: "wrong", quizResults: [true, false] };
+  assert.equal(compatible(backup({ [key]: session })), true, "a final question with its feedback is a valid unfinished quiz");
+  assert.equal(compatible(backup({ [key]: { ...session, quizIndex: 2 } })), false, "an index beyond the last question cannot silently discard a quiz");
+  const omitted = { ...session };
+  delete omitted.quizIndex;
+  assert.equal(compatible(backup({ [key]: omitted })), true, "old optional quiz fields remain accepted");
+});
+
+test("the actual backup file chooser rejects damaged course relationships before restore confirmation", async () => {
+  const source = compile(page.slice(page.indexOf("const chooseBackupFile ="), page.indexOf("const restoreLearningBackup =")) + "\nchooseBackupFile;");
+  for (const session of [
+    { wordIds: [1, 2], index: 2, ratings: { 1: "known" } },
+    { wordIds: [1, 2], index: 1, ratings: { 3: "known" } },
+  ]) {
+    const value = backup({ "wordflow-active-session-v1": { version: 1, updatedAt: 1, path: "frequency", mode: "free", stage: "cards", ...session } });
+    const state = { pending: null, notice: null, busy: null };
+    const choose = vm.runInNewContext(source, {
+      backupReadRequestRef: { current: 0 }, BACKUP_MAX_BYTES: backupApi.BACKUP_MAX_BYTES,
+      STORAGE_KEYS: keys, BACKUP_OPTIONAL_KEYS: optional, isLearningBackup: backupApi.isLearningBackup,
+      isBackupContentCompatible: backupApi.isBackupContentCompatible,
+      STUDY_WORD_IDS: new Set([1, 2, 3]), PATTERN_IDS: patternIds, READING_IDS: readingIds,
+      setPendingBackup: (value) => { state.pending = value; },
+      setBackupNotice: (value) => { state.notice = value; },
+      setBackupBusy: (value) => { state.busy = value; },
+      setResetProgressOpen() { assert.fail("invalid courses must not open restore confirmation or alter other dialogs"); },
+      setDiscardRequest() { assert.fail("invalid courses must not open restore confirmation or alter other dialogs"); },
+      setInstallOpen() { assert.fail("invalid courses must not open restore confirmation or alter other dialogs"); },
+    });
+    await choose({ target: { value: "damaged.json", files: [{ size: 500, text: async () => JSON.stringify(value) }] } });
+    assert.equal(state.pending, null);
+    assert.equal(state.busy, null);
+    assert.equal(state.notice.kind, "error");
+    assert.match(state.notice.message, /未导入/);
+  }
+});
 
 test("reading recency and answers use the caller's actual known reading IDs", () => {
   assert.equal(compatible(backup({ "wordflow-reading-last-v1": { id: "r16", updatedAt: 1 } })), false);
