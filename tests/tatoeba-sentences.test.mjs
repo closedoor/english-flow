@@ -63,7 +63,7 @@ test("sentence module loads packs on demand and exposes card learning, search, s
   assert.match(page, /playSpeech\(currentSentence\.text/);
   assert.match(page, /tatoeba\.org\/en\/sentences\/show/);
   assert.match(page, /filteredSentences\.slice\(0, sentenceResultLimit\)/);
-  assert.match(page, /再显示 30 句/);
+  assert.match(page, /再显示 \{Math\.min\(30, filteredSentences\.length - sentenceResultLimit\)\} 句/);
   assert.match(page, /已显示 \{Math\.min\(sentenceResultLimit, filteredSentences\.length\)\}/);
   assert.doesNotMatch(page, /filteredSentences\.slice\(0, 30\)/);
   assert.match(page, /只保存在当前设备/);

@@ -1350,13 +1350,15 @@ export default function Home() {
   const readingCompletionPercent = Math.round(readingCompleted.length / READING_TOTAL * 100);
   const filteredSentences = useMemo(() => {
     const search = normalized(sentenceSearch);
+    const savedIds = sentenceSavedOnly ? new Set(sentenceSaved) : null;
+    const difficultIds = sentenceReviewOnly ? new Set(sentenceDifficult) : null;
     const source = search || sentenceSavedOnly || sentenceReviewOnly
       ? ([1, 2, 3] as const).flatMap((pack) => sentencePacks[pack] ?? [])
       : sentencePacks[SENTENCE_PACK_BY_BAND[sentenceBand]] ?? [];
     return source.filter((item) => {
       if (!search && !sentenceSavedOnly && !sentenceReviewOnly && item.length !== sentenceBand) return false;
-      if (sentenceSavedOnly && !sentenceSaved.includes(item.id)) return false;
-      if (sentenceReviewOnly && !sentenceDifficult.includes(item.id)) return false;
+      if (savedIds && !savedIds.has(item.id)) return false;
+      if (difficultIds && !difficultIds.has(item.id)) return false;
       if (!search && !sentenceSavedOnly && !sentenceReviewOnly && sentenceCategory !== "all" && item.category !== sentenceCategory) return false;
       return !search || normalized(`${item.text} ${item.translation}`).includes(search);
     });
@@ -2535,8 +2537,9 @@ export default function Home() {
 
   const renderSentenceSetup = () => {
     const currentPack = sentencePacks[SENTENCE_PACK_BY_BAND[sentenceBand]] ?? [];
+    const difficultIds = new Set(sentenceDifficult);
     const availableCount = currentPack.filter((item) => sentenceCategory === "all" || item.category === sentenceCategory).length;
-    const difficultInSelection = currentPack.filter((item) => sentenceDifficult.includes(item.id) && (sentenceCategory === "all" || item.category === sentenceCategory)).length;
+    const difficultInSelection = currentPack.filter((item) => difficultIds.has(item.id) && (sentenceCategory === "all" || item.category === sentenceCategory)).length;
     return <section className="page sentence-page simple-setup">{commonHeader("句子", "听懂一句，再开口说一句")}
       <div className="setup-start-panel">
         <button className="sticky-start primary-action setup-start" disabled={sentenceSelectionLoading || availableCount === 0} aria-busy={sentenceSelectionLoading} onClick={() => startSentenceSession()}>{sentenceSelectionLoading ? "正在加载句子…" : "开始学习句子"}</button>
@@ -2557,7 +2560,7 @@ export default function Home() {
         {sentenceReviewOnly && <p className="browser-hint">这里包含所有句长和场景。点一句开始复习，标记学会后会从这里移除。</p>}
         {(sentenceSavedOnly || sentenceReviewOnly) && <button className="browser-switch" onClick={() => openSentenceBrowser(false)}>‹ 返回句库搜索</button>}
         {!sentenceSavedOnly && !sentenceReviewOnly && <label className="sentence-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="搜索长短句" value={sentenceSearch} onChange={(event) => { setSentenceSearch(event.target.value); setSentenceResultLimit(30); }} placeholder="搜索英文或中文" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="search" /></label>}
-        {(sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly) && <div className="sentence-result-list">{sentencePacksIncomplete && !filteredSentences.length ? <p role="status">{sentenceLoading ? "正在加载完整句库…" : sentenceSavedOnly ? "收藏记录仍保留，相关句库尚未载入。请重试缺少的句库。" : sentenceReviewOnly ? "待加强记录仍保留，相关句库尚未载入。请重试缺少的句库。" : "句库尚未完整载入，暂时无法确认是否有匹配句子。请重试缺少的句库。"}</p> : filteredSentences.length ? <>{sentencePacksIncomplete && <p className="browser-hint" role="status">{sentenceLoading ? "其余句库仍在加载，先显示已载入的结果。" : "部分句库未载入，当前仅显示已载入的结果。"}</p>}{filteredSentences.slice(0, sentenceResultLimit).map((item) => <button key={item.id} data-sentence-id={item.id} onClick={() => startSentenceSession(false, item)}><div><b lang="en">{item.text}</b><small>{item.translation}</small></div><i>›</i></button>)}<p className="sentence-result-count">已显示 {Math.min(sentenceResultLimit, filteredSentences.length)} / {sentencePacksIncomplete ? "已载入 " : ""}{filteredSentences.length} 句</p>{sentenceResultLimit < filteredSentences.length && <button className="library-more" onClick={() => setSentenceResultLimit((value) => value + 30)}>再显示 30 句</button>}</> : <p>{sentenceSavedOnly ? "还没有收藏句子。学习时点 ☆ 就能在这里找到。" : sentenceReviewOnly ? "当前没有待加强的句子。以后标记“还不熟悉”的句子会出现在这里。" : "没有找到相关句子，请换一个关键词。"}</p>}</div>}
+        {(sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly) && <div className="sentence-result-list">{sentencePacksIncomplete && !filteredSentences.length ? <p role="status">{sentenceLoading ? "正在加载完整句库…" : sentenceSavedOnly ? "收藏记录仍保留，相关句库尚未载入。请重试缺少的句库。" : sentenceReviewOnly ? "待加强记录仍保留，相关句库尚未载入。请重试缺少的句库。" : "句库尚未完整载入，暂时无法确认是否有匹配句子。请重试缺少的句库。"}</p> : filteredSentences.length ? <>{sentencePacksIncomplete && <p className="browser-hint" role="status">{sentenceLoading ? "其余句库仍在加载，先显示已载入的结果。" : "部分句库未载入，当前仅显示已载入的结果。"}</p>}{filteredSentences.slice(0, sentenceResultLimit).map((item) => <button key={item.id} data-sentence-id={item.id} onClick={() => startSentenceSession(false, item)}><div><b lang="en">{item.text}</b><small>{item.translation}</small></div><i>›</i></button>)}<p className="sentence-result-count" role="status" aria-live="polite" aria-atomic="true">已显示 {Math.min(sentenceResultLimit, filteredSentences.length)} / {sentencePacksIncomplete ? "已载入 " : ""}{filteredSentences.length} 句</p>{sentenceResultLimit < filteredSentences.length && <button className="library-more" onClick={() => setSentenceResultLimit((value) => value + 30)}>再显示 {Math.min(30, filteredSentences.length - sentenceResultLimit)} 句</button>}</> : <p>{sentenceSavedOnly ? "还没有收藏句子。学习时点 ☆ 就能在这里找到。" : sentenceReviewOnly ? "当前没有待加强的句子。以后标记“还不熟悉”的句子会出现在这里。" : "没有找到相关句子，请换一个关键词。"}</p>}</div>}
       </div>
       </div></details>
       <details className="setup-source"><summary>句库说明与来源</summary><div className="source-card sentence-license"><b>句库说明</b><p>共 3,000 组 Tatoeba 英汉对应句，短句、常用句、长句各 1,000 句。学习状态和当前卡片位置只保存在当前设备。</p><div><a href="https://tatoeba.org/en/downloads" target="_blank" rel="noreferrer">Tatoeba 数据与授权</a></div>

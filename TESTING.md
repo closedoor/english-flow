@@ -1,5 +1,13 @@
 # English Flow testing
 
+## Large sentence histories and accurate pagination (2026-11-17)
+
+`sentence-large-history.test.mjs` runs the actual sentence-filter callback over all 3,000 display-corrected sentences. It protects global English/Chinese/full-width searches, source order, overlapping and duplicate saved/needs-work IDs, incomplete packs, empty histories and ordinary band/scene selection without mutating records. Display fixtures use the production loaders and validators with canonical local responses; browser tests still load the actual built packs.
+
+`browser-large-history.mjs`, included in the full browser command, checks 3,000 saved or needs-work IDs, global search with a different selected practice range, unchanged preferences/history, and 31/60/61-result pagination through actual clicks. The last load-more button states the number actually remaining, and the displayed-result count is a polite status announcement. Both Chromium and WebKit run by default; timings are not pass/fail gates.
+
+For a diagnostic computation benchmark, save the baseline page source separately (`git show BASELINE:app/page.tsx > /tmp/english-flow-before.tsx`) and run `BASELINE_PAGE=/tmp/english-flow-before.tsx node scripts/benchmark-sentence-browser.mjs`. This compares the actual filtering and setup-count code, including Set construction, on the same display-corrected data with alternating warm samples. It is not end-to-end loading, physical-device or real-user performance evidence, and it deliberately has no flaky CI timing threshold. Filtering uses indexed membership while preserving the same records and result order.
+
 ## Fixed browser runner platform
 
 The two CI jobs use Ubuntu 24.04 with the existing Node 22.13.0 and Playwright 1.56.1. The moving `ubuntu-latest` image advanced to Ubuntu 26.04 and caused Playwright browser dependency installation to fail before any browser scenario could run. Pinning the supported OS retains the locked application dependencies, browser versions and every test; it does not skip unsupported engines or weaken assertions.
