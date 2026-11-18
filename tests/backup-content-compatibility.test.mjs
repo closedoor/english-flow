@@ -113,7 +113,7 @@ test("the actual backup file chooser rejects damaged course relationships before
     const value = backup({ "wordflow-active-session-v1": { version: 1, updatedAt: 1, path: "frequency", mode: "free", stage: "cards", ...session } });
     const state = { pending: null, notice: null, busy: null };
     const choose = vm.runInNewContext(source, {
-      backupReadRequestRef: { current: 0 }, BACKUP_MAX_BYTES: backupApi.BACKUP_MAX_BYTES,
+      backupReadRequestRef: { current: null }, externalUpdateDetected: false, BACKUP_MAX_BYTES: backupApi.BACKUP_MAX_BYTES,
       STORAGE_KEYS: keys, BACKUP_OPTIONAL_KEYS: optional, isLearningBackup: backupApi.isLearningBackup,
       isBackupContentCompatible: backupApi.isBackupContentCompatible,
       STUDY_WORD_IDS: new Set([1, 2, 3]), PATTERN_IDS: patternIds, READING_IDS: readingIds,
