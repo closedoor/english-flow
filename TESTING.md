@@ -1,5 +1,11 @@
 # English Flow testing
 
+## Backup file reads and navigation (2026-11-18)
+
+`browser-backup-navigation.mjs` uses the real file input with a controlled delay or failure in `File.text()` in new local Chromium/WebKit profiles. Leaving Record Settings invalidates the read immediately: an old successful read cannot interrupt a new word lesson, returning permits a new file selection immediately, and an old failure cannot clear its status or replace its confirmation. Cancellation keeps all 19 stored fields intact.
+
+A native storage event from a second tab rating a word also invalidates the old read. The sync dialog can immediately export the first tab's valid v1 backup or load the winning records. The test checks a real browser download, the old read completing after export without hiding its status, and the winning records after reload. The backup parser, explicit restore confirmation, and storage transaction are unchanged. `BROWSER_ENGINES=chromium` runs the new suite locally when WebKit dependencies are unavailable; the default still covers both engines. File latency/failure is injected and this is not a physical iPhone file-picker or sharing test.
+
 ## Large sentence histories and accurate pagination (2026-11-17)
 
 `sentence-large-history.test.mjs` runs the actual sentence-filter callback over all 3,000 display-corrected sentences. It protects global English/Chinese/full-width searches, source order, overlapping and duplicate saved/needs-work IDs, incomplete packs, empty histories and ordinary band/scene selection without mutating records. Display fixtures use the production loaders and validators with canonical local responses; browser tests still load the actual built packs.

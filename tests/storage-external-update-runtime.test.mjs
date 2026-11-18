@@ -27,7 +27,7 @@ assert.ok(STORAGE_ERROR_EVENT);
 
 function listener({ hydrated = true, alreadyDetected = false, getterFails = false } = {}) {
   const local = { label: "localStorage" }, session = { label: "sessionStorage" };
-  const observations = { pauses: 0, stops: 0, notices: [], conflicts: [], errors: [], getterReads: 0, listeners: 0 };
+  const observations = { pauses: 0, canceledReads: 0, stops: 0, notices: [], conflicts: [], errors: [], getterReads: 0, listeners: 0 };
   let handler;
   const window = {
     addEventListener(name, callback) { assert.equal(name, "storage"); handler = callback; observations.listeners += 1; },
@@ -42,6 +42,7 @@ function listener({ hydrated = true, alreadyDetected = false, getterFails = fals
   const context = vm.createContext({
     window, Event, STORAGE_ERROR_EVENT, hydrated, externalUpdateDetected: alreadyDetected, STORAGE_KEYS: keys,
     storageCoordinatorRef: { current: { pause() { observations.pauses += 1; } } },
+    cancelBackupRead() { observations.canceledReads += 1; },
     stopSpeech() { observations.stops += 1; },
     setBackupNotice(value) { observations.notices.push(value); },
     setExternalUpdateDetected(value) { observations.conflicts.push(value); },
@@ -57,6 +58,7 @@ test("every actual learning-key update pauses saving and exposes recovery before
     const app = listener();
     app.dispatch(key);
     assert.equal(app.observations.pauses, 1);
+    assert.equal(app.observations.canceledReads, 1);
     assert.equal(app.observations.stops, 1);
     assert.deepEqual(app.observations.conflicts, [true]);
     assert.deepEqual(app.observations.notices, [null]);
@@ -77,6 +79,7 @@ test("unrelated local keys and identifiable session-storage changes do not pause
   app.dispatch("wordflow-unrelated-future-key");
   app.dispatch(keys[0], app.session);
   assert.equal(app.observations.pauses, 0);
+  assert.equal(app.observations.canceledReads, 0);
   assert.equal(app.observations.stops, 0);
   assert.deepEqual(app.observations.conflicts, []);
   assert.deepEqual(app.observations.errors, []);

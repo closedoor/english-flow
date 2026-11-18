@@ -101,7 +101,7 @@ function app({ failedKey, blockedStorage = false, missingOptional = false, failA
   const refs = Object.fromEntries([...new Set([...hydrationSource.matchAll(/\b(\w+Ref)\.current/g)].map((match) => match[1]))]
     .map((name) => [name, { current: null }]));
   const context = vm.createContext({
-    ...setters, ...refs, ...sessionUtils, window, Event, readLearningStorage, createLearningStorageCoordinator,
+    ...setters, ...refs, ...sessionUtils, window, Event, readLearningStorage, createLearningStorageCoordinator, cancelBackupRead() {},
     navigator: { userAgent: "isolated Chromium", platform: "Linux", maxTouchPoints: 0 },
     document: { hidden: false, addEventListener() {}, removeEventListener() {} },
     corePatterns: [{ id: "p01" }, { id: "p02" }],

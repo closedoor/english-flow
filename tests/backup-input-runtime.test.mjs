@@ -70,11 +70,16 @@ test("a full current backup with all three paused modules round-trips through va
   assert.equal(valid(JSON.parse(JSON.stringify(exported))), true);
 });
 
-const chooseSource = compile(page.slice(page.indexOf("const chooseBackupFile ="), page.indexOf("const restoreLearningBackup =")) + "\n({ chooseBackupFile, cancelBackupRead });");
+const chooseSource = compile([
+  page.slice(page.indexOf("const cancelBackupRead ="), page.indexOf("const setTab = useCallback")),
+  page.slice(page.indexOf("const chooseBackupFile ="), page.indexOf("const restoreLearningBackup =")),
+  "({ chooseBackupFile, cancelBackupRead });",
+].join("\n"));
 function chooser() {
   const state = { pending: null, notice: null, busy: null, reset: false, discard: null, install: false };
   const handlers = vm.runInNewContext(chooseSource, {
-    backupReadRequestRef: { current: 0 }, BACKUP_MAX_BYTES: backupApi.BACKUP_MAX_BYTES,
+    backupReadRequestRef: { current: null }, externalUpdateDetected: false, useCallback: (callback) => callback,
+    BACKUP_MAX_BYTES: backupApi.BACKUP_MAX_BYTES,
     STORAGE_KEYS: keys, BACKUP_OPTIONAL_KEYS: optional, isLearningBackup: backupApi.isLearningBackup,
     isBackupContentCompatible: backupApi.isBackupContentCompatible, STUDY_WORD_IDS, PATTERN_IDS, READING_IDS,
     setPendingBackup: (value) => { state.pending = value; },

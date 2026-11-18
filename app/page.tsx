@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import VersionNotice from "./version-notice";
 import SpeechCheck, { speechFailureMessage } from "./speech-check";
 import { isSnapshotPersisted } from "./version-utils";
@@ -420,7 +420,7 @@ export default function Home() {
   const sceneExtras = wordData?.sceneExtras ?? EMPTY_WORDS;
   const scenePacks = wordData?.scenePacks ?? EMPTY_SCENE_PACKS;
   const ngslMeta = wordData?.ngslMeta ?? EMPTY_NGSL_META;
-  const [tab, setTab] = useState<Tab>("home");
+  const [tab, setActiveTab] = useState<Tab>("home");
   const [learnStage, setLearnStage] = useState<LearnStage>("setup");
   const [preferences, setPreferences] = useState<SessionPreferences>({ mode: "free", count: 10, path: "frequency" });
   const { count, path } = preferences;
@@ -575,7 +575,7 @@ export default function Home() {
   const storageCoordinatorRef = useRef<LearningStorageCoordinator | null>(null);
   const confirmedReloadRef = useRef(false);
   const backupActionLock = useRef(false);
-  const backupReadRequestRef = useRef(0);
+  const backupReadRequestRef = useRef<symbol | null>(null);
   const statusToastRef = useRef<HTMLDivElement | null>(null);
   const sentenceResumeSnapshotRef = useRef<SentenceSessionSnapshot | null>(null);
   const patternResumeSnapshotRef = useRef<PatternSessionSnapshot | null>(null);
@@ -583,6 +583,20 @@ export default function Home() {
   const sentenceSetupPreferencesRef = useRef<SentencePreferences>({ band: "short", category: "all", count: 10, mode: "bilingual" });
   const patternSetupCategoryRef = useRef<"all" | PatternCategory>("all");
   const practiceRotationRef = useRef<PracticeRotation>({ word: 0, sentence: 0, pattern: 0 });
+
+  const cancelBackupRead = useCallback(() => {
+    if (backupReadRequestRef.current === null) return;
+    // File.text() cannot be canceled, so ignore its eventual result instead.
+    backupReadRequestRef.current = null;
+    setBackupBusy(null);
+    setPendingBackup(null);
+    setBackupNotice(null);
+  }, []);
+
+  const setTab = useCallback((destination: Tab) => {
+    if (destination !== "progress") cancelBackupRead();
+    setActiveTab(destination);
+  }, [cancelBackupRead]);
 
   function writeJson(key: string, value: unknown) {
     try {
@@ -719,13 +733,14 @@ export default function Home() {
         window.dispatchEvent(new Event(STORAGE_ERROR_EVENT));
       }
       storageCoordinatorRef.current?.pause();
+      cancelBackupRead();
       stopSpeech();
       if (!externalUpdateDetected) setBackupNotice(null);
       setExternalUpdateDetected(true);
     };
     window.addEventListener("storage", handleExternalStorageUpdate);
     return () => window.removeEventListener("storage", handleExternalStorageUpdate);
-  }, [externalUpdateDetected, hydrated]);
+  }, [cancelBackupRead, externalUpdateDetected, hydrated]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -808,6 +823,7 @@ export default function Home() {
       storage: () => window.localStorage,
       locks: navigator.locks,
       onConflict: () => {
+        cancelBackupRead();
         stopSpeech();
         setBackupNotice(null);
         setExternalUpdateDetected(true);
@@ -984,7 +1000,7 @@ export default function Home() {
       window.clearInterval(reviewTimer);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [storageReadAttempt, wordData, words]);
+  }, [cancelBackupRead, setTab, storageReadAttempt, wordData, words]);
 
   useEffect(() => {
     if (!hydrated || externalUpdateDetected) return;
@@ -1823,9 +1839,10 @@ export default function Home() {
   };
 
   const chooseBackupFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const request = ++backupReadRequestRef.current;
     const file = event.target.files?.[0];
     event.target.value = "";
+    if (externalUpdateDetected) return;
+    backupReadRequestRef.current = null;
     setPendingBackup(null);
     setBackupBusy(null);
     if (!file) return;
@@ -1833,6 +1850,8 @@ export default function Home() {
       setBackupNotice({ kind: "error", message: "这个文件过大，不像是 English Flow 生成的学习记录备份。" });
       return;
     }
+    const request = Symbol();
+    backupReadRequestRef.current = request;
     setBackupBusy("read");
     setBackupNotice(null);
     try {
@@ -1857,15 +1876,11 @@ export default function Home() {
       if (request !== backupReadRequestRef.current) return;
       setBackupNotice({ kind: "error", message: "无法识别这个备份。请选择 English Flow 导出的 JSON 文件。" });
     } finally {
-      if (request === backupReadRequestRef.current) setBackupBusy(null);
+      if (request === backupReadRequestRef.current) {
+        backupReadRequestRef.current = null;
+        setBackupBusy(null);
+      }
     }
-  };
-
-  const cancelBackupRead = () => {
-    backupReadRequestRef.current += 1;
-    setBackupBusy(null);
-    setPendingBackup(null);
-    setBackupNotice(null);
   };
 
   const restoreLearningBackup = async () => {
