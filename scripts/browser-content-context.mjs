@@ -1,3 +1,4 @@
+import { verifyWordLookupCard, revisedWordCards } from './word-card-lookup-check.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -15,6 +16,7 @@ const evidence = process.env.BROWSER_EVIDENCE_DIR || path.join(os.tmpdir(), 'eng
 await mkdir(evidence, { recursive: true });
 const keys = { preferences: 'wordflow-sentence-preferences-v1', active: 'wordflow-sentence-active-session-v1' };
 const wordCards = [
+  ...revisedWordCards,
   { id: 295, word: 'consider', phonetic: '/kənˈsɪd.ə/', example: "Let's consider it again when the time comes.", translation: '到时候我们再考虑吧。' },
   { id: 230, word: 'increase', phonetic: '/ˈɪn.kriːs/', example: 'The number of cars is on the increase.', translation: '汽车的数量在增长。' },
   { id: 237, word: 'offer', example: 'Of course I accepted his offer of support.', translation: '我当然接受了他主动提供的支持。' },
@@ -112,25 +114,7 @@ for (const engine of ['chromium', 'webkit']) {
   for (const expected of wordCards) {
     await check(`word-${expected.word}-actual-lookup-card`, {}, async page => {
       await page.locator('.bottom-nav').waitFor();
-      await navigate(page, '单词');
-      await openSetupDetails(page, '.word-find');
-      await page.getByRole('searchbox', { name: '搜索词库' }).fill(expected.word);
-      await page.locator(`.library-list button[data-word-id="${expected.id}"]`).click();
-      await page.locator('.word-card').waitFor();
-      const observed = await page.locator('.word-card').evaluate(card => ({
-        word: card.querySelector('.word-heading h2').textContent,
-        phonetic: card.querySelector('.word-heading p').textContent,
-        meaning: card.querySelector('.word-heading strong').textContent,
-        example: card.querySelector('.example-box p').textContent,
-        translation: card.querySelector('.example-box small').textContent,
-      }));
-      assert.equal(observed.word, expected.word);
-      assert.equal(observed.example, expected.example);
-      assert.equal(observed.translation, expected.translation);
-      if (expected.phonetic) assert.equal(observed.phonetic, expected.phonetic);
-      if (expected.meaning) assert.equal(observed.meaning, expected.meaning);
-      assert.match(await page.locator('.scene-pill').innerText(), new RegExp(`#${expected.id}$`));
-      return observed;
+      return verifyWordLookupCard(page, expected);
     });
   }
 

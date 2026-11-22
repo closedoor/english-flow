@@ -17,6 +17,7 @@ const extract = (start, end) => {
   return page.slice(from, to);
 };
 const constants = extract("const STORAGE =", "const tabItems:");
+const localCalendar = extract("function localDateKey(", "function formatReviewDue(");
 const STORAGE = vm.runInNewContext(compile(`${constants}\nSTORAGE;`));
 const keys = Object.values(STORAGE);
 const ast = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -29,7 +30,7 @@ function findSync(node) {
 }
 findSync(ast);
 assert.ok(syncElement, "render the actual stale-window dialog JSX");
-const code = compile(`${constants}\n${extract("const exportLearningBackup =", "const chooseBackupFile =")}\nglobalThis.renderSync = () => (${syncElement.getText(ast)});`);
+const code = compile(`${constants}\n${localCalendar}\n${extract("const exportLearningBackup =", "const chooseBackupFile =")}\nglobalThis.renderSync = () => (${syncElement.getText(ast)});`);
 const nodes = tree => tree && typeof tree === "object"
   ? [tree, ...(tree.children ?? []).flatMap(nodes)] : [];
 const text = tree => tree == null || typeof tree === "boolean" ? ""

@@ -1,5 +1,13 @@
 # English Flow testing
 
+## Backup calendar, ambiguous ratings and vocabulary in context (2026-11-22)
+
+The backup export tests fix the clock on opposite sides of New Year in Shanghai and Los Angeles. Inspect the actual shared File or browser download: its name follows the local learning day while the v1 JSON retains the original UTC instant and all 19 fields. Import tests distinguish contradictory ratings for two spellings of the same numeric card ID from compatible older representations. Use disposable profiles only.
+
+The vocabulary checks open separate, excuse and graduate through search and inspect the actual rendered cards. The offline verifier revisits all three in a new document with a controlling worker and no network. The live PWA verifier also checks lookup and an actual Shanghai-time download. Browser clock control and simulated speech do not verify device audio or a physical phone's share sheet.
+
+The workflow reports npm installation, system packages and browser downloads separately. Each setup step has its own limit and prints its output as it runs. If a runner stops during installation, report which step stopped; do not treat unexecuted browser assertions as a passing or failing product test.
+
 ## Backup file reads and navigation (2026-11-18)
 
 `browser-backup-navigation.mjs` uses the real file input with a controlled delay or failure in `File.text()` in new local Chromium/WebKit profiles. Leaving Record Settings invalidates the read immediately: an old successful read cannot interrupt a new word lesson, returning permits a new file selection immediately, and an old failure cannot clear its status or replace its confirmation. Cancellation keeps all 19 stored fields intact.

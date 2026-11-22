@@ -21,9 +21,10 @@ const extract = (start, end) => {
   return page.slice(from, to);
 };
 const constants = extract("const STORAGE =", "const tabItems:");
+const localCalendar = extract("function localDateKey(", "function formatReviewDue(");
 const STORAGE = vm.runInNewContext(compile(`${constants}\nSTORAGE;`));
 const keys = Object.values(STORAGE);
-const exportCode = compile(`${constants}\n${extract("const exportLearningBackup =", "const chooseBackupFile =")}\nexportLearningBackup();`);
+const exportCode = compile(`${constants}\n${localCalendar}\n${extract("const exportLearningBackup =", "const chooseBackupFile =")}\nexportLearningBackup();`);
 const resetSource = extract("const resetLearningProgress =", "const addDifficult =");
 const resetCode = compile(`${constants}\n${resetSource}\nresetLearningProgress();`);
 const reloadCode = compile(`${constants}\n${extract("const canReloadForUpdate =", "const exportLearningBackup =")}\ncanReloadForUpdate();`);
@@ -86,6 +87,33 @@ test("export includes unsaved learning and paused sessions even when storage is 
     assert.equal(notice.kind, "success");
     assert.deepEqual(busy, ["export", null]);
     assert.equal(lock.current, false);
+  }
+});
+
+test("export names the actual shared file with the local date and keeps its UTC backup timestamp", async () => {
+  const originalZone = process.env.TZ;
+  try {
+    for (const [zone, instant, expectedName] of [
+      ["Asia/Shanghai", "2026-12-31T16:05:00.000Z", "english-flow-backup-2027-01-01.json"],
+      ["America/Los_Angeles", "2027-01-01T07:55:00.000Z", "english-flow-backup-2026-12-31.json"],
+    ]) {
+      process.env.TZ = zone;
+      let sharedFile;
+      await vm.runInNewContext(exportCode, {
+        ...currentSession(), ...backup, File,
+        createLearningBackup: (storage, fields) => backup.createLearningBackup(storage, fields, instant),
+        navigator: { canShare: () => true, share: async ({ files }) => { [sharedFile] = files; } },
+        backupActionLock: { current: false }, setBackupBusy() {}, setBackupNotice() {},
+      });
+      assert.equal(sharedFile.name, expectedName, zone);
+      const contents = JSON.parse(await sharedFile.text());
+      assert.equal(contents.exportedAt, instant);
+      assert.equal(backup.isLearningBackup(contents, keys), true);
+      assert.equal(Object.keys(contents.data).length, 19);
+    }
+  } finally {
+    if (originalZone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalZone;
   }
 });
 

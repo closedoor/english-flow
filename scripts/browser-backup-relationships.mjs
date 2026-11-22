@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
 import { navigate } from './browser-navigation.mjs';
+import { calendarCases, checkBackupCalendar } from './backup-calendar-check.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
 
 if (!process.env.PLAYWRIGHT_MODULE) throw new Error('Set PLAYWRIGHT_MODULE; see TESTING.md.');
@@ -168,9 +169,24 @@ for (const engine of engines) {
     data => { data[keys.sentence].ratings[3] = 'known'; },
     data => { data[keys.pattern].ratings.p03 = 'known'; },
   ]);
+  await check('contradictory-rating-aliases-keep-existing-records', false, [
+    data => { data[keys.word].ratings['01'] = 'difficult'; },
+    data => { data[keys.sentence].ratings['01'] = 'difficult'; },
+  ]);
+
   await check('damaged-quiz-position-keeps-final-question-backup-valid', true, [
     data => { data[keys.word].quizIndex = data[keys.word].wordIds.length; },
   ]);
+  for (const entry of calendarCases) {
+    const name = `backup-filename-local-calendar-${entry.timezoneId}`;
+    try {
+      await checkBackupCalendar(browser, origin, entry);
+      results.push({ engine, name, status: 'PASS' });
+    } catch (error) {
+      results.push({ engine, name, status: 'FAIL', error: String(error) });
+    }
+    console.log(JSON.stringify(results.at(-1)));
+  }
   await browser.close();
 }
 

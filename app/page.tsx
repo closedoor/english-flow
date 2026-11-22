@@ -1803,7 +1803,7 @@ export default function Home() {
       };
       const backup = createLearningBackup({ getItem: (key) => JSON.stringify(snapshot[key as StorageKey]) }, STORAGE_KEYS);
       const content = JSON.stringify(backup, null, 2);
-      const date = backup.exportedAt.slice(0, 10);
+      const date = localDateKey(new Date(backup.exportedAt));
       const file = new File([content], `english-flow-backup-${date}.json`, { type: "application/json" });
       const shareData: ShareData = { title: "English Flow 学习记录备份", files: [file] };
       let canShareFile = false;

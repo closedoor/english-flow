@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
+import { revisedWordCards, verifyWordLookupCard } from './word-card-lookup-check.mjs';
 import { navigate } from './browser-navigation.mjs';
 import { openSetupDetails } from './browser-disclosures.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
@@ -154,6 +155,18 @@ async function check(name, body) {
 }
 
 try {
+  await check('reviewed-word-cards-from-downloaded-packs-in-a-new-offline-document', async (page, context) => {
+    // The first visit downloads the canonical packs; the reopened document
+    // must apply the current display corrections without using network data.
+    const cached = new Set((await packEntries(page)).map(entry => entry.pathname));
+    for (const pack of [1, 2, 3]) assert.ok(cached.has(`/data/ngsl-words-${pack}.json`));
+    await context.setOffline(true);
+    page = await newDocument(context, page);
+    await page.locator('.bottom-nav').waitFor();
+    for (const card of revisedWordCards) await verifyWordLookupCard(page, card);
+    return { realWorkerOfflineNavigation: true, reviewedWordIds: revisedWordCards.map(card => card.id) };
+  });
+
   await check('downloaded-words-and-sentences-survive-offline-new-documents', async (page, context) => {
     await navigate(page, '单词');
     await page.getByRole('button', { name: '开始学习', exact: true }).click();

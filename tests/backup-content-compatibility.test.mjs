@@ -93,6 +93,23 @@ for (const [key, idField, ids, otherId, preferences] of [
   });
 }
 
+for (const [key, preferences] of [
+  ["wordflow-active-session-v1", { path: "frequency", mode: "free", stage: "cards", wordIds: [1, 2, 3] }],
+  ["wordflow-sentence-active-session-v1", { band: "short", category: "all", count: 10, sentenceIds: [1, 2, 3] }],
+]) {
+  test(`${key} refuses conflicting ratings for the same numeric card but accepts unambiguous legacy aliases`, () => {
+    const file = (ratings) => backup({ [key]: { version: 1, updatedAt: Date.now(), index: 1, ...preferences, ratings } });
+    for (const ratings of [{ 1: "known", "01": "difficult" }, { "001": "difficult", "01": "known" }]) {
+      const value = file(ratings);
+      assert.equal(backupApi.isLearningBackup(value, keys, optional), true);
+      assert.equal(compatible(value), false, "hydration cannot preserve two different ratings for one card");
+    }
+    for (const ratings of [{ "01": "difficult" }, { 1: "known", "01": "known" }, { "01": "difficult", 2: "known" }]) {
+      assert.equal(compatible(file(ratings)), true, "a single consistent rating per card remains compatible");
+    }
+  });
+}
+
 test("quiz position bounds preserve a valid final question, completed feedback and omitted old fields", () => {
   const key = "wordflow-active-session-v1";
   const session = { version: 1, updatedAt: 1, path: "frequency", mode: "test", stage: "quiz", wordIds: [1, 2], index: 1,

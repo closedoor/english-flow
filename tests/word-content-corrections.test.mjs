@@ -60,6 +60,29 @@ test("record's information noun matches the first-syllable stress", () => {
   assert.match(item.meaning, /记录/);
 });
 
+test("separate in a separate notebook uses the adjective pronunciation", () => {
+  const item = byWord.get("separate");
+  assert.match(item.example, /a separate notebook/);
+  assert.equal(item.phonetic, "/ˈsep.ər.ət/");
+  assert.match(item.meaning, /单独的/);
+});
+
+test("excuse in no excuse for uses the noun's final unvoiced s", () => {
+  const item = byWord.get("excuse");
+  assert.match(item.example, /no excuse for/);
+  assert.equal(item.phonetic, "/ɪkˈskjuːs/");
+  assert.match(item.meaning, /借口/);
+});
+
+test("graduate expresses completing a degree in both the example and its translation", () => {
+  const item = byWord.get("graduate");
+  assert.match(item.example, /graduate from university next year/);
+  assert.equal(item.translation, "我希望明年大学毕业。");
+  assert.ok(item.collocations.includes("graduate from university"));
+  assert.match(item.meaning, /毕业/);
+  assert.equal(item.phonetic, "/ˈɡrædʒ.u.eɪt/");
+});
+
 test("object's opposition verb has second-syllable stress", () => {
   const item = byWord.get("object");
   assert.equal(item.phonetic, "/əbˈdʒekt/");

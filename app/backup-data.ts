@@ -158,8 +158,19 @@ export function isBackupContentCompatible(backup: LearningBackup, validators: Ba
   const knownPattern = (id: unknown) => textId(id) && validators.pattern(String(id));
   const knownReading = (id: unknown) => textId(id) && validators.reading(String(id));
   const knownRatings = (value: Record<string, unknown>, valid: (id: unknown) => boolean, numeric: boolean) => (
-    optional(value, "ratings", (entries) => isRecord(entries)
-      && Object.keys(entries).every((id) => valid(numeric ? Number(id) : id)))
+    optional(value, "ratings", (entries) => {
+      if (!isRecord(entries)) return false;
+      if (!numeric) return Object.keys(entries).every(valid);
+      // Hydration maps "1" and "01" to the same card. Keep old aliases
+      // when they agree, but never choose between contradictory ratings.
+      const seen = new Map<number, unknown>();
+      for (const [key, rating] of Object.entries(entries)) {
+        const id = Number(key);
+        if (!valid(id) || (seen.has(id) && seen.get(id) !== rating)) return false;
+        seen.set(id, rating);
+      }
+      return true;
+    })
   );
   const sessionFits = (value: Record<string, unknown>, ids: unknown[], numeric: boolean) => {
     const members = new Set(ids.map((id) => numeric ? Number(id) : String(id)));
