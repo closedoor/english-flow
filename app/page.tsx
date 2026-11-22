@@ -9,7 +9,7 @@ import { createLearningStorageCoordinator, type LearningStorageCoordinator } fro
 import { corePatterns, patternCategories, type PatternCategory } from "./pattern-data";
 import { BACKUP_MAX_BYTES, createLearningBackup, isBackupContentCompatible, isLearningBackup, readLearningStorage, restoreLearningBackupData, type LearningBackup } from "./backup-data";
 import { isSpeechSupported, SPEECH_ERROR_EVENT, SPEECH_PLAYBACK_EVENT, speak, startBilingualSentenceSpeech, startRepeatedSpeech, startSegmentedSpeech, stopSpeech, toggleSegmentedSpeech, type SpeechPlaybackState } from "./speech-playback";
-import { blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, selectContinuousSession, takeRotatedSpread } from "./session-utils";
+import { acceptSessionRating, blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, selectContinuousSession, takeRotatedSpread } from "./session-utils";
 
 type Tab = "home" | "learn" | "sentences" | "read" | "review" | "progress";
 type LearnStage = "setup" | "cards" | "quiz" | "result";
@@ -467,6 +467,7 @@ export default function Home() {
   const [sentenceSessionReview, setSentenceSessionReview] = useState(false);
   const [sentenceSessionKind, setSentenceSessionKind] = useState<SentenceSessionSnapshot["kind"]>(undefined);
   const [sentenceSearch, setSentenceSearch] = useState("");
+  const hasSentenceKeyword = /[\p{L}\p{N}]/u.test(sentenceSearch.normalize("NFKC"));
   const [sentenceSavedOnly, setSentenceSavedOnly] = useState(false);
   const [sentenceReviewOnly, setSentenceReviewOnly] = useState(false);
   const [wordRangeOpen, setWordRangeOpen] = useState(false);
@@ -527,8 +528,8 @@ export default function Home() {
   const activeDialog = externalUpdateDetected ? "sync" : pendingBackup ? "restore" : resetProgressOpen ? "reset" : discardRequest ? "discard" : installOpen ? "install" : null;
   const hasOpenDialog = activeDialog !== null;
   const touchStart = useRef<{ x: number; y: number; identifier: number } | null>(null);
-  const cardActionLock = useRef(false);
-  const sentenceActionLock = useRef(false);
+  const cardActionLock = useRef<{ items: readonly WordItem[]; until: number } | null>(null);
+  const sentenceActionLock = useRef<{ items: readonly number[]; until: number } | null>(null);
   const patternActionLock = useRef(false);
   const quizActionLock = useRef({ submitted: -1, advanced: -1 });
   const reviewActionLock = useRef(false);
@@ -1040,6 +1041,10 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated || externalUpdateDetected) return;
+    // A search result can be studied and rated without taking ownership of a
+    // paused course's only backup slot. This covers both cards and results.
+    const previous = sentenceResumeSnapshotRef.current;
+    if (sentenceSessionKind === "lookup" && previous && previous.kind !== "lookup") return;
     if (sentenceStage === "cards" && sentenceSessionIds.length) {
       const payload = {
         version: 1,
@@ -1054,7 +1059,6 @@ export default function Home() {
         index: sentenceIndex,
         ratings: sentenceRatings,
       } satisfies Omit<SentenceSessionSnapshot, "updatedAt">;
-      const previous = sentenceResumeSnapshotRef.current;
       const snapshot = { ...payload, updatedAt: sessionPayloadMatches(previous, payload) ? previous!.updatedAt : Date.now() } satisfies SentenceSessionSnapshot;
       sentenceResumeSnapshotRef.current = snapshot;
       writeJson(STORAGE.sentenceActiveSession, snapshot);
@@ -1088,7 +1092,7 @@ export default function Home() {
   useEffect(() => {
     if (tab !== "sentences" || sentenceSection !== "library") return;
     let active = true;
-    const packs: (1 | 2 | 3)[] = sentenceStage === "cards" ? [SENTENCE_PACK_BY_BAND[sentenceBand]] : sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly ? [1, 2, 3] : [SENTENCE_PACK_BY_BAND[sentenceBand]];
+    const packs: (1 | 2 | 3)[] = sentenceStage === "cards" ? [SENTENCE_PACK_BY_BAND[sentenceBand]] : hasSentenceKeyword || sentenceSavedOnly || sentenceReviewOnly ? [1, 2, 3] : [SENTENCE_PACK_BY_BAND[sentenceBand]];
     import("./sentence-data").then(({ loadSentencePack }) => {
       if (!active) return [];
       setSentenceLoadError(false);
@@ -1105,7 +1109,7 @@ export default function Home() {
         if (active) setSentenceLoadError(true);
       });
     return () => { active = false; };
-  }, [sentenceBand, sentenceLoadAttempt, sentenceReviewOnly, sentenceSavedOnly, sentenceSearch, sentenceSection, sentenceStage, tab]);
+  }, [hasSentenceKeyword, sentenceBand, sentenceLoadAttempt, sentenceReviewOnly, sentenceSavedOnly, sentenceSection, sentenceStage, tab]);
 
   useEffect(() => {
     if (!hydrated || externalUpdateDetected) return;
@@ -1342,7 +1346,11 @@ export default function Home() {
     const start = libraryBand === 1 ? 1 : libraryBand === 2 ? 1001 : 2001;
     const end = libraryBand === 1 ? 1000 : libraryBand === 2 ? 2000 : words.length;
     const term = normalized(librarySearch);
-    return words.filter((word) => (term ? normalized(`${word.word} ${word.meaning}`).includes(term) : (word.rank ?? word.id) >= start && (word.rank ?? word.id) <= end));
+    if (!term) return words.filter((word) => (word.rank ?? word.id) >= start && (word.rank ?? word.id) <= end);
+    const matches = words.filter((word) => normalized(`${word.word} ${word.meaning}`).includes(term));
+    const exactIndex = matches.findIndex((word) => normalized(word.word) === term);
+    if (exactIndex <= 0) return matches;
+    return [matches[exactIndex], ...matches.slice(0, exactIndex), ...matches.slice(exactIndex + 1)];
   }, [libraryBand, librarySearch, words]);
   const current = sessionWords[index] ?? words[0];
   const currentCardRating = current ? cardRatings[current.id] : undefined;
@@ -1397,7 +1405,7 @@ export default function Home() {
   const ratedPatternCount = Object.keys(patternRatings).length;
   const canResumePattern = patternStage === "setup" && patternSessionIds.length > ratedPatternCount;
   const hasUnfinishedPattern = patternSessionIds.length > ratedPatternCount;
-  const requiredSentencePacks: (1 | 2 | 3)[] = sentenceStage === "cards" ? [SENTENCE_PACK_BY_BAND[sentenceBand]] : sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly ? [1, 2, 3] : [SENTENCE_PACK_BY_BAND[sentenceBand]];
+  const requiredSentencePacks: (1 | 2 | 3)[] = sentenceStage === "cards" ? [SENTENCE_PACK_BY_BAND[sentenceBand]] : hasSentenceKeyword || sentenceSavedOnly || sentenceReviewOnly ? [1, 2, 3] : [SENTENCE_PACK_BY_BAND[sentenceBand]];
   // Request failure does not establish that a search or saved list is empty.
   const sentencePacksIncomplete = requiredSentencePacks.some((pack) => !sentencePacks[pack]);
   const sentenceLoading = sentencePacksIncomplete && !sentenceLoadError;
@@ -1595,6 +1603,19 @@ export default function Home() {
   };
 
   const restoreSentenceSetupPreferences = () => {
+    const paused = sentenceResumeSnapshotRef.current;
+    if (sentenceSessionKind === "lookup" && paused && paused.kind !== "lookup") {
+      setSentenceSessionIds(paused.sentenceIds);
+      setSentenceIndex(paused.index);
+      setSentenceRatings(paused.ratings);
+      setSentenceContinuous(paused.continuous === true);
+      setSentenceSessionReview(paused.reviewOnly === true);
+      setSentenceSessionKind(paused.kind);
+    } else if (sentenceStage === "result") {
+      setSentenceSessionIds([]);
+      setSentenceRatings({});
+      setSentenceIndex(0);
+    }
     const setup = sentenceSetupPreferencesRef.current;
     setSentenceBand(setup.band);
     setSentenceCategory(setup.category);
@@ -2122,9 +2143,7 @@ export default function Home() {
   };
 
   const finishCard = (known: boolean) => {
-    if (cardActionLock.current) return;
-    cardActionLock.current = true;
-    window.setTimeout(() => { cardActionLock.current = false; }, 350);
+    if (!acceptSessionRating(cardActionLock, sessionWords)) return;
     noteStudyDay();
     if (known) markMastered(current.id); else addDifficult(current.id);
     const nextRatings = { ...cardRatings, [current.id]: known ? "known" as const : "difficult" as const };
@@ -2351,11 +2370,11 @@ export default function Home() {
 
   const startSentenceSession = (reviewOnly = false, singleSentence?: SentenceItem, forceNew = false) => {
     const snapshot = newestSnapshot(cleanSentenceSession(readJson<unknown>(STORAGE.sentenceActiveSession, null)), sentenceResumeSnapshotRef.current);
-    if (sentenceStage === "setup" && sentenceSessionIds.length && snapshot) {
+    if (!singleSentence && sentenceStage === "setup" && sentenceSessionIds.length && snapshot) {
       const sameChoices = snapshot.band === sentenceBand && snapshot.category === sentenceCategory
         && snapshot.mode === sentenceMode && !snapshot.reviewOnly && snapshot.kind !== "lookup";
       // Returning to the same practice means resume, not discard and restart.
-      if (!forceNew && !reviewOnly && !singleSentence && sameChoices) {
+      if (!forceNew && !reviewOnly && sameChoices) {
         resumeSentenceSession();
         return;
       }
@@ -2371,6 +2390,7 @@ export default function Home() {
   const resumeSentenceSession = () => {
     const snapshot = newestSnapshot(cleanSentenceSession(readJson<unknown>(STORAGE.sentenceActiveSession, null)), sentenceResumeSnapshotRef.current);
     if (!snapshot) return;
+    sentenceActionLock.current = null;
     playAutomaticSentenceExample(sentenceItemById.get(snapshot.sentenceIds[snapshot.index]), snapshot.mode);
     setSentenceBand(snapshot.band);
     setSentenceCategory(snapshot.category);
@@ -2388,9 +2408,7 @@ export default function Home() {
   };
 
   const finishSentenceCard = (known: boolean) => {
-    if (!currentSentence || sentenceActionLock.current) return;
-    sentenceActionLock.current = true;
-    window.setTimeout(() => { sentenceActionLock.current = false; }, 350);
+    if (!currentSentence || !acceptSessionRating(sentenceActionLock, sentenceSessionIds)) return;
     noteStudyDay();
     markSentenceSeen(currentSentence.id);
     if (known) {
@@ -2571,11 +2589,12 @@ export default function Home() {
       </div></details>
       <details className="setup-disclosure sentence-find" open={sentenceBrowserOpen} onToggle={(event) => setSentenceBrowserOpen(event.currentTarget.open)}><summary><div><b>找句子与收藏</b><small>搜索中英文 · 收藏 {sentenceSaved.length} · 待加强 {sentenceDifficult.length}</small></div><span aria-hidden="true">⌄</span></summary><div className="setup-disclosure-body">
       <div className="sentence-summary"><div><b>{sentenceMastered.length}</b><small>已掌握</small></div><button className={sentenceReviewOnly ? "selected" : ""} aria-pressed={sentenceReviewOnly} aria-label={`查看 ${sentenceDifficult.length} 个待加强句子`} onClick={() => openSentenceBrowser(false, true)}><b>{sentenceDifficult.length}</b><small>待加强</small></button><button className={sentenceSavedOnly ? "selected" : ""} aria-pressed={sentenceSavedOnly} onClick={() => openSentenceBrowser(true)}><b>{sentenceSaved.length}</b><small>{sentenceSavedOnly ? "正在看收藏" : "收藏句子"}</small></button></div>
-      <div ref={sentenceBrowserRef} tabIndex={-1} className="setup-block sentence-browser"><div className="row-heading"><h2>{sentenceSavedOnly ? "收藏的句子" : sentenceReviewOnly ? "待加强的句子" : "查找完整句库"}</h2><small>{sentenceSavedOnly || sentenceReviewOnly ? `${sentencePacksIncomplete ? "已载入 " : ""}${filteredSentences.length} 句` : sentenceSearch ? `${sentencePacksIncomplete ? "已载入 " : ""}${filteredSentences.length} 个结果` : "支持中英文"}</small></div>
+      <div ref={sentenceBrowserRef} tabIndex={-1} className="setup-block sentence-browser"><div className="row-heading"><h2>{sentenceSavedOnly ? "收藏的句子" : sentenceReviewOnly ? "待加强的句子" : "查找完整句库"}</h2><small>{sentenceSavedOnly || sentenceReviewOnly ? `${sentencePacksIncomplete ? "已载入 " : ""}${filteredSentences.length} 句` : hasSentenceKeyword ? `${sentencePacksIncomplete ? "已载入 " : ""}${filteredSentences.length} 个结果` : "支持中英文"}</small></div>
         {sentenceReviewOnly && <p className="browser-hint">这里包含所有句长和场景。点一句开始复习，标记学会后会从这里移除。</p>}
         {(sentenceSavedOnly || sentenceReviewOnly) && <button className="browser-switch" onClick={() => openSentenceBrowser(false)}>‹ 返回句库搜索</button>}
         {!sentenceSavedOnly && !sentenceReviewOnly && <label className="sentence-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="搜索长短句" value={sentenceSearch} onChange={(event) => { setSentenceSearch(event.target.value); setSentenceResultLimit(30); }} placeholder="搜索英文或中文" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="search" /></label>}
-        {(sentenceSearch.trim() || sentenceSavedOnly || sentenceReviewOnly) && <div className="sentence-result-list">{sentencePacksIncomplete && !filteredSentences.length ? <p role="status">{sentenceLoading ? "正在加载完整句库…" : sentenceSavedOnly ? "收藏记录仍保留，相关句库尚未载入。请重试缺少的句库。" : sentenceReviewOnly ? "待加强记录仍保留，相关句库尚未载入。请重试缺少的句库。" : "句库尚未完整载入，暂时无法确认是否有匹配句子。请重试缺少的句库。"}</p> : filteredSentences.length ? <>{sentencePacksIncomplete && <p className="browser-hint" role="status">{sentenceLoading ? "其余句库仍在加载，先显示已载入的结果。" : "部分句库未载入，当前仅显示已载入的结果。"}</p>}{filteredSentences.slice(0, sentenceResultLimit).map((item) => <button key={item.id} data-sentence-id={item.id} onClick={() => startSentenceSession(false, item)}><div><b lang="en">{item.text}</b><small>{item.translation}</small></div><i>›</i></button>)}<p className="sentence-result-count" role="status" aria-live="polite" aria-atomic="true">已显示 {Math.min(sentenceResultLimit, filteredSentences.length)} / {sentencePacksIncomplete ? "已载入 " : ""}{filteredSentences.length} 句</p>{sentenceResultLimit < filteredSentences.length && <button className="library-more" onClick={() => setSentenceResultLimit((value) => value + 30)}>再显示 {Math.min(30, filteredSentences.length - sentenceResultLimit)} 句</button>}</> : <p>{sentenceSavedOnly ? "还没有收藏句子。学习时点 ☆ 就能在这里找到。" : sentenceReviewOnly ? "当前没有待加强的句子。以后标记“还不熟悉”的句子会出现在这里。" : "没有找到相关句子，请换一个关键词。"}</p>}</div>}
+        {!sentenceSavedOnly && !sentenceReviewOnly && !!sentenceSearch.trim() && !hasSentenceKeyword && <p className="browser-hint" role="status">请输入中文、英文或数字来搜索句子。</p>}
+        {(hasSentenceKeyword || sentenceSavedOnly || sentenceReviewOnly) && <div className="sentence-result-list">{sentencePacksIncomplete && !filteredSentences.length ? <p role="status">{sentenceLoading ? "正在加载完整句库…" : sentenceSavedOnly ? "收藏记录仍保留，相关句库尚未载入。请重试缺少的句库。" : sentenceReviewOnly ? "待加强记录仍保留，相关句库尚未载入。请重试缺少的句库。" : "句库尚未完整载入，暂时无法确认是否有匹配句子。请重试缺少的句库。"}</p> : filteredSentences.length ? <>{sentencePacksIncomplete && <p className="browser-hint" role="status">{sentenceLoading ? "其余句库仍在加载，先显示已载入的结果。" : "部分句库未载入，当前仅显示已载入的结果。"}</p>}{filteredSentences.slice(0, sentenceResultLimit).map((item) => <button key={item.id} data-sentence-id={item.id} onClick={() => startSentenceSession(false, item)}><div><b lang="en">{item.text}</b><small>{item.translation}</small></div><i>›</i></button>)}<p className="sentence-result-count" role="status" aria-live="polite" aria-atomic="true">已显示 {Math.min(sentenceResultLimit, filteredSentences.length)} / {sentencePacksIncomplete ? "已载入 " : ""}{filteredSentences.length} 句</p>{sentenceResultLimit < filteredSentences.length && <button className="library-more" onClick={() => setSentenceResultLimit((value) => value + 30)}>再显示 {Math.min(30, filteredSentences.length - sentenceResultLimit)} 句</button>}</> : <p>{sentenceSavedOnly ? "还没有收藏句子。学习时点 ☆ 就能在这里找到。" : sentenceReviewOnly ? "当前没有待加强的句子。以后标记“还不熟悉”的句子会出现在这里。" : "没有找到相关句子，请换一个关键词。"}</p>}</div>}
       </div>
       </div></details>
       <details className="setup-source"><summary>句库说明与来源</summary><div className="source-card sentence-license"><b>句库说明</b><p>共 3,000 组 Tatoeba 英汉对应句，短句、常用句、长句各 1,000 句。学习状态和当前卡片位置只保存在当前设备。</p><div><a href="https://tatoeba.org/en/downloads" target="_blank" rel="noreferrer">Tatoeba 数据与授权</a></div>
@@ -2655,8 +2674,8 @@ export default function Home() {
       <div className="result-actions">
         {difficultCount > 0 && <button ref={resultPrimaryRef} className="primary-action full-button" onClick={retryDifficultSentences}>再练这 {difficultCount} 个待加强句子</button>}
         <div className={difficultCount > 0 ? "result-secondary" : undefined}>
-          <button ref={difficultCount === 0 ? resultPrimaryRef : undefined} className={difficultCount > 0 ? "text-button" : "primary-action full-button"} onClick={() => { restoreSentenceSetupPreferences(); setSentenceSessionIds([]); setSentenceRatings({}); setSentenceIndex(0); }}>{returnLabel}</button>
-          <button className="text-button" onClick={() => { restoreSentenceSetupPreferences(); setSentenceSessionIds([]); setSentenceRatings({}); setSentenceIndex(0); setTab("home"); }}>回到首页</button>
+          <button ref={difficultCount === 0 ? resultPrimaryRef : undefined} className={difficultCount > 0 ? "text-button" : "primary-action full-button"} onClick={restoreSentenceSetupPreferences}>{returnLabel}</button>
+          <button className="text-button" onClick={() => { restoreSentenceSetupPreferences(); setTab("home"); }}>回到首页</button>
         </div>
       </div>
     </section>;

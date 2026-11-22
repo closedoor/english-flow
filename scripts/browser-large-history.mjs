@@ -4,6 +4,7 @@ import { navigate } from './browser-navigation.mjs';
 import { openSetupDetails } from './browser-disclosures.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import { loadSentenceFixturePacks } from './sentence-fixture-data.mjs';
+import { verifyPunctuationPrompt } from './sentence-query-check.mjs';
 
 if (!process.env.PLAYWRIGHT_MODULE) throw Error('Set PLAYWRIGHT_MODULE; see TESTING.md.');
 const pw = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
@@ -48,6 +49,14 @@ for (const engine of engines) {
     } finally { await context.close(); }
     console.log(JSON.stringify(results.at(-1)));
   }
+
+  await check('punctuation-shows-a-prompt-and-a-real-word-searches-all-lengths', [], async page => {
+    const search = await verifyPunctuationPrompt(page);
+    await search.fill('coffee');
+    await page.waitForFunction(() => document.querySelector('.sentence-result-list [data-sentence-id]') && !document.querySelector('.sentence-result-list .browser-hint'));
+    const expected = items.filter(s => normalize(s.text + ' ' + s.translation).includes('coffee'));
+    assert.deepEqual(await resultIds(page), expected.slice(0, 30).map(s => s.id));
+  });
 
   await check('all-3000-favorites-keep-global-order-and-preferences', allIds, async page => {
     const before = await page.evaluate(k => localStorage.getItem(k), keys.preferences);

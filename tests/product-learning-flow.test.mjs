@@ -238,6 +238,7 @@ test("entering word cards focuses the word rather than a reused rating button, a
 });
 
 const speakingCode = compile([
+  extract("const restoreSentenceSetupPreferences =", "const restorePatternSetupPreferences ="),
   extract("const retryDifficultSentences =", "const beginPatternSession ="),
   extract("const retryDifficultPatterns =", "const openPatternPracticeFromHome ="),
   extract("const renderPatternResult =", "const renderSentences ="),
@@ -248,7 +249,7 @@ function speakingResult(patch = {}) {
     tab: "sentences", sentenceSection: "library", sentenceStage: "result", patternStage: "result",
     sentenceSessionIds: [1001, 1002, 1003], sentenceRatings: { 1001: "known", 1002: "difficult", 1003: "difficult" },
     sentenceIndex: 2, sentenceTranslationOpen: true, sentenceMode: "speak", sentenceBand: "medium", sentenceCategory: "travel", sentenceCount: 20,
-    sentenceSavedOnly: false, sentenceReviewOnly: false,
+    sentenceSavedOnly: false, sentenceReviewOnly: false, sentenceSessionKind: "group",
     patternSessionIds: ["p01", "p02", "p03"], patternRatings: { p01: "known", p02: "difficult", p03: "difficult" },
     patternIndex: 2, patternDrillIndex: 2, patternAnswerOpen: true, patternCategory: "all",
     ...patch,
@@ -256,7 +257,8 @@ function speakingResult(patch = {}) {
   const render = () => vm.runInNewContext(speakingCode, {
     React, ...state, resultPrimaryRef: {},
     sentenceItemById: new Map(), playAutomaticSentenceExample() {},
-    restoreSentenceSetupPreferences() { state.sentenceStage = "setup"; },
+    sentenceResumeSnapshotRef: { current: null },
+    sentenceSetupPreferencesRef: { current: { band: state.sentenceBand, category: state.sentenceCategory, count: state.sentenceCount, mode: state.sentenceMode } },
     restorePatternSetupPreferences() { state.patternStage = "setup"; },
     ...Object.fromEntries(Object.keys(state).map((key) => [`set${key[0].toUpperCase()}${key.slice(1)}`, (value) => { state[key] = value; }])),
   });

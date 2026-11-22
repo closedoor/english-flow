@@ -25,6 +25,9 @@ test('changed ranges may replace only an untouched first card silently',()=>{ass
 test('every materially different visible choice protects real unfinished progress',()=>{for(const preferences of [{sentenceBand:'long'},{sentenceCategory:'travel'},{sentenceMode:'speak'}])assert.equal(invoke({snapshot:{...base,ratings:{1:'known'}},preferences})[0].confirm.sentence,true);});
 test('reinforcement snapshots cannot silently masquerade as the normal range',()=>{assert.deepEqual(invoke({snapshot:{...base,continuous:true,reviewOnly:true}}),['start']);assert.equal(invoke({snapshot:{...base,continuous:true,reviewOnly:true,index:1}})[0].confirm.sentence,true);});
 test('explicit new groups are distinguishable from normal continuation',()=>{assert.deepEqual(invoke({args:[false,undefined,true]}),['start']);assert.equal(invoke({snapshot:{...base,index:1},args:[false,undefined,true]})[0].confirm.sentence,true);});
-test('review and single-result requests cannot silently replace progressed sessions',()=>{for(const args of [[true],[false,{id:222}]])assert.equal(invoke({snapshot:{...base,index:1},args})[0].confirm.sentence,true);});
+test('a new review course requires confirmation, but a temporary lookup may open over a paused course',()=>{
+ assert.equal(invoke({snapshot:{...base,index:1},args:[true]})[0].confirm.sentence,true);
+ assert.deepEqual(invoke({snapshot:{...base,index:1},args:[false,{id:222}]}),['start']);
+});
 test('absent sessions start normally without inventing a resume target',()=>assert.deepEqual(invoke({snapshot:null}),['start']));
 test('bilingual translation is real text and speaking-first answers remain conditional',()=>{const cards=page.slice(page.indexOf('  const renderSentenceCards ='),page.indexOf('  const renderSentenceResult ='));assert.match(cards,/className="sentence-translation" lang="zh-CN">\{currentSentence.translation\}/);assert.doesNotMatch(cards,/点击显示中文翻译/);assert.match(cards,/sentenceMode === "bilingual"/);assert.match(page,/selectedMode !== "bilingual"/);});

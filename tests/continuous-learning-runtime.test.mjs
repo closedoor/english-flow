@@ -49,6 +49,7 @@ function runtime(patch = {}, stored = {}) {
   const sentences = Array.from({ length: 90 }, (_, index) => ({ id: index + 1, text: `Sentence ${index + 1}.`, translation: `句子 ${index + 1}`, length: "short", category: index < 45 ? "daily" : "travel" }));
   const saved = new Map(Object.entries(stored));
   const timers = [];
+  let now = 0;
   const speech = [];
   const state = {
     hydrated: true, externalUpdateDetected: false, tab: "learn", learnStage: "setup", sessionWords: [], sessionPath: "frequency", sessionMode: "free",
@@ -77,9 +78,10 @@ function runtime(patch = {}, stored = {}) {
     sentenceSetupPreferencesRef: { current: { band: state.sentenceBand, category: state.sentenceCategory, count: state.sentenceCount, mode: state.sentenceMode } },
     wordBrowserOriginRef: { current: null }, wordBrowserReturnRef: { current: false }, wordBrowserRef: { current: { querySelector: () => ({ scrollTop: 0 }) } },
     sentenceBrowserOriginRef: { current: null }, sentenceBrowserRef: { current: { querySelector: () => ({ scrollTop: 0 }) } },
-    cardActionLock: { current: false }, sentenceActionLock: { current: false }, quizActionLock: { current: { submitted: -1, advanced: -1 } },
+    cardActionLock: { current: null }, sentenceActionLock: { current: null }, quizActionLock: { current: { submitted: -1, advanced: -1 } },
     autoWordExamples: true, autoSentenceExamples: true, wordExampleStartedRef: { current: null }, sentenceExampleStartedRef: { current: null },
-    document: { hidden: false }, window: { scrollY: 0, setTimeout: (callback) => timers.push(callback) },
+    acceptSessionRating: (lock, items) => sessions.acceptSessionRating(lock, items, now),
+    document: { hidden: false }, window: { scrollY: 0, setTimeout: (callback, delay = 0) => timers.push({ callback, at: now + delay }) },
     stopSpeech: () => speech.push({ kind: "cancel" }),
     startRepeatedSpeech: (text, times) => { speech.push({ kind: "word", text, times }); return true; },
     startBilingualSentenceSpeech: (text, translation) => { speech.push({ kind: "sentence", text, translation }); return true; },
@@ -96,10 +98,80 @@ function runtime(patch = {}, stored = {}) {
     context.currentSentence = context.sentenceSessionItems[context.safeSentenceIndex];
   }
   function persist() { sync(); handlers.persistWord(); sync(); handlers.persistSentence(); sync(); }
-  function invoke(name, ...args) { sync(); handlers[name](...args); persist(); timers.splice(0).forEach((callback) => callback()); }
+  function advance(ms) {
+    now += ms;
+    while (timers.some(timer => timer.at <= now)) timers.splice(timers.findIndex(timer => timer.at <= now), 1)[0].callback();
+  }
+  function act(name, ...args) { sync(); handlers[name](...args); persist(); }
+  function invoke(name, ...args) { act(name, ...args); advance(350); }
   persist();
-  return { state, words, sentences, saved, speech, invoke, snapshot: (key) => JSON.parse(saved.get(key)), patch: (value) => { Object.assign(state, value); sync(); }, cancel: () => { state.discardRequest = null; persist(); } };
+  return { state, words, sentences, saved, speech, invoke, act, advance, snapshot: (key) => JSON.parse(saved.get(key)), patch: (value) => { Object.assign(state, value); sync(); }, cancel: () => { state.discardRequest = null; persist(); } };
 }
+
+test("a newly opened sentence lookup and its retry accept an intentional rating immediately", () => {
+  const app = runtime({ tab: "sentences" });
+  app.act("startSentenceSession");
+  app.act("finishSentenceCard", true);
+  const course = app.saved.get("sentence");
+  app.advance(35);
+  app.act("restoreSentenceSetupPreferences");
+  app.act("startSentenceSession", false, app.sentences[80]);
+  app.act("finishSentenceCard", false);
+  assert.equal(app.state.sentenceStage, "result", "the previous course's double-click guard must not swallow this lookup rating");
+  assert.deepEqual(plain(app.state.sentenceDifficult), [81]);
+  assert.equal(app.saved.get("sentence"), course);
+  app.advance(30);
+  app.act("retryDifficultSentences");
+  app.act("finishSentenceCard", true);
+  assert.equal(app.state.sentenceStage, "result", "retrying the same lookup ID is a new session");
+  assert.ok(app.state.sentenceMastered.includes(81));
+  assert.deepEqual(plain(app.state.sentenceDifficult), []);
+  assert.equal(app.saved.get("sentence"), course);
+});
+
+test("a rapid repeat in the same sentence session cannot grade the next card until the guard expires", () => {
+  const app = runtime({ tab: "sentences" });
+  app.act("startSentenceSession");
+  app.act("finishSentenceCard", true);
+  const first = app.saved.get("sentence");
+  app.advance(349);
+  app.act("finishSentenceCard", false);
+  assert.equal(app.saved.get("sentence"), first);
+  assert.equal(app.state.sentenceIndex, 1);
+  assert.deepEqual(plain(app.state.sentenceDifficult), []);
+  app.advance(1);
+  app.act("finishSentenceCard", false);
+  assert.equal(app.state.sentenceIndex, 2);
+  assert.deepEqual(plain(app.state.sentenceRatings), { 1: "known", 2: "difficult" });
+});
+
+test("a new word lookup accepts its first rating immediately without unlocking the next word in the resumed course", () => {
+  const app = runtime({});
+  app.act("startSession");
+  app.act("finishCard", true);
+  const paused = app.saved.get("word");
+  app.advance(35);
+  app.act("openLearningSetup");
+  app.act("startSingleWord", app.words[80]);
+  app.act("finishCard", false);
+  assert.equal(app.state.learnStage, "result", "a previous course must not swallow the lookup's first rating");
+  assert.ok(app.state.difficult.includes(81));
+  assert.equal(app.saved.get("word"), paused, "rating a lookup preserves the paused word snapshot");
+
+  app.advance(30);
+  app.act("returnToWordLibrary");
+  app.act("startSession");
+  assert.equal(app.state.index, 1);
+  app.act("finishCard", true);
+  const after = app.saved.get("word");
+  assert.deepEqual(plain(app.state.cardRatings), { 1: "known", 2: "known" });
+  app.advance(349);
+  app.act("finishCard", false);
+  assert.equal(app.saved.get("word"), after, "raw taps in the same course cannot rate a second card inside its 350 ms guard, even past the first course's old deadline");
+  app.advance(1);
+  app.act("finishCard", false);
+  assert.deepEqual(plain(app.state.cardRatings), { 1: "known", 2: "known", 3: "difficult" });
+});
 
 test("word learning passes card twenty and pauses, looks up a word, then resumes the identical range", () => {
   const app = runtime({ count: 20, mode: "test" });
@@ -144,6 +216,50 @@ test("exiting a searched sentence and using normal start begins the full range i
   assert.deepEqual(app.state.sentenceMastered, []);
   assert.deepEqual(app.state.studyDays, [], "looking up and starting practice do not fabricate learning");
 });
+
+for (const [mode, progressed] of [["speak", true], ["bilingual", false]]) {
+  test(`a temporary ${mode} sentence lookup cannot replace the paused range, even after rating and retry`, () => {
+    const app = runtime({ tab: "sentences", sentenceMode: mode });
+    app.invoke("startSentenceSession");
+    if (progressed) app.invoke("finishSentenceCard", false);
+    const before = app.saved.get("sentence"), course = app.snapshot("sentence");
+    const lookup = app.sentences[80];
+    const rotation = app.saved.get("rotation");
+    app.invoke("restoreSentenceSetupPreferences");
+    app.invoke("startSentenceSession", false, lookup);
+    assert.equal(app.state.discardRequest, null, "opening a search result does not require ending the course");
+    assert.deepEqual(plain(app.state.sentenceSessionIds), [lookup.id]);
+    assert.equal(app.saved.get("sentence"), before, "refresh during lookup restores the previous range");
+    assert.equal(app.state.sentenceTranslationOpen, false);
+    if (mode === "speak") {
+      assert.equal(app.speech.some(item => item.kind === "sentence"), false);
+      app.patch({ sentenceTranslationOpen: true });
+    }
+    app.invoke("finishSentenceCard", false);
+    assert.equal(app.state.sentenceStage, "result");
+    assert.ok(app.state.sentenceDifficult.includes(lookup.id), "an explicit rating still counts");
+    assert.ok(app.state.sentenceSeen.includes(lookup.id));
+    assert.equal(app.saved.get("sentence"), before, "the completed lookup cannot delete the paused range");
+    app.invoke("retryDifficultSentences");
+    assert.deepEqual(plain(app.state.sentenceSessionIds), [lookup.id]);
+    assert.equal(app.saved.get("sentence"), before);
+    app.invoke("finishSentenceCard", true);
+    assert.ok(app.state.sentenceMastered.includes(lookup.id));
+    assert.equal(app.state.sentenceDifficult.includes(lookup.id), false);
+    app.invoke("restoreSentenceSetupPreferences");
+    assert.equal(app.state.sentenceStage, "setup");
+    assert.ok(app.state.sentenceSessionIds.length > Object.keys(app.state.sentenceRatings).length,
+      "the explicit resume control has its real unfinished range again");
+    app.invoke("startSentenceSession");
+    assert.equal(app.state.sentenceSessionKind, "group");
+    assert.equal(app.state.sentenceIndex, course.index);
+    assert.deepEqual(plain(app.state.sentenceRatings), course.ratings);
+    assert.deepEqual(plain(app.state.sentenceSessionIds), course.sentenceIds);
+    assert.equal(app.state.sentenceTranslationOpen, false);
+    assert.equal(app.saved.get("rotation"), rotation);
+    assert.equal(app.saved.get("sentence"), before);
+  });
+}
 
 test("a searched sentence retains its identity on explicit resume and after recreating memory", () => {
   const app = runtime({ tab: "sentences", sentenceMode: "speak" });
@@ -360,4 +476,19 @@ test("rating the last card wraps to a skipped earlier word or sentence before a 
   assert.equal(sentences.state.sentenceTranslationOpen, false);assert.equal(Object.keys(sentences.state.sentenceRatings).length, 89);
   assert.deepEqual(sentences.snapshot("sentence").sentenceIds, ids);
   sentences.invoke("finishSentenceCard", false);assert.equal(sentences.state.sentenceStage, "result");assert.equal(sentences.saved.has("sentence"), false);
+});
+
+test("resuming a paused course after an unrated lookup accepts the first intentional rating", () => {
+  const app = runtime({ tab: "sentences" });
+  app.act("startSentenceSession");
+  app.act("finishSentenceCard", true);
+  app.advance(40);
+  app.act("restoreSentenceSetupPreferences");
+  app.act("startSentenceSession", false, app.sentences[80]);
+  app.act("restoreSentenceSetupPreferences");
+  app.act("startSentenceSession");
+  assert.equal(app.state.sentenceIndex, 1);
+  app.act("finishSentenceCard", false);
+  assert.equal(app.state.sentenceIndex, 2, "the first rating after explicit resume belongs to the resumed lesson");
+  assert.deepEqual(plain(app.state.sentenceRatings), { 1: "known", 2: "difficult" });
 });

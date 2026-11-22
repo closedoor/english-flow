@@ -1,4 +1,4 @@
-import { verifyWordLookupCard, revisedWordCards } from './word-card-lookup-check.mjs';
+import { verifyWordLookupCard, verifyExactWordLookup, revisedWordCards } from './word-card-lookup-check.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -110,6 +110,11 @@ for (const engine of ['chromium', 'webkit']) {
     }
     console.log(JSON.stringify(results.at(-1)));
   }
+
+  await check('exact-headword-on-first-page-and-return-to-result', {}, async page => {
+    await page.locator('.bottom-nav').waitFor();
+    return verifyExactWordLookup(page);
+  });
 
   for (const expected of wordCards) {
     await check(`word-${expected.word}-actual-lookup-card`, {}, async page => {

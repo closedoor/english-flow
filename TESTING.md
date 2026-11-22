@@ -1,5 +1,13 @@
 # English Flow testing
 
+## Search without losing a paused course (2026-11-22)
+
+Pause a sentence lesson after a rating, open a search result from a different length, and bookmark it. The local and live Chromium/WebKit checks compare the original session, preferences and rotation before lookup and after resuming. Bilingual checks finish and explicitly rate the lookup; recall checks reload mid-lookup and verify the original Chinese prompt returns without its English answer. A standalone lookup can still be restored when there was no other course. The offline verifier also checks a cached lookup and recovery of the original lesson in a different document, with two sentence packs unavailable.
+
+Exercise fast transitions with a controlled clock: the first rating in a new lookup, retry, or resumed course must count immediately. In the same course a second tap at 349 ms must be ignored and a tap at 350 ms must count. Cover both words and sentences.
+
+An exact normalized English word must be the first result even when many higher-frequency words contain it; all other matches retain their order. The local and live browser checks open the first result for full-width HI and return to the same search. For a punctuation-only sentence query, verify that neither unrelated sentence rows nor a missing-pack warning appear. A real keyword and the saved and needs-work lists still search across all lengths.
+
 ## Backup calendar, ambiguous ratings and vocabulary in context (2026-11-22)
 
 The backup export tests fix the clock on opposite sides of New Year in Shanghai and Los Angeles. Inspect the actual shared File or browser download: its name follows the local learning day while the v1 JSON retains the original UTC instant and all 19 fields. Import tests distinguish contradictory ratings for two spellings of the same numeric card ID from compatible older representations. Use disposable profiles only.

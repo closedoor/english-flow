@@ -8,6 +8,24 @@ export const revisedWordCards = [
   { id: 1548, word: 'graduate', phonetic: '/ˈɡrædʒ.u.eɪt/', meaning: '毕业（动词）；毕业生（名词）', example: 'I hope to graduate from university next year.', translation: '我希望明年大学毕业。' },
 ];
 
+export async function verifyExactWordLookup(page) {
+  await navigate(page, '单词');
+  await openSetupDetails(page, '.word-find');
+  const search = page.getByRole('searchbox', { name: '搜索词库' });
+  const rows = page.locator('.library-list button[data-word-id]');
+  await search.fill('ＨＩ！');
+  await page.waitForFunction(() => document.querySelector('.library-list button')?.dataset.wordId === '1826');
+  assert.equal(await rows.count(), 24);
+  assert.equal(await rows.first().locator('b').innerText(), 'hi');
+  await rows.first().click();
+  assert.equal(await page.locator('.word-heading h2').innerText(), 'hi');
+  await page.getByRole('button', { name: '返回词库', exact: true }).click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('data-word-id') === '1826');
+  assert.equal(await search.inputValue(), 'ＨＩ！');
+  assert.equal(await rows.first().getAttribute('data-word-id'), '1826');
+  return { query: 'ＨＩ！', firstWord: 'hi', id: 1826, returnedToResult: true };
+}
+
 // Uses only visible learner controls: search the library, open the exact rank,
 // then read the rendered card rather than asserting the raw dataset.
 export async function verifyWordLookupCard(page, expected) {
