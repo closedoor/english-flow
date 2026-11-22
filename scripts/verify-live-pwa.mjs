@@ -1,3 +1,5 @@
+import { checkBackupCalendar, calendarCases } from './backup-calendar-check.mjs';
+import { verifyWordLookupCard, revisedWordCards } from './word-card-lookup-check.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import { navigate } from './browser-navigation.mjs';
@@ -115,6 +117,13 @@ for(const name of ['chromium','webkit']){
     await page.locator('.sentence-study-card').waitFor();
     await settleLearningStorage(page);
     assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-active-session-v1')),snapshot);
+    // Exercise public lookup and backup controls against the same release URL.
+    // The calendar helper uses a separate profile; its date override cannot leak.
+    for (const card of revisedWordCards) await verifyWordLookupCard(page, card);
+    const shanghai = calendarCases.find(entry => entry.timezoneId === 'Asia/Shanghai');
+    await checkBackupCalendar(browser, url.href, shanghai);
+    console.log('LIVE_LOOKUP_BACKUP_PASS', JSON.stringify({ engine: name, commit: expected,
+      wordIds: revisedWordCards.map(card => card.id), backupDate: shanghai.date, exportedAt: shanghai.instant }));
     assert.deepEqual(errors,[]);
     console.log('LIVE_PWA_PASS',JSON.stringify({engine:name,commit:expected,workerActivated:true,manifestCache:cached.cache,cachedManifestType:cached.type,checks,reloadProgressPreserved:true,clientCommitVerified:true,continuousWordSession:true,immersiveCards:true,instrumentedSpeech:true}));
   }catch(error){

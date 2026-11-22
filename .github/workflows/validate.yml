@@ -16,7 +16,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -48,12 +48,20 @@ jobs:
           PRODUCTION_VERIFY_ATTEMPTS: 45
           PRODUCTION_VERIFY_DELAY_MS: 10000
 
-
       - name: Install isolated live PWA verifier
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          npm install --prefix /tmp/english-flow-live --no-save --package-lock=false playwright@1.56.1
-          node /tmp/english-flow-live/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/live-browser-install.log 2>&1 || { tail -50 /tmp/live-browser-install.log; exit 1; }
+        timeout-minutes: 5
+        run: npm install --prefix /tmp/english-flow-live --no-save --package-lock=false playwright@1.56.1
+
+      - name: Install browser system dependencies
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        timeout-minutes: 15
+        run: node /tmp/english-flow-live/node_modules/playwright/cli.js install-deps chromium webkit
+
+      - name: Download Chromium and WebKit
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        timeout-minutes: 15
+        run: node /tmp/english-flow-live/node_modules/playwright/cli.js install chromium webkit
 
       - name: Verify actual live PWA installation and NGSL card actions
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -81,7 +89,7 @@ jobs:
 
   browser:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 60
     env:
       RENDER_EXTERNAL_URL: http://127.0.0.1:4173
       PLAYWRIGHT_MODULE: /tmp/english-flow-browser/node_modules/playwright/index.mjs
@@ -95,9 +103,17 @@ jobs:
       - run: npm ci
       - run: npm run build:render
       - name: Install isolated browser tools
-        run: |
-          npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
-          node /tmp/english-flow-browser/node_modules/playwright/cli.js install --with-deps chromium webkit > /tmp/browser-install.log 2>&1 || { tail -100 /tmp/browser-install.log; exit 1; }
+        timeout-minutes: 5
+        run: npm install --prefix /tmp/english-flow-browser --no-save --package-lock=false playwright@1.56.1 axe-core@4.10.3
+
+      - name: Install browser system dependencies
+        timeout-minutes: 15
+        run: node /tmp/english-flow-browser/node_modules/playwright/cli.js install-deps chromium webkit
+
+      - name: Download Chromium and WebKit
+        timeout-minutes: 15
+        run: node /tmp/english-flow-browser/node_modules/playwright/cli.js install chromium webkit
+
       - name: Test production UI, persistence and offline behavior
         run: |
           python3 -m http.server 4173 --bind 127.0.0.1 --directory dist/client > /tmp/english-flow-http.log 2>&1 &
