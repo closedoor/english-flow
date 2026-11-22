@@ -1,5 +1,5 @@
 import { checkBackupCalendar, calendarCases } from './backup-calendar-check.mjs';
-import { verifyWordLookupCard, revisedWordCards } from './word-card-lookup-check.mjs';
+import { verifyWordLookupCard, verifyExactWordLookup, revisedWordCards } from './word-card-lookup-check.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import { navigate } from './browser-navigation.mjs';
@@ -120,6 +120,8 @@ for(const name of ['chromium','webkit']){
     // Exercise public lookup and backup controls against the same release URL.
     // The calendar helper uses a separate profile; its date override cannot leak.
     for (const card of revisedWordCards) await verifyWordLookupCard(page, card);
+    const exactWordLookup = await verifyExactWordLookup(page);
+    console.log('LIVE_EXACT_WORD_LOOKUP_PASS', JSON.stringify({ engine: name, commit: expected, ...exactWordLookup }));
     const shanghai = calendarCases.find(entry => entry.timezoneId === 'Asia/Shanghai');
     await checkBackupCalendar(browser, url.href, shanghai);
     console.log('LIVE_LOOKUP_BACKUP_PASS', JSON.stringify({ engine: name, commit: expected,

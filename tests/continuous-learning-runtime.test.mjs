@@ -145,6 +145,50 @@ test("exiting a searched sentence and using normal start begins the full range i
   assert.deepEqual(app.state.studyDays, [], "looking up and starting practice do not fabricate learning");
 });
 
+for (const [mode, progressed] of [["speak", true], ["bilingual", false]]) {
+  test(`a temporary ${mode} sentence lookup cannot replace the paused range, even after rating and retry`, () => {
+    const app = runtime({ tab: "sentences", sentenceMode: mode });
+    app.invoke("startSentenceSession");
+    if (progressed) app.invoke("finishSentenceCard", false);
+    const before = app.saved.get("sentence"), course = app.snapshot("sentence");
+    const lookup = app.sentences[80];
+    const rotation = app.saved.get("rotation");
+    app.invoke("restoreSentenceSetupPreferences");
+    app.invoke("startSentenceSession", false, lookup);
+    assert.equal(app.state.discardRequest, null, "opening a search result does not require ending the course");
+    assert.deepEqual(plain(app.state.sentenceSessionIds), [lookup.id]);
+    assert.equal(app.saved.get("sentence"), before, "refresh during lookup restores the previous range");
+    assert.equal(app.state.sentenceTranslationOpen, false);
+    if (mode === "speak") {
+      assert.equal(app.speech.some(item => item.kind === "sentence"), false);
+      app.patch({ sentenceTranslationOpen: true });
+    }
+    app.invoke("finishSentenceCard", false);
+    assert.equal(app.state.sentenceStage, "result");
+    assert.ok(app.state.sentenceDifficult.includes(lookup.id), "an explicit rating still counts");
+    assert.ok(app.state.sentenceSeen.includes(lookup.id));
+    assert.equal(app.saved.get("sentence"), before, "the completed lookup cannot delete the paused range");
+    app.invoke("retryDifficultSentences");
+    assert.deepEqual(plain(app.state.sentenceSessionIds), [lookup.id]);
+    assert.equal(app.saved.get("sentence"), before);
+    app.invoke("finishSentenceCard", true);
+    assert.ok(app.state.sentenceMastered.includes(lookup.id));
+    assert.equal(app.state.sentenceDifficult.includes(lookup.id), false);
+    app.invoke("restoreSentenceSetupPreferences");
+    assert.equal(app.state.sentenceStage, "setup");
+    assert.ok(app.state.sentenceSessionIds.length > Object.keys(app.state.sentenceRatings).length,
+      "the explicit resume control has its real unfinished range again");
+    app.invoke("startSentenceSession");
+    assert.equal(app.state.sentenceSessionKind, "group");
+    assert.equal(app.state.sentenceIndex, course.index);
+    assert.deepEqual(plain(app.state.sentenceRatings), course.ratings);
+    assert.deepEqual(plain(app.state.sentenceSessionIds), course.sentenceIds);
+    assert.equal(app.state.sentenceTranslationOpen, false);
+    assert.equal(app.saved.get("rotation"), rotation);
+    assert.equal(app.saved.get("sentence"), before);
+  });
+}
+
 test("a searched sentence retains its identity on explicit resume and after recreating memory", () => {
   const app = runtime({ tab: "sentences", sentenceMode: "speak" });
   app.invoke("beginSentenceSession", false, app.sentences[12]);

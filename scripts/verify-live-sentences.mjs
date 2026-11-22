@@ -1,3 +1,4 @@
+import { verifyPausedSentenceLookup } from './sentence-lookup-pause-check.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
@@ -58,6 +59,8 @@ for(const engine of ['chromium','webkit']){
   const recallGeometry=await assertSentenceCardGeometry(page,{recall:true});
   await page.getByRole('button',{name:'播放英文',exact:true}).click();assert.equal(await page.evaluate(()=>window.__liveSentence.log.length),spokenBefore+1);
   await page.getByRole('button',{name:'下一句 ›',exact:true}).click();assert.equal(await page.locator('.sentence-english').count(),0);assert.equal(await page.evaluate(()=>window.__liveSentence.log.length),spokenBefore+1);
+  const lookupReturn=await verifyPausedSentenceLookup(page,'speak',expected);
+  console.log('LIVE_PAUSED_SENTENCE_LOOKUP_PASS',JSON.stringify({engine,commit:expected,...lookupReturn}));
   assert.deepEqual(errors,[]);console.log('LIVE_SENTENCE_PASS',JSON.stringify({engine,commit:expected,checks,resumeWithoutDialog:true,progressPreserved:true,continuousRange:true,immersiveSentenceCards:true,practiceMethodsInsideRange:true,setupSummaryAndProgressHidden:true,recallWithoutAnswerLeak:true,compactBilingualText:true,thumbReplayVerified:true,geometry,recallGeometry,instrumentedSpeech:true}));
  }catch(error){console.error('LIVE_SENTENCE_FAIL',JSON.stringify({engine,commit:expected,error:String(error),errors}));process.exitCode=1;}
  finally{await context.close();}
@@ -98,6 +101,8 @@ for(const engine of ['chromium','webkit']){
   const group=await readSentence();assert.equal(group.kind,'group');assert.equal(group.continuous,true);assert.equal(group.band,'short');assert.equal(group.category,'all');assert.equal(group.sentenceIds.length,1000);assert.equal(new Set(group.sentenceIds).size,1000);assert.ok(group.sentenceIds.every(id=>id>=1&&id<=1000));assert.deepEqual(group.ratings,{});
   assert.equal(await lookupPage.locator('#discard-title').count(),0);assert.deepEqual(await lookupPage.evaluate(key=>JSON.parse(localStorage.getItem(key)||'[]'),savedKey),[lookupId],'Starting the normal range must retain the query bookmark');
   assert.deepEqual(await lookupPage.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-days')||'[]')),[],'Querying, bookmarking and starting must not invent study days');
+  const lookupReturn=await verifyPausedSentenceLookup(lookupPage,'bilingual',expected);
+  console.log('LIVE_PAUSED_SENTENCE_LOOKUP_PASS',JSON.stringify({engine,commit:expected,...lookupReturn}));
   assert.deepEqual(lookupErrors,[]);console.log('LIVE_SENTENCE_LOOKUP_PASS',JSON.stringify({engine,commit:expected,clientCommitVerifiedBeforeAndAfterReload:true,lookupIdentityRetainedAfterReload:true,normalStartIncludesFullRange:true,sentenceCount:group.sentenceIds.length,queryBookmarkPreserved:true,discardDialog:false,instrumentedSpeech:true}));
  }catch(error){console.error('LIVE_SENTENCE_LOOKUP_FAIL',JSON.stringify({engine,commit:expected,error:String(error),errors:lookupErrors}));process.exitCode=1;}
  finally{await lookupContext.close();await browser.close();}

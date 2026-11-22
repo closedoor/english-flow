@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import { revisedWordCards, verifyWordLookupCard } from './word-card-lookup-check.mjs';
+import { verifyPunctuationPrompt } from './sentence-query-check.mjs';
 import { navigate } from './browser-navigation.mjs';
 import { openSetupDetails } from './browser-disclosures.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
@@ -279,8 +280,28 @@ try {
     await navigate(page, '句子');
     await page.waitForFunction(() => !document.querySelector('.sentence-page .setup-start')?.disabled);
     assert.deepEqual(await records(page), before, 'Loading the cached band after offline reopening must preserve every record');
+    const search = await verifyPunctuationPrompt(page);
     await page.getByRole('button', { name: '开始学习句子', exact: true }).click();
     await page.locator('.sentence-study-card').waitFor();
+    await page.getByRole('button', { name: '我学会了', exact: true }).click();
+    await settleLearningStorage(page);
+    const paused = (await records(page))[keys.sentence];
+    const originalText = await page.locator('.sentence-english').innerText();
+    assert.ok(JSON.parse(paused).index > 0);
+    await page.getByRole('button', { name: '返回句库设置并保留进度', exact: true }).click();
+    await openSetupDetails(page, '.sentence-find');
+    await search.fill('you');
+    const row = page.locator('.sentence-result-list button[data-sentence-id]').filter({ hasNotText: originalText }).first();
+    await row.waitFor();
+    const lookupText = await row.locator('b').innerText();
+    await row.click();
+    await page.locator('.sentence-study-card').waitFor();
+    assert.equal(await page.locator('.sentence-english').innerText(), lookupText);
+    assert.equal((await records(page))[keys.sentence], paused, 'Looking up a cached sentence must not replace the paused course');
+    page = await newDocument(context, page);
+    await page.locator('.sentence-study-card').waitFor();
+    assert.equal(await page.locator('.sentence-english').innerText(), originalText);
+    assert.equal((await records(page))[keys.sentence], paused, 'A new offline document must resume the original course exactly');
     await page.getByRole('button', { name: '返回句库设置并保留进度', exact: true }).click();
     const beforeBandChange = await records(page);
     await openSetupDetails(page, '.sentence-range');
@@ -301,7 +322,8 @@ try {
     assert.equal((await records(page))[keys.sentence], sentenceSnapshot, 'Loading a different band must preserve the paused short-sentence course');
     assert.deepEqual(await records(page), partial, 'Online pack recovery must preserve every record and the selected preference');
     assert.ok((await packEntries(page)).some(entry => entry.pathname === '/data/tatoeba-sentences-2.json'));
-    return { realWorkerOfflineNavigation: true, downloadedBandUsable: true, uncachedBandDisabledAndExplained: true,
+    return { realWorkerOfflineNavigation: true, downloadedBandUsable: true, punctuationPrompt: true,
+      offlineLookupResumedOriginalCourse: true, uncachedBandDisabledAndExplained: true,
       onlineRecoveryWithoutReload: true, pausedCoursePreserved: true };
   });
 

@@ -2,6 +2,7 @@ import { openSetupDetails, selectSentenceMethod, resumePausedSentence } from './
 import { navigate } from './browser-navigation.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import {assertSentenceCardGeometry} from './sentence-card-geometry.mjs';
+import { verifyPausedSentenceLookup } from './sentence-lookup-pause-check.mjs';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 if(!process.env.PLAYWRIGHT_MODULE)throw Error('Set PLAYWRIGHT_MODULE; see TESTING.md.');
@@ -70,6 +71,9 @@ for(const engine of ['chromium','webkit']){
   await begin(page);await page.getByRole('button',{name:'下一句 ›',exact:true}).click();const before=await stored(page),rotation=await page.evaluate(()=>localStorage.getItem('wordflow-practice-rotation-v1'));
   for(let i=0;i<3;i++){await exit(page);await page.getByRole('button',{name:'开始学习句子',exact:true}).click();await page.locator('.sentence-study-card').waitFor();assert.equal(await page.locator('#discard-title').count(),0);assert.deepEqual(await stored(page),before);}
   assert.equal(await page.evaluate(()=>localStorage.getItem('wordflow-practice-rotation-v1')),rotation);
+ });
+ for(const [mode,label] of [['bilingual','英文卡片'],['speak','看中文说英文']])await check(`paused-sentence-course-survives-temporary-lookup-${mode}`,async page=>{
+  await begin(page,{mode:label});await verifyPausedSentenceLookup(page,mode);
  });
  for(const reload of [false,true])await check(`searched-single-sentence-cannot-replace-the-normal-range-${reload?'after-reload':'same-visit'}`,async page=>{
   await openSentenceLookup(page);if(reload){await page.reload();await page.locator('.sentence-study-card').waitFor();assert.equal((await stored(page)).kind,'lookup');}

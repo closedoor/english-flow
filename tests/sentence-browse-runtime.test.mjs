@@ -36,6 +36,27 @@ const javascript = (source) => ts.transpileModule(source, { compilerOptions }).o
 const utilities = javascript(readFileSync(new URL("../app/session-utils.ts", import.meta.url), "utf8"));
 const { takeRotatedSpread, selectContinuousSession, newestSnapshot } = await import(`data:text/javascript;base64,${Buffer.from(utilities).toString("base64")}`);
 
+test("a typed headword leads the full word lookup, without losing or reordering other matches", () => {
+  const words = [1, 2, 3].flatMap(pack => JSON.parse(readFileSync(new URL(`../public/data/ngsl-words-${pack}.json`, import.meta.url), "utf8")));
+  const lookup = vm.runInNewContext(javascript(`${normalizedSource}\n(librarySearch, libraryBand, words) => (${wordFilterCallback})();`));
+  const ids = entries => Array.from(entries, word => word.id);
+  const original = ids(words);
+  for (const [query, term] of [["  ＨＩ！  ", "hi"], [" Pro ", "pro"], ["AD", "ad"], ["rat", "rat"]]) {
+    const match = words.find(word => word.word === term);
+    const others = words.filter(word => word !== match && `${word.word} ${word.meaning}`.toLowerCase().includes(term));
+    const found = ids(lookup(query, 1, words));
+    assert.equal(found[0], match.id, `${term} must be visible without expanding the first 24 results`);
+    assert.deepEqual(found.slice(1), ids(others));
+  }
+  for (const term of ["咖啡", "ation", "xyz-no-match"]) {
+    assert.deepEqual(ids(lookup(term, 2, words)), ids(words.filter(word => `${word.word} ${word.meaning}`.toLowerCase().includes(term))));
+  }
+  for (const band of [1, 2, 3]) {
+    assert.deepEqual(ids(lookup("   ", band, words)), original.slice((band - 1) * 1000, band * 1000));
+  }
+  assert.deepEqual(ids(words), original, "looking up a word cannot move it in the learning course");
+});
+
 function harness(patch = {}) {
   const items = Array.from({ length: 95 }, (_, index) => ({
     id: index + 1, text: `Train sentence ${index + 1}.`, translation: `火车句子 ${index + 1}`,
@@ -114,7 +135,7 @@ function harness(patch = {}) {
     playAutomaticSentenceExample() {},
     stopSpeech() {},
     cleanActiveSession(value) { return value; }, readJson() { return null; },
-    activeSessionResumeSnapshotRef: { current: null }, newestSnapshot,
+    activeSessionResumeSnapshotRef: { current: null }, sentenceResumeSnapshotRef: { current: null }, newestSnapshot,
     saveSessionPreferences(value) { writes.push(["wordPreferences", { ...value }]); },
     selectPath(value) { state.path = value; },
     sentencePacks: { 1: items.slice(0, 50), 2: [], 3: items.slice(50) },
@@ -138,6 +159,7 @@ function harness(patch = {}) {
   function render(patch = {}) {
     Object.assign(state, patch);
     Object.assign(context, state);
+    context.hasSentenceKeyword = vm.runInContext(javascript(`(${initializers.get("hasSentenceKeyword").getText(ast)})`), context);
     const filtered = vm.runInContext(javascript(`(${filteredCallback})()`), context);
     visibleIds = new Set(filtered.slice(0, state.sentenceResultLimit).map((item) => item.id));
     const sentenceMounted = state.tab === "sentences" && state.sentenceStage === "setup";
@@ -391,6 +413,22 @@ test("full-library English and Chinese searches do not inherit or overwrite the 
   assert.deepEqual(app.visibleSentenceIds, [], "clearing search restores the practice scene's own selection");
   app.render({ sentenceCategory: "travel" });
   assert.equal(app.visibleSentenceIds.length, 50, "without a query the selected length still applies");
+});
+
+test("punctuation-only sentence input does not request unrelated length packs", () => {
+  const app = harness({ sentenceSearch: "", sentenceBand: "long" });
+  for (const query of ["?", "！ ？", "。…", "  "]) {
+    app.render({ sentenceSearch: query });
+    assert.deepEqual(app.requestedPacks, [3], query);
+    assert.deepEqual(app.requiredPacks, [3], query);
+  }
+  for (const query of ["Where?", "真的吗？", "２０２６"]) {
+    app.render({ sentenceSearch: query });
+    assert.deepEqual(app.requestedPacks, [1, 2, 3], query);
+    assert.deepEqual(app.requiredPacks, [1, 2, 3], query);
+  }
+  app.render({ sentenceSearch: "", sentenceSavedOnly: true });
+  assert.deepEqual(app.requestedPacks, [1, 2, 3], "favorites still search every length");
 });
 
 test("switching between difficult, saved and search views cannot leave intersecting filters", () => {
