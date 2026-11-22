@@ -381,14 +381,20 @@ self.addEventListener("fetch", (event) => {
 
   if (event.request.mode === "navigate") {
     event.respondWith((async () => {
+      const cachedNavigation = async () => {
+        // Old workers saved update preflights under their exact URL. Their HTML
+        // may survive the old entry script. Only the installed root owns a shell.
+        if (isEnglishAppDocumentPath(url.pathname) && url.searchParams.has("ef-update")) return safeCacheMatch("/");
+        return (await safeCacheMatch(event.request)) || safeCacheMatch("/");
+      };
       try {
         // Only a completed install may replace the offline document. A network
         // navigation can arrive before its new hashed scripts are downloaded.
         const response = await fetchWithTimeout(event.request, url.searchParams.has("ef-update") ? 12_000 : NAVIGATION_TIMEOUT, null);
         if (response.ok && responseMatchesRequest(event.request, response)) return response;
-        return (await safeCacheMatch(event.request)) || (await safeCacheMatch("/")) || response;
+        return (await cachedNavigation()) || response;
       } catch {
-        return (await safeCacheMatch(event.request)) || (await safeCacheMatch("/")) || Response.error();
+        return (await cachedNavigation()) || Response.error();
       }
     })());
     return;

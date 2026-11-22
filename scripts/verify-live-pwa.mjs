@@ -1,3 +1,4 @@
+import { checkLegacyRestorePosition } from './legacy-restore-position-check.mjs';
 import { checkBackupCalendar, calendarCases } from './backup-calendar-check.mjs';
 import { verifyWordLookupCard, verifyExactWordLookup, revisedWordCards } from './word-card-lookup-check.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
@@ -122,6 +123,10 @@ for(const name of ['chromium','webkit']){
     for (const card of revisedWordCards) await verifyWordLookupCard(page, card);
     const exactWordLookup = await verifyExactWordLookup(page);
     console.log('LIVE_EXACT_WORD_LOOKUP_PASS', JSON.stringify({ engine: name, commit: expected, ...exactWordLookup }));
+    for (const kind of ['word', 'sentence']) {
+      const observation = await checkLegacyRestorePosition(browser, url.href, kind, expected);
+      console.log('LIVE_LEGACY_RESTORE_POSITION_PASS', JSON.stringify({ engine: name, commit: expected, ...observation }));
+    }
     const shanghai = calendarCases.find(entry => entry.timezoneId === 'Asia/Shanghai');
     await checkBackupCalendar(browser, url.href, shanghai);
     console.log('LIVE_LOOKUP_BACKUP_PASS', JSON.stringify({ engine: name, commit: expected,

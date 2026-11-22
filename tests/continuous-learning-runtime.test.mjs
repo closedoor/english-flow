@@ -29,7 +29,7 @@ assert.ok(wordEffect);
 assert.ok(sentenceEffect);
 const actions = [
   "saveMastered", "saveDifficult", "saveSchedule", "saveSessionPreferences", "selectPath", "noteStudyDay", "markMastered", "addDifficult",
-  "playAutomaticWordExample", "resumeWordSession", "startSession", "startSingleWord", "finishCard", "moveCard", "retryDifficultWords",
+  "playAutomaticWordExample", "resumeWordSession", "startSession", "startSingleWord", "finishCard", "moveCard", "retryDifficultWords", "retryMissedWords",
   "finishOpeningLearningSetup", "openLearningSetup", "returnToWordLibrary", "confirmDiscardSession",
   "markSentenceSeen", "playAutomaticSentenceExample", "beginSentenceSession", "startSentenceSession", "resumeSentenceSession",
   "restoreSentenceSetupPreferences", "moveSentence", "finishSentenceCard", "retryDifficultSentences",
@@ -106,6 +106,22 @@ function runtime(patch = {}, stored = {}) {
   function invoke(name, ...args) { act(name, ...args); advance(350); }
   persist();
   return { state, words, sentences, saved, speech, invoke, act, advance, snapshot: (key) => JSON.parse(saved.get(key)), patch: (value) => { Object.assign(state, value); sync(); }, cancel: () => { state.discardRequest = null; persist(); } };
+}
+
+for (const [action, mode] of [["retryDifficultWords", "free"], ["retryMissedWords", "test"]]) {
+  test(`${action} starts the first NGSL retry example inside the result action without rating it`, () => {
+    for (const [path, enabled, expected] of [["frequency", true, true], ["airport", true, false], ["frequency", false, false]]) {
+      const app = runtime();
+      app.patch({ sessionWords: app.words.slice(0, 3), index: 2, sessionPath: path, sessionMode: mode, learnStage: "result",
+        difficult: [2], quizResults: [true, false, true], cardRatings: { 1: "known", 2: "difficult", 3: "known" }, autoWordExamples: enabled });
+      app.act(action);
+      assert.deepEqual(app.speech, expected ? [{ kind: "word", text: app.words[1].example, times: 3 }] : [],
+        "The result action itself must start the selected example, before the card renders; manual-only settings stay silent");
+      assert.equal(app.state.sessionWords[0].id, 2);
+      assert.deepEqual(plain(app.state.cardRatings), {});
+      assert.deepEqual(plain(app.state.difficult), [2]);
+    }
+  });
 }
 
 test("a newly opened sentence lookup and its retry accept an intentional rating immediately", () => {
@@ -491,4 +507,22 @@ test("resuming a paused course after an unrated lookup accepts the first intenti
   app.act("finishSentenceCard", false);
   assert.equal(app.state.sentenceIndex, 2, "the first rating after explicit resume belongs to the resumed lesson");
   assert.deepEqual(plain(app.state.sentenceRatings), { 1: "known", 2: "difficult" });
+});
+
+test("resuming a repeated-word legacy quiz keeps its draft and feedback attached to the displayed question", () => {
+  for (const [answer, feedback, results] of [["wor", null, [false, true]], ["word2", "correct", [false, true, true]]]) {
+    const snapshot = { version: 1, updatedAt: Date.now(), path: "frequency", mode: "test", stage: "quiz", wordIds: [1, 1, 2, 3], ratings: { 1: "known", 2: "difficult", 3: "known" },
+      index: 3, quizIndex: 2, quizAnswer: answer, quizFeedback: feedback, quizResults: results };
+    const app = runtime();
+    app.saved.set("word", JSON.stringify(snapshot));
+    app.act("resumeWordSession");
+    assert.equal(app.state.learnStage, "quiz");
+    assert.equal(app.state.sessionWords[app.state.quizIndex].word, "word2");
+    assert.equal(app.state.quizAnswer, answer);
+    assert.equal(app.state.quizFeedback, feedback);
+    assert.deepEqual(plain(app.state.quizResults), results);
+    const reopened = app.snapshot("word");
+    assert.deepEqual(reopened.wordIds, snapshot.wordIds);
+    assert.equal(reopened.wordIds[reopened.quizIndex], 2);
+  }
 });

@@ -29,7 +29,7 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
         const synth={paused:false,pending:false,speaking:false,getVoices(){return state.voices;},resume(){this.paused=false;},
           cancel(){state.cancels++;if(state.cancelFault)throw Error('injected native cancellation failure');state.active=null;this.pending=false;this.speaking=false;
             if(state.lateCancel)setTimeout(()=>{state.active=null;this.pending=false;this.speaking=false;},0);},
-          speak(u){state.attempts.push({text:u.text,lang:u.lang,voice:u.voice?.name,gesture:state.gesture});
+          speak(u){state.attempts.push({text:u.text,lang:u.lang,voice:u.voice?.name,gesture:state.gesture,fromResult:!!document.querySelector(".result-page")});
             if(state.failAll){u.onerror?.({error:state.failAll});return;}
             if(state.failVoices.includes(u.voice?.name)){u.onerror?.({error:'voice-unavailable'});u.onend?.();u.onstart?.();return;}
             if(state.drop)return;
@@ -61,6 +61,37 @@ export async function verifySpeechRecovery(playwright,origin,expectedCommit){
       for(let i=0;i<4;i++){await page.waitForFunction(n=>window.__speechRecovery.started.length===n,offset+i+1);await page.evaluate(()=>window.__speechRecovery.end());}
       assert.deepEqual(await page.evaluate(n=>window.__speechRecovery.started.slice(n).map(u=>[u.text,u.lang]),offset),[[english,'en-US'],[english,'en-US'],[english,'en-US'],[chinese,'zh-CN']]);
     }
+    for (const mode of ['free','test']) await check(`word-${mode}-retry-starts-in-result-click-and-speaks-one-complete-example-three-times`, async page => {
+      // Use a fresh isolated one-card group so both results can be reached with
+      // ordinary UI actions. The check reopens the deployed URL after seeding.
+      await page.addInitScript(mode => {
+        localStorage.setItem('wordflow-active-session-v1', JSON.stringify({version:1, kind:'group', updatedAt:Date.now(),
+          path:'frequency', mode, wordIds:[2], index:0, ratings:{}, stage:'cards', quizIndex:0, quizAnswer:'', quizFeedback:null, quizResults:[]}));
+      }, mode);
+      await page.reload({waitUntil:'domcontentloaded'});
+      if (expectedCommit) assert.equal(await page.locator('meta[name="english-flow-build"]').getAttribute('content'),expectedCommit);
+      await page.locator('.word-card').waitFor();
+      const example = await page.locator('.example-box p').innerText();
+      await page.locator('.learn-actions .secondary-action').click();
+      if (mode === 'test') {
+        await page.getByRole('button',{name:'想不起来，查看答案',exact:true}).click();
+        await page.getByRole('button',{name:'查看结果',exact:true}).click();
+      }
+      const retry = page.getByRole('button',{name:mode === 'free' ? '再练这 1 个待加强单词' : '再练这 1 个错词',exact:true});
+      await retry.waitFor();
+      const offsets = await page.evaluate(()=>[window.__speechRecovery.attempts.length, window.__speechRecovery.started.length]);
+      await retry.click(); await page.locator('.word-card').waitFor();
+      const first = await page.evaluate(i=>window.__speechRecovery.attempts[i],offsets[0]);
+      assert.ok(first?.gesture && first.fromResult,'First speech request must originate from the result action before the new card mounts');
+      for (let i=0;i<3;i++) {
+        await page.waitForFunction(n=>window.__speechRecovery.started.length===n,offsets[1]+i+1);
+        await page.evaluate(()=>window.__speechRecovery.end());
+      }
+      assert.deepEqual(await page.evaluate(i=>window.__speechRecovery.attempts.slice(i).map(u=>u.text),offsets[0]),Array(3).fill(example));
+      await settleLearningStorage(page);
+      const retryState = await page.evaluate(()=>JSON.parse(localStorage.getItem('wordflow-active-session-v1')));
+      assert.deepEqual([retryState.wordIds,retryState.index,retryState.ratings],[[2],0,{}]);
+    });
     await check('empty-queue-start-keeps-click-activation-and-completes-three-plus-one',async page=>{
       await page.evaluate(()=>window.__speechRecovery.lateCancel=true);await beginSentence(page);await completeSentence(page,0);
       assert.equal(await page.evaluate(()=>window.__speechRecovery.attempts[0].gesture),true);assert.equal(await page.locator('.speech-warning').count(),0);

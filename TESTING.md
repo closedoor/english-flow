@@ -1,5 +1,15 @@
 # English Flow testing
 
+## Restoring interrupted lessons (2026-11-22)
+
+Import a v1 backup whose cards are [1, 1, 2, 3], rated for ID 1, and currently showing ID 2. Confirm the real file restore, check ID 2 is still on screen, mark it difficult, and reload on ID 3 with both ratings intact. Run the word and sentence versions in Chromium and WebKit against the build and the published site. Unit cases also cover legacy patterns, duplicate quiz slots, saved drafts, feedback, and repeated normalization.
+
+Reveal a long recall answer at 320 × 568 CSS pixels and 200% text size. Use a DOM Range and hit testing to verify its first English character is on screen. Replaying the answer or closing a dialog must not undo the learner’s manual scrolling.
+
+From free study and legacy test results, retry the missed words. With automatic NGSL speech enabled, verify the first attempt starts while the result button is still in the document, then complete exactly three utterances without rating the card. Check disabled automatic speech and scene practice stay silent. These are speech API observations, not device audio tests.
+
+In an isolated worker-controlled Chromium profile, simulate a retained preflight cache entry from an older worker, go offline and reopen the saved update URL in a new document. Check the installed application and current lesson both load. Ordinary URLs, online probes and other applications keep their previous behavior.
+
 ## Search without losing a paused course (2026-11-22)
 
 Pause a sentence lesson after a rating, open a search result from a different length, and bookmark it. The local and live Chromium/WebKit checks compare the original session, preferences and rotation before lookup and after resuming. Bilingual checks finish and explicitly rate the lookup; recall checks reload mid-lookup and verify the original Chinese prompt returns without its English answer. A standalone lookup can still be restored when there was no other course. The offline verifier also checks a cached lookup and recovery of the original lesson in a different document, with two sentence packs unavailable.

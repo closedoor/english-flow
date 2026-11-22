@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import VersionNotice from "./version-notice";
 import SpeechCheck, { speechFailureMessage } from "./speech-check";
 import { isSnapshotPersisted } from "./version-utils";
@@ -9,7 +9,7 @@ import { createLearningStorageCoordinator, type LearningStorageCoordinator } fro
 import { corePatterns, patternCategories, type PatternCategory } from "./pattern-data";
 import { BACKUP_MAX_BYTES, createLearningBackup, isBackupContentCompatible, isLearningBackup, readLearningStorage, restoreLearningBackupData, type LearningBackup } from "./backup-data";
 import { isSpeechSupported, SPEECH_ERROR_EVENT, SPEECH_PLAYBACK_EVENT, speak, startBilingualSentenceSpeech, startRepeatedSpeech, startSegmentedSpeech, stopSpeech, toggleSegmentedSpeech, type SpeechPlaybackState } from "./speech-playback";
-import { acceptSessionRating, blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, selectContinuousSession, takeRotatedSpread } from "./session-utils";
+import { acceptSessionRating, blankAnswerInSentence, hasUnfinishedRatings, missedQuizWords, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, restoredCardIndex, reviewIntervalDays, scheduleMasteredWord, selectContinuousSession, takeRotatedSpread } from "./session-utils";
 
 type Tab = "home" | "learn" | "sentences" | "read" | "review" | "progress";
 type LearnStage = "setup" | "cards" | "quiz" | "result";
@@ -257,7 +257,7 @@ function cleanSentenceSession(value: unknown): SentenceSessionSnapshot | null {
   const rawRatings = item.ratings && typeof item.ratings === "object" && !Array.isArray(item.ratings) ? item.ratings : {};
   const ratings = Object.fromEntries(Object.entries(rawRatings).filter(([rawId, rating]) => allowedIds.has(Number(rawId)) && (rating === "known" || rating === "difficult")).map(([rawId, rating]) => [Number(rawId), rating])) as Record<number, SentenceRating>;
   if (!hasUnfinishedRatings(sentenceIds, ratings)) return null;
-  const index = Math.min(Math.max(Number.isInteger(item.index) ? Number(item.index) : 0, 0), sentenceIds.length - 1);
+  const index = restoredCardIndex(item.sentenceIds, item.index, sentenceIds);
   const mode: SentenceLearningMode = isSentenceLearningMode(item.mode) ? item.mode : "bilingual";
   const kind = item.kind === "group" || item.kind === "lookup" ? item.kind : undefined;
   return { version: 1, ...(item.continuous === true ? { continuous: true } : {}), ...(item.reviewOnly === true ? { reviewOnly: true } : {}), ...(kind ? { kind } : {}), updatedAt: Number(item.updatedAt), band: item.band, category: item.category, count: item.count, mode, sentenceIds, index, ratings };
@@ -274,7 +274,7 @@ function cleanPatternSession(value: unknown): PatternSessionSnapshot | null {
   const rawRatings = item.ratings && typeof item.ratings === "object" && !Array.isArray(item.ratings) ? item.ratings : {};
   const ratings = Object.fromEntries(Object.entries(rawRatings).filter(([id, rating]) => allowedIds.has(id) && (rating === "known" || rating === "difficult"))) as Record<string, PatternRating>;
   if (!hasUnfinishedRatings(patternIds, ratings)) return null;
-  const index = Math.min(Math.max(Number.isInteger(item.index) ? Number(item.index) : 0, 0), patternIds.length - 1);
+  const index = restoredCardIndex(item.patternIds, item.index, patternIds);
   const drillIndex = Math.min(Math.max(Number.isInteger(item.drillIndex) ? Number(item.drillIndex) : 0, 0), 2);
   return { version: 1, updatedAt: Number(item.updatedAt), category: item.category, patternIds, index, drillIndex, ratings };
 }
@@ -314,16 +314,22 @@ function cleanActiveSession(value: unknown): ActiveSessionSnapshot | null {
   if (item.version !== 1 || !pathIsValid || !modeIsValid || !stageIsValid || !isRecent || !Array.isArray(item.wordIds)) return null;
   if (item.stage === "quiz" && item.mode !== "test") return null;
   if (item.continuous === true && (item.mode !== "free" || item.stage !== "cards" || item.kind === "lookup")) return null;
-  const wordIds = [...new Set(item.wordIds.filter((id): id is number => Number.isInteger(id) && STUDY_WORD_IDS.has(id)))].slice(0, item.continuous === true ? STUDY_WORD_IDS.size : 20);
+  const originalWordIds = item.wordIds;
+  const validWordIds = originalWordIds.filter((id): id is number => Number.isInteger(id) && STUDY_WORD_IDS.has(id));
+  // Legacy quizzes score question slots, so dropping a repeated ID would transfer
+  // a typed answer (and its feedback) to the following question.
+  const wordIds = item.stage === "quiz" ? validWordIds.slice(0, 20)
+    : [...new Set(validWordIds)].slice(0, item.continuous === true ? STUDY_WORD_IDS.size : 20);
   if (!wordIds.length) return null;
   const allowedIds = new Set(wordIds);
   const rawRatings = item.ratings && typeof item.ratings === "object" && !Array.isArray(item.ratings) ? item.ratings : {};
   const ratings = Object.fromEntries(Object.entries(rawRatings).filter(([rawId, rating]) => allowedIds.has(Number(rawId)) && (rating === "known" || rating === "difficult")).map(([rawId, rating]) => [Number(rawId), rating])) as Record<number, CardRating>;
   if (item.stage === "cards" && !hasUnfinishedRatings(wordIds, ratings)) return null;
   if (item.stage === "quiz" && hasUnfinishedRatings(wordIds, ratings)) return null;
-  const index = Math.min(Math.max(Number.isInteger(item.index) ? Number(item.index) : 0, 0), wordIds.length - 1);
+  const index = restoredCardIndex(item.wordIds, item.index, wordIds);
   if (item.stage === "quiz" && (!Number.isInteger(item.quizIndex) || Number(item.quizIndex) < 0 || Number(item.quizIndex) >= wordIds.length)) return null;
   const quizIndex = item.stage === "quiz" ? Number(item.quizIndex) : 0;
+  if (item.stage === "quiz" && wordIds.slice(0, quizIndex + 1).some((id, slot) => id !== originalWordIds[slot])) return null;
   if (item.stage === "quiz" && (!Array.isArray(item.quizResults) || !item.quizResults.every((result) => typeof result === "boolean"))) return null;
   const rawQuizResults = item.stage === "quiz" ? item.quizResults as boolean[] : [];
   const quizAnswer = item.stage === "quiz" && typeof item.quizAnswer === "string" ? item.quizAnswer.slice(0, 100) : "";
@@ -549,6 +555,7 @@ export default function Home() {
   const syncReloadRef = useRef<HTMLButtonElement | null>(null);
   const syncDialogRef = useRef<HTMLDivElement | null>(null);
   const sentenceAnswerRef = useRef<HTMLDivElement | null>(null);
+  const presentedSentenceAnswerRef = useRef<HTMLDivElement | null>(null);
   const patternAnswerRef = useRef<HTMLDivElement | null>(null);
   const readingFeedbackRef = useRef<HTMLDivElement | null>(null);
   const readingQuestionOptionsRef = useRef<HTMLDivElement | null>(null);
@@ -1216,11 +1223,24 @@ export default function Home() {
     return () => window.clearTimeout(timeout);
   }, [speechNotice]);
 
-  useEffect(() => {
-    if (!hasOpenDialog && sentenceStage === "cards" && sentenceMode === "speak" && sentenceTranslationOpen) {
-      sentenceAnswerRef.current?.focus({ preventScroll: true });
+  useLayoutEffect(() => {
+    const answer = sentenceAnswerRef.current;
+    if (!answer || hasOpenDialog || tab !== "sentences" || sentenceSection !== "library" || sentenceStage !== "cards"
+      || sentenceMode !== "speak" || !sentenceTranslationOpen || presentedSentenceAnswerRef.current === answer) return;
+    // Present this answer at commit time, once. A later tap, a change of card
+    // or dismissing a dialog must never reset the learner's reading position.
+    presentedSentenceAnswerRef.current = answer;
+    sentenceAnswerRef.current?.focus({ preventScroll: true });
+    const card = answer.closest(".sentence-study-card")?.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const top = Math.max(card?.top ?? 0, viewport?.offsetTop ?? 0);
+    const bottom = Math.min(card?.bottom ?? Infinity, wordActionsRef.current?.getBoundingClientRect().top ?? Infinity,
+      (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight));
+    const bounds = answer.getBoundingClientRect();
+    if (bottom <= top || bounds.top < top - 1 || Math.min(bounds.bottom, bounds.top + bottom - top) > bottom + 1) {
+      answer.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
     }
-  }, [hasOpenDialog, sentenceMode, sentenceStage, sentenceTranslationOpen]);
+  }, [hasOpenDialog, sentenceMode, sentenceSection, sentenceStage, sentenceTranslationOpen, tab]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -2193,8 +2213,9 @@ export default function Home() {
   };
 
   const retryMissedWords = () => {
-    const missed = sessionWords.filter((_, wordIndex) => quizResults[wordIndex] === false);
+    const missed = missedQuizWords(sessionWords, quizResults);
     if (!missed.length) return;
+    playAutomaticWordExample(missed[0], sessionPath, "group");
     setSessionWords(missed);
     setIndex(0);
     setCardRatings({});
@@ -2213,6 +2234,7 @@ export default function Home() {
     if (learnStage !== "result" || sessionMode !== "free") return;
     const missed = sessionWords.filter((word) => difficultSet.has(word.id));
     if (!missed.length) return;
+    playAutomaticWordExample(missed[0], sessionPath, "group");
     setSessionWords(missed);
     setWordSessionKind("group");
     setIndex(0);
@@ -2777,7 +2799,7 @@ export default function Home() {
     const score = quizResults.filter(Boolean).length;
     const tested = sessionMode === "test" && quizResults.length > 0;
     const singleWordLookup = wordSessionKind === "lookup" && sessionMode === "free" && sessionWords.length === 1;
-    const missedWords = tested ? sessionWords.filter((_, wordIndex) => quizResults[wordIndex] === false) : [];
+    const missedWords = tested ? missedQuizWords(sessionWords, quizResults) : [];
     const sessionDifficultCount = sessionWords.filter((word) => difficultSet.has(word.id)).length;
     return <section className="page result-page"><div className="result-mark">{tested && score / quizResults.length >= .8 ? "★" : "✓"}</div><p className="eyebrow">SESSION COMPLETE</p><h1>这一组完成了</h1><p>{tested ? (missedWords.length ? `答对 ${score} / ${quizResults.length}，错词已自动加入生词本。` : `答对 ${score} / ${quizResults.length}，系统已安排后续复习。`) : `你学习了 ${sessionWords.length} 个词，系统已安排后续复习。`}</p>
       <div className="result-stats"><div><b>{sessionWords.length}</b><small>学习词数</small></div><div><b>{tested ? `${Math.round(score / quizResults.length * 100)}%` : mastered.length}</b><small>{tested ? "正确率" : "累计掌握"}</small></div><div><b>{tested ? quizResults.filter((item) => !item).length : sessionDifficultCount}</b><small>{tested ? "本组错词" : "待加强"}</small></div></div>

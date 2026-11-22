@@ -161,11 +161,22 @@ try {
     // must apply the current display corrections without using network data.
     const cached = new Set((await packEntries(page)).map(entry => entry.pathname));
     for (const pack of [1, 2, 3]) assert.ok(cached.has(`/data/ngsl-words-${pack}.json`));
+    // Recreate the retained result of an old worker's successful preflight in
+    // this isolated profile. The navigation and installed worker below are real.
+    const oldCommit = expected === 'a'.repeat(40) ? 'b'.repeat(40) : 'a'.repeat(40);
+    const savedUpdatePath = `/index.html?ef-update=${oldCommit}&ef-preflight=accepted-1`;
+    await page.evaluate(async ({ savedUpdatePath, oldCommit }) => {
+      const cache = await caches.open('wordflow-ngsl-qa11-retained-preflight');
+      const body = `<title>词流英语</title><meta name="english-flow-build" content="${oldCommit}"><script type="module" src="/assets/retired-${oldCommit}.js"></script>`;
+      await cache.put(savedUpdatePath, new Response(body, { headers: { 'Content-Type': 'text/html' } }));
+    }, { savedUpdatePath, oldCommit });
+    const before = await records(page);
     await context.setOffline(true);
-    page = await newDocument(context, page);
+    page = await newDocument(context, page, savedUpdatePath);
     await page.locator('.bottom-nav').waitFor();
+    assert.deepEqual(await records(page), before);
     for (const card of revisedWordCards) await verifyWordLookupCard(page, card);
-    return { realWorkerOfflineNavigation: true, reviewedWordIds: revisedWordCards.map(card => card.id) };
+    return { realWorkerOfflineNavigation: true, retainedUpdateEntrySimulated: true, installedShellResumedFromSavedUpdateUrl: true, reviewedWordIds: revisedWordCards.map(card => card.id) };
   });
 
   await check('downloaded-words-and-sentences-survive-offline-new-documents', async (page, context) => {

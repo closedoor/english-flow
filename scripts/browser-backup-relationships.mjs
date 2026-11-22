@@ -1,3 +1,4 @@
+import { checkLegacyRestorePosition } from './legacy-restore-position-check.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -177,6 +178,16 @@ for (const engine of engines) {
   await check('damaged-quiz-position-keeps-final-question-backup-valid', true, [
     data => { data[keys.word].quizIndex = data[keys.word].wordIds.length; },
   ]);
+  for (const kind of ['word', 'sentence']) {
+    const name = `legacy-${kind}-backup-resumes-original-card`;
+    try {
+      const observation = await checkLegacyRestorePosition(browser, origin, kind);
+      results.push({ engine, name, status: 'PASS', ...observation });
+    } catch (error) {
+      results.push({ engine, name, status: 'FAIL', error: String(error) });
+    }
+    console.log(JSON.stringify(results.at(-1)));
+  }
   for (const entry of calendarCases) {
     const name = `backup-filename-local-calendar-${entry.timezoneId}`;
     try {
