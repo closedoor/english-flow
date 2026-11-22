@@ -1,3 +1,16 @@
+// Consecutive cards share their session array. New lookups and retries have
+// their own array, even when they contain exactly the same items.
+export function acceptSessionRating<T>(
+  lock: { current: { items: readonly T[]; until: number } | null },
+  items: readonly T[],
+  now = performance.now(),
+) {
+  const previous = lock.current;
+  if (previous?.items === items && now < previous.until) return false;
+  lock.current = { items, until: now + 350 };
+  return true;
+}
+
 export function takeRotatedSpread<T>(items: T[], count: number, rotation: number) {
   if (count <= 0 || !items.length) return [];
   if (items.length <= count) return items;

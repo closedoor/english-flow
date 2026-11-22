@@ -9,7 +9,7 @@ import { createLearningStorageCoordinator, type LearningStorageCoordinator } fro
 import { corePatterns, patternCategories, type PatternCategory } from "./pattern-data";
 import { BACKUP_MAX_BYTES, createLearningBackup, isBackupContentCompatible, isLearningBackup, readLearningStorage, restoreLearningBackupData, type LearningBackup } from "./backup-data";
 import { isSpeechSupported, SPEECH_ERROR_EVENT, SPEECH_PLAYBACK_EVENT, speak, startBilingualSentenceSpeech, startRepeatedSpeech, startSegmentedSpeech, stopSpeech, toggleSegmentedSpeech, type SpeechPlaybackState } from "./speech-playback";
-import { blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, selectContinuousSession, takeRotatedSpread } from "./session-utils";
+import { acceptSessionRating, blankAnswerInSentence, hasUnfinishedRatings, newestSnapshot, nextReviewStage, nextScheduledReview, normalizeQuizAnswer, reviewIntervalDays, scheduleMasteredWord, selectContinuousSession, takeRotatedSpread } from "./session-utils";
 
 type Tab = "home" | "learn" | "sentences" | "read" | "review" | "progress";
 type LearnStage = "setup" | "cards" | "quiz" | "result";
@@ -528,8 +528,8 @@ export default function Home() {
   const activeDialog = externalUpdateDetected ? "sync" : pendingBackup ? "restore" : resetProgressOpen ? "reset" : discardRequest ? "discard" : installOpen ? "install" : null;
   const hasOpenDialog = activeDialog !== null;
   const touchStart = useRef<{ x: number; y: number; identifier: number } | null>(null);
-  const cardActionLock = useRef<{ words: WordItem[]; until: number } | null>(null);
-  const sentenceActionLock = useRef<{ ids: number[]; until: number } | null>(null);
+  const cardActionLock = useRef<{ items: readonly WordItem[]; until: number } | null>(null);
+  const sentenceActionLock = useRef<{ items: readonly number[]; until: number } | null>(null);
   const patternActionLock = useRef(false);
   const quizActionLock = useRef({ submitted: -1, advanced: -1 });
   const reviewActionLock = useRef(false);
@@ -2143,10 +2143,7 @@ export default function Home() {
   };
 
   const finishCard = (known: boolean) => {
-    const now = performance.now();
-    const lock = cardActionLock.current;
-    if (lock?.words === sessionWords && now < lock.until) return;
-    cardActionLock.current = { words: sessionWords, until: now + 350 };
+    if (!acceptSessionRating(cardActionLock, sessionWords)) return;
     noteStudyDay();
     if (known) markMastered(current.id); else addDifficult(current.id);
     const nextRatings = { ...cardRatings, [current.id]: known ? "known" as const : "difficult" as const };
@@ -2411,13 +2408,7 @@ export default function Home() {
   };
 
   const finishSentenceCard = (known: boolean) => {
-    if (!currentSentence) return;
-    // A repeated tap must not rate the next card in this session. A freshly
-    // opened lookup or retry has its own IDs array and may be rated immediately.
-    const now = performance.now();
-    const lock = sentenceActionLock.current;
-    if (lock?.ids === sentenceSessionIds && now < lock.until) return;
-    sentenceActionLock.current = { ids: sentenceSessionIds, until: now + 350 };
+    if (!currentSentence || !acceptSessionRating(sentenceActionLock, sentenceSessionIds)) return;
     noteStudyDay();
     markSentenceSeen(currentSentence.id);
     if (known) {

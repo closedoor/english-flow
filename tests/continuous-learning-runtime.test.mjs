@@ -80,7 +80,7 @@ function runtime(patch = {}, stored = {}) {
     sentenceBrowserOriginRef: { current: null }, sentenceBrowserRef: { current: { querySelector: () => ({ scrollTop: 0 }) } },
     cardActionLock: { current: null }, sentenceActionLock: { current: null }, quizActionLock: { current: { submitted: -1, advanced: -1 } },
     autoWordExamples: true, autoSentenceExamples: true, wordExampleStartedRef: { current: null }, sentenceExampleStartedRef: { current: null },
-    performance: { now: () => now },
+    acceptSessionRating: (lock, items) => sessions.acceptSessionRating(lock, items, now),
     document: { hidden: false }, window: { scrollY: 0, setTimeout: (callback, delay = 0) => timers.push({ callback, at: now + delay }) },
     stopSpeech: () => speech.push({ kind: "cancel" }),
     startRepeatedSpeech: (text, times) => { speech.push({ kind: "word", text, times }); return true; },

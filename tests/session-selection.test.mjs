@@ -144,7 +144,7 @@ test("an ongoing session resumes instead of being silently overwritten", () => {
 });
 
 test("paused sentence and pattern sessions cannot be silently replaced", () => {
-  assert.match(page, /if \(sentenceStage === "setup" && sentenceSessionIds\.length && snapshot\)/);
+  assert.match(page, /if \(!singleSentence && sentenceStage === "setup" && sentenceSessionIds\.length && snapshot\)/);
   assert.match(page, /snapshot\.index > 0 \|\| Object\.keys\(snapshot\.ratings\)\.length > 0/);
   assert.match(page, /setDiscardRequest\(\{ sentence: true, sentenceStart: \{ reviewOnly, singleSentence \} \}\)/);
   assert.match(page, /if \(patternStage === "setup" && patternSessionIds\.length && snapshot\) \{[\s\S]*?setDiscardRequest\(\{ pattern: true, patternStart: \{ reviewOnly \} \}\);[\s\S]*?return;/);
@@ -181,11 +181,11 @@ test("new NGSL words advance before difficult and completed words", () => {
 });
 
 test("fast repeated taps cannot rate multiple cards or quiz answers", () => {
-  assert.match(page, /if \(lock\?\.words === sessionWords && now < lock\.until\) return/);
+  assert.match(page, /if \(!acceptSessionRating\(cardActionLock, sessionWords\)\) return/);
   assert.match(page, /if \(quizActionLock\.current\.submitted >= quizIndex\) return/);
   assert.match(page, /quizActionLock\.current\.advanced >= quizIndex/);
   assert.match(page, /if \(reviewActionLock\.current\) return/);
-  assert.match(page, /cardActionLock\.current = \{ words: sessionWords, until: now \+ 350 \}/);
+  assert.match(page, /!acceptSessionRating\(sentenceActionLock, sentenceSessionIds\)\) return/);
 });
 
 test("major screen transitions return to the top", () => {
