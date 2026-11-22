@@ -128,7 +128,7 @@ test("resuming an interrupted sentence and returning to setup preserves chosen s
     beginSentenceSession() { assert.fail("same-range start must resume its preserved snapshot"); }, setDiscardRequest() { assert.fail("same-range start must not ask to discard"); },
     STORAGE: { sentenceActiveSession: "session" },
     readJson: () => snapshot, cleanSentenceSession: (value) => value, newestSnapshot: (stored) => stored,
-    sentenceSetupPreferencesRef: { current: saved }, sentenceResumeSnapshotRef: resume,
+    sentenceSetupPreferencesRef: { current: saved }, sentenceResumeSnapshotRef: resume, sentenceActionLock: { current: null },
     sentenceSessionIds: snapshot.sentenceIds,
     sentenceItemById: new Map([[2, { id: 2 }]]),
     playAutomaticSentenceExample(item, mode) { assert.equal(item.id, snapshot.sentenceIds[snapshot.index]); assert.equal(mode, snapshot.mode); },

@@ -528,8 +528,8 @@ export default function Home() {
   const activeDialog = externalUpdateDetected ? "sync" : pendingBackup ? "restore" : resetProgressOpen ? "reset" : discardRequest ? "discard" : installOpen ? "install" : null;
   const hasOpenDialog = activeDialog !== null;
   const touchStart = useRef<{ x: number; y: number; identifier: number } | null>(null);
-  const cardActionLock = useRef(false);
-  const sentenceActionLock = useRef(false);
+  const cardActionLock = useRef<{ words: WordItem[]; until: number } | null>(null);
+  const sentenceActionLock = useRef<{ ids: number[]; until: number } | null>(null);
   const patternActionLock = useRef(false);
   const quizActionLock = useRef({ submitted: -1, advanced: -1 });
   const reviewActionLock = useRef(false);
@@ -2143,9 +2143,10 @@ export default function Home() {
   };
 
   const finishCard = (known: boolean) => {
-    if (cardActionLock.current) return;
-    cardActionLock.current = true;
-    window.setTimeout(() => { cardActionLock.current = false; }, 350);
+    const now = performance.now();
+    const lock = cardActionLock.current;
+    if (lock?.words === sessionWords && now < lock.until) return;
+    cardActionLock.current = { words: sessionWords, until: now + 350 };
     noteStudyDay();
     if (known) markMastered(current.id); else addDifficult(current.id);
     const nextRatings = { ...cardRatings, [current.id]: known ? "known" as const : "difficult" as const };
@@ -2392,6 +2393,7 @@ export default function Home() {
   const resumeSentenceSession = () => {
     const snapshot = newestSnapshot(cleanSentenceSession(readJson<unknown>(STORAGE.sentenceActiveSession, null)), sentenceResumeSnapshotRef.current);
     if (!snapshot) return;
+    sentenceActionLock.current = null;
     playAutomaticSentenceExample(sentenceItemById.get(snapshot.sentenceIds[snapshot.index]), snapshot.mode);
     setSentenceBand(snapshot.band);
     setSentenceCategory(snapshot.category);
@@ -2409,9 +2411,13 @@ export default function Home() {
   };
 
   const finishSentenceCard = (known: boolean) => {
-    if (!currentSentence || sentenceActionLock.current) return;
-    sentenceActionLock.current = true;
-    window.setTimeout(() => { sentenceActionLock.current = false; }, 350);
+    if (!currentSentence) return;
+    // A repeated tap must not rate the next card in this session. A freshly
+    // opened lookup or retry has its own IDs array and may be rated immediately.
+    const now = performance.now();
+    const lock = sentenceActionLock.current;
+    if (lock?.ids === sentenceSessionIds && now < lock.until) return;
+    sentenceActionLock.current = { ids: sentenceSessionIds, until: now + 350 };
     noteStudyDay();
     markSentenceSeen(currentSentence.id);
     if (known) {
