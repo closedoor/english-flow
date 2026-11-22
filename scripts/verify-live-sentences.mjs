@@ -1,3 +1,4 @@
+import { verifyLongRecallAnswer } from './sentence-recall-visibility-check.mjs';
 import { verifyPausedSentenceLookup } from './sentence-lookup-pause-check.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
 import assert from 'node:assert/strict';
@@ -105,6 +106,14 @@ for(const engine of ['chromium','webkit']){
   console.log('LIVE_PAUSED_SENTENCE_LOOKUP_PASS',JSON.stringify({engine,commit:expected,...lookupReturn}));
   assert.deepEqual(lookupErrors,[]);console.log('LIVE_SENTENCE_LOOKUP_PASS',JSON.stringify({engine,commit:expected,clientCommitVerifiedBeforeAndAfterReload:true,lookupIdentityRetainedAfterReload:true,normalStartIncludesFullRange:true,sentenceCount:group.sentenceIds.length,queryBookmarkPreserved:true,discardDialog:false,instrumentedSpeech:true}));
  }catch(error){console.error('LIVE_SENTENCE_LOOKUP_FAIL',JSON.stringify({engine,commit:expected,error:String(error),errors:lookupErrors}));process.exitCode=1;}
- finally{await lookupContext.close();await browser.close();}
+ finally{await lookupContext.close();}
+ const largeText=await browser.newContext({viewport:{width:320,height:568},isMobile:true,hasTouch:true,serviceWorkers:'allow'});
+ try{
+  const page=await largeText.newPage();page.setDefaultTimeout(25000);
+  const url=new URL('/',base);url.searchParams.set('ef-update',expected);
+  const result=await verifyLongRecallAnswer(page,url.href,expected);
+  console.log('LIVE_RECALL_ANSWER_VISIBLE_PASS',JSON.stringify({engine,commit:expected,...result}));
+ }catch(error){console.error('LIVE_RECALL_ANSWER_VISIBLE_FAIL',JSON.stringify({engine,commit:expected,error:String(error)}));process.exitCode=1;}
+ finally{await largeText.close();await browser.close();}
 }
 await verifySpeechRecovery(pw,base.href,expected);

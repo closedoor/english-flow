@@ -100,6 +100,30 @@ for (const path of ["/", "/index.html"]) {
     }
   });
 
+  test(`${path} can reopen an update URL offline even if an older worker cached that exact preflight`, async () => {
+    const probe = `${path}?ef-update=${current}&ef-preflight=accepted-1`;
+    const audit = await fixture(documentResponse(html(latest)));
+    const active = await audit.caches.open(activeCache);
+    await active.put("/", documentResponse(html(latest)));
+    await active.put(`/assets/app-${latest}.js`, new Response("installed", { headers: { "content-type": "text/javascript" } }));
+    // Historical workers cached even a successful preflight under its full URL.
+    // The old HTML may remain after its entry script is gone.
+    await audit.old.put(probe, documentResponse(html(current)));
+    assert.equal(await audit.old.match(`/assets/app-${current}.js`), undefined);
+    const writes = audit.counts.writes.length;
+    for (const failedNetwork of [
+      () => { throw new Error("Offline"); },
+      documentResponse("<title>Maintenance</title>"),
+    ]) {
+      audit.setDocument(failedNetwork);
+      const reopened = await audit.request(probe);
+      assert.equal(await reopened.text(), html(latest), "Open the installed root and its available entry");
+      assert.equal(await (await active.match(`/assets/app-${latest}.js`)).text(), "installed");
+    }
+    assert.equal(audit.counts.writes.length, writes);
+    assert.equal(await (await audit.old.match(probe)).text(), html(current), "Recovery must not mutate another cache");
+  });
+
   test(`${path} does not accept missing or non-HTML MIME for a valid-looking document`, async () => {
     for (const type of ["application/javascript", "application/octet-stream"]) {
       const audit = await fixture(documentResponse(html(latest), type));

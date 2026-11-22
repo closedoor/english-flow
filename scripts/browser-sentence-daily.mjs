@@ -1,3 +1,4 @@
+import { verifyLongRecallAnswer } from './sentence-recall-visibility-check.mjs';
 import { openSetupDetails, selectSentenceMethod, resumePausedSentence } from './browser-disclosures.mjs';
 import { navigate } from './browser-navigation.mjs';
 import { settleLearningStorage } from './storage-settlement-checks.mjs';
@@ -153,14 +154,16 @@ for(const engine of ['chromium','webkit']){
   assert.equal(await translation.evaluate(el=>{const r=el.getBoundingClientRect(),hit=document.elementFromPoint(r.x+8,r.y+r.height/2);return hit===el||el.contains(hit);}),true,'Translation must be readable above the toolbar');
   const before=await stored(page);await tapUncovered(page,'下一句 ›');await page.waitForFunction(({key,index})=>JSON.parse(localStorage.getItem(key)).index===index+1,{key,index:before.index});assert.equal(await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop),0);
  },size);
+ await check('revealing-long-recall-at-double-text-size-brings-its-first-line-into-view', page=>verifyLongRecallAnswer(page,origin),{width:320,height:568});
  await check('large-text-speaking-answer-scrolls-within-card-and-next-resets-recall',async page=>{
   await begin(page,{mode:'看中文说英文',band:'长句'});await page.addStyleTag({content:'html{font-size:32px!important}'});
   assert.equal(await page.getByRole('button',{name:'慢速播放',exact:true}).isDisabled(),true);assert.equal((await log(page)).length,0);
   await page.getByRole('button',{name:'我说好了，查看英文答案',exact:true}).click();const answer=page.locator('.speak-answer');await answer.waitFor();assert.equal((await log(page)).length,0);assert.equal(await answer.evaluate(el=>document.activeElement===el),true);
   await page.locator('.sentence-study-card').hover();
   await page.evaluate(()=>{window.__sentenceWheelComplete=false;document.querySelector('.sentence-study-card').addEventListener('scrollend',()=>{window.__sentenceWheelComplete=true;},{once:true});});
-  await page.mouse.wheel(0,1200);await page.waitForFunction(()=>window.__sentenceWheelComplete&&document.querySelector('.sentence-study-card').scrollTop>0);
-  assert.ok(await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop>0),'Large text must scroll within the card');const position=await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop);await tapUncovered(page,'播放英文');
+  const wheel=await page.locator('.sentence-study-card').evaluate(el=>({from:el.scrollTop,by:el.scrollHeight-el.clientHeight-el.scrollTop>2?1200:-1200}));
+  await page.mouse.wheel(0,wheel.by);await page.waitForFunction(from=>window.__sentenceWheelComplete&&Math.abs(document.querySelector('.sentence-study-card').scrollTop-from)>1,wheel.from);
+  const position=await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop);await tapUncovered(page,'播放英文');
   assert.equal((await log(page)).length,1);assert.equal((await log(page))[0].text,await page.locator('.sentence-english').innerText());assert.equal(await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop),position,'Replaying the same answer must not reset reading');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await tapUncovered(page,'下一句 ›');await page.locator('.speak-answer').waitFor({state:'hidden'});assert.equal(await page.locator('.sentence-study-card').evaluate(el=>el.scrollTop),0);assert.equal((await log(page)).length,1);assert.equal(await page.getByRole('button',{name:'慢速播放',exact:true}).isDisabled(),true);
  },{width:320,height:568});

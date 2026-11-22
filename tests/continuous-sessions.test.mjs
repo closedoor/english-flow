@@ -29,12 +29,12 @@ const sentenceSnapshot = (patch = {}) => ({
 
 const ast = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const declarations = new Map(ast.statements.filter(ts.isFunctionDeclaration).map((node) => [node.name?.text, node.getText(ast)]));
-const helpers = ["cleanSentenceIds", "isSentenceBand", "isSentenceCategory", "isSentenceLearningMode", "cleanSentenceSession", "isLearnPath", "cleanActiveSession"];
+const helpers = ["cleanSentenceIds", "isSentenceBand", "isSentenceCategory", "isSentenceLearningMode", "cleanSentenceSession", "cleanPatternIds", "isPatternCategory", "cleanPatternSession", "isLearnPath", "cleanActiveSession"];
 const cleaners = vm.runInNewContext(compile(`${helpers.map((name) => {
   assert.ok(declarations.has(name), `missing real session helper ${name}`);
   return declarations.get(name);
-}).join("\n")}\n({ cleanSentenceSession, cleanActiveSession });`), {
-  hasUnfinishedRatings: sessions.hasUnfinishedRatings, STUDY_WORD_IDS: new Set([...Array.from({ length: 2809 }, (_, index) => index + 1), 10003, 10049]),
+}).join("\n")}\n({ cleanSentenceSession, cleanPatternSession, cleanActiveSession });`), {
+  ...sessions, patternCategories: [{ id: "all" }], PATTERN_IDS: new Set(["p01", "p02", "p03"]), STUDY_WORD_IDS: new Set([...Array.from({ length: 2809 }, (_, index) => index + 1), 10003, 10049]),
   DAY: 86_400_000, ACTIVE_SESSION_TTL: 30 * 86_400_000, Date,
   scenes: ["daily", "restaurant", "airport", "hotel", "shopping"].map((id) => ({ id })),
   sentenceCategories: ["all", "daily", "social", "food", "travel", "shopping", "work", "help"].map((id) => ({ id })),
@@ -182,4 +182,49 @@ test("legacy hydration still enforces its old group bounds and continuous cards 
   assert.equal(cleaners.cleanActiveSession(wordSnapshot({ mode: "test", stage: "quiz" })), null);
   assert.equal(cleaners.cleanActiveSession(wordSnapshot({ mode: "test" })), null);
   assert.equal(cleaners.cleanActiveSession(wordSnapshot({ kind: "lookup", wordIds: [3] })), null);
+});
+
+for (const [field, key, clean, ids, unknown, prefs] of [
+  ["wordIds", storage.activeSession, cleaners.cleanActiveSession, [1, 2, 3], 99999, { path: "frequency", mode: "free", stage: "cards" }],
+  ["sentenceIds", storage.sentenceActiveSession, cleaners.cleanSentenceSession, [1, 2, 3], 1001, { band: "short", mode: "speak", count: 10, category: "all" }],
+  ["patternIds", storage.patternActiveSession, cleaners.cleanPatternSession, ["p01", "p02", "p03"], "unavailable", { category: "all", drillIndex: 2 }],
+]) {
+  test(`restoring a compatible old ${field} list resumes the same card after deduplication`, () => {
+    const [a, b, c] = ids;
+    const validators = { word: (id) => ids.includes(id), sentence: (id) => ids.includes(id), pattern: (id) => ids.includes(id), reading: () => false };
+    const disk = new Map();
+    const target = { getItem: (key) => disk.get(key) ?? null, setItem: (key, value) => disk.set(key, value), removeItem: (key) => disk.delete(key) };
+    const record = (original, index) => ({ version: 1, updatedAt: Date.now(), ...prefs, [field]: original, index, ratings: { [a]: "known" } });
+    for (const original of [[a, a, b, c], [a, b, b, c], [a, b, c, a], ids]) {
+      for (const index of original.keys()) {
+        const item = record(original, index);
+        const file = backup({ [key]: item });
+        assert.ok(valid(file) && backups.isBackupContentCompatible(file, validators));
+        assert.equal(backups.restoreLearningBackupData(target, keys, file), true);
+        const restored = clean(JSON.parse(target.getItem(key)));
+        assert.deepEqual(plain(restored[field]), ids);
+        assert.equal(restored[field][restored.index], original[index], "preserve identity even when the active slot repeats an earlier ID");
+        assert.deepEqual(plain(restored.ratings), item.ratings);
+        assert.deepEqual(plain(clean(restored)), plain(restored), "a second reload cannot shift the card again");
+      }
+    }
+    const partial = [unknown, a, b, c];
+    assert.equal(clean(record(partial, 2)).index, 1, "a removed item before the active card must not move it on disk hydration");
+    assert.equal(clean(record(partial, 0)).index, 0, "fall back to a usable card when the active item itself is unavailable");
+    assert.equal(clean(record(partial, 99)).index, 2, "out-of-range local data remains safely clamped");
+  });
+}
+
+test("quiz cleaning preserves repeated question slots but never shifts feedback past an unavailable question", () => {
+  const item = { version: 1, updatedAt: Date.now(), path: "frequency", mode: "test", stage: "quiz", wordIds: [1, 1, 2, 3], ratings: { 1: "known", 2: "difficult", 3: "known" }, index: 1, quizIndex: 3,
+    quizResults: [false, true, false, true], quizAnswer: "three", quizFeedback: "correct" };
+  const file = backup({ [storage.activeSession]: item });
+  assert.ok(valid(file) && backups.isBackupContentCompatible(file, { word: (id) => [1, 2, 3].includes(id) }));
+  const cleaned = cleaners.cleanActiveSession(item);
+  assert.deepEqual(plain(cleaned.wordIds), [1, 1, 2, 3]);
+  assert.equal(cleaned.wordIds[cleaned.quizIndex], 3, "the final answered question can still be resumed");
+  assert.deepEqual(plain(cleaned.quizResults), item.quizResults);
+  assert.deepEqual(plain(cleaners.cleanActiveSession(cleaned)), plain(cleaned));
+  assert.equal(cleaners.cleanActiveSession({ ...item, wordIds: [99999, 1, 1, 2, 3] }), null, "cannot attribute the old results to different words");
+  assert.equal(cleaners.cleanActiveSession({ ...item, wordIds: Array(21).fill(1), quizIndex: 20, quizResults: Array(21).fill(true) }), null, "grouped quizzes remain limited to 20 slots");
 });

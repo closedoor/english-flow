@@ -33,7 +33,7 @@ function quiz() {
   const lock = { current: { submitted: -1, advanced: -1 } };
   const render = () => {
     const setters = Object.fromEntries(Object.keys(state).map((key) => [`set${key[0].toUpperCase()}${key.slice(1)}`, (value) => { state[key] = value; }]));
-    const context = vm.createContext({ ...helpers, ...state, ...setters, React, quizActionLock: lock, quizWord: state.sessionWords[state.quizIndex], quizInputRef: {}, quizNextRef: {}, quizActionsRef: {}, quizFeedbackRef: {}, resultPrimaryRef: {}, mastered: [], difficultSet: new Set([2, 3]),
+    const context = vm.createContext({ ...helpers, ...state, ...setters, React, quizActionLock: lock, sessionPath: "frequency", playAutomaticWordExample() {}, quizWord: state.sessionWords[state.quizIndex], quizInputRef: {}, quizNextRef: {}, quizActionsRef: {}, quizFeedbackRef: {}, resultPrimaryRef: {}, mastered: [], difficultSet: new Set([2, 3]),
       noteStudyDay() {}, markMastered(id) { marks.correct.push(id); }, addDifficult(id) { marks.wrong.push(id); }, blankSentence: () => "____", playSpeech() {},
     });
     const handlers = vm.runInContext(quizCode, context);
@@ -316,4 +316,15 @@ test("both retry snapshots remain compatible with the existing reload and backup
   const pattern = { version: 1, updatedAt: Date.now(), category: s.patternCategory, patternIds: s.patternSessionIds, index: s.patternIndex, drillIndex: s.patternDrillIndex, ratings: s.patternRatings };
   assert.deepEqual(plain(cleaners.cleanSentenceSession(sentence)), plain(sentence));
   assert.deepEqual(plain(cleaners.cleanPatternSession(pattern)), plain(pattern));
+});
+
+test("a repeated quiz word counts by question but appears only once in the retry lesson", () => {
+  const app = quiz();
+  Object.assign(app.state, { sessionWords: [words[0], words[0], words[1], words[2]], learnStage: "result", quizResults: [false, false, true, false] });
+  const { resultTree, retryMissedWords } = app.render();
+  const text = textOf(resultTree());
+  assert.match(text, /答对 1 \/ 4/);
+  assert.match(text, /再练这 2 个错词/);
+  retryMissedWords();
+  assert.deepEqual(plain(app.state.sessionWords).map(word => word.id), [1, 3]);
 });

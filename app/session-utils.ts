@@ -11,6 +11,28 @@ export function acceptSessionRating<T>(
   return true;
 }
 
+// A saved card position addresses the original ID list, before legacy repeats,
+// unavailable items or out-of-band sentences are removed.
+export function restoredCardIndex<T>(original: readonly T[] | undefined, stored: number | undefined, retained: readonly T[]) {
+  const position = Number.isInteger(stored) ? Number(stored) : 0;
+  const fallback = Math.max(0, Math.min(position, retained.length - 1));
+  if (!Array.isArray(original) || position < 0 || position >= original.length) return fallback;
+  const active = original[position];
+  if (retained[fallback] === active) return fallback;
+  const mapped = retained.indexOf(active);
+  return mapped >= 0 ? mapped : fallback;
+}
+
+// Scores stay per question, but retrying the same missed word only needs one card.
+export function missedQuizWords<T extends { id: number }>(words: readonly T[], results: readonly boolean[]): T[] {
+  const seen = new Set<number>();
+  return words.filter((word, index) => {
+    if (results[index] !== false || seen.has(word.id)) return false;
+    seen.add(word.id);
+    return true;
+  });
+}
+
 export function takeRotatedSpread<T>(items: T[], count: number, rotation: number) {
   if (count <= 0 || !items.length) return [];
   if (items.length <= count) return items;
