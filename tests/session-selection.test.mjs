@@ -144,7 +144,7 @@ test("an ongoing session resumes instead of being silently overwritten", () => {
 });
 
 test("paused sentence and pattern sessions cannot be silently replaced", () => {
-  assert.match(page, /if \(sentenceStage === "setup" && sentenceSessionIds\.length && snapshot\)/);
+  assert.match(page, /if \(!singleSentence && sentenceStage === "setup" && sentenceSessionIds\.length && snapshot\)/);
   assert.match(page, /snapshot\.index > 0 \|\| Object\.keys\(snapshot\.ratings\)\.length > 0/);
   assert.match(page, /setDiscardRequest\(\{ sentence: true, sentenceStart: \{ reviewOnly, singleSentence \} \}\)/);
   assert.match(page, /if \(patternStage === "setup" && patternSessionIds\.length && snapshot\) \{[\s\S]*?setDiscardRequest\(\{ pattern: true, patternStart: \{ reviewOnly \} \}\);[\s\S]*?return;/);
